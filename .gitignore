@@ -1,0 +1,11 @@
+# Go
+*.test
+cover.out
+coverage.out
+
+# templ generated files — checked in (needed for go build without templ)
+# Do NOT ignore *_templ.go
+
+# env
+.env
+.env.local
