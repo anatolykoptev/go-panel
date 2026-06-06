@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anatolykoptev/go-panel/admintable"
+	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/resource"
 	"github.com/anatolykoptev/go-panel/tenant"

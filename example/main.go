@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/anatolykoptev/go-panel/admintable"
+	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/resource"
 	"github.com/anatolykoptev/go-panel/tenant"
@@ -90,7 +90,7 @@ func main() {
 		Filter: admintable.FilterSpec{Filters: []admintable.Filter{
 			{Key: "status", SQLExpr: "p.status", Match: admintable.Eq, Allowed: []string{"published", "draft"}},
 			{Key: "category", SQLExpr: "p.category_slug", Match: admintable.Eq, Allowed: []string{"cafe", "restaurant", "bar"}},
-			{Key: "q", SQLExpr: "p.name", Match: admintable.ILike},
+			{Key: "q", SQLExprs: []string{"p.name"}, Match: admintable.ILike},
 		}},
 		Scope:  tenant.Scope{Column: "p.city_slug"},
 		Perms:  resource.ReadAny,
