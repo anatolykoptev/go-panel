@@ -35,7 +35,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anatolykoptev/go-panel/admintable"
+	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/render"
 	"github.com/anatolykoptev/go-panel/shell"
 	"github.com/anatolykoptev/go-panel/tenant"
@@ -111,8 +111,8 @@ type Resource struct {
 // It holds the mux, authenticator, tenant resolver, and the registered nav.
 // Consumers create it via New() and call Handler() to get the http.Handler.
 type Panel struct {
-	mux      *http.ServeMux
-	auth     interface {
+	mux  *http.ServeMux
+	auth interface {
 		Require(http.HandlerFunc) http.HandlerFunc
 		LoginHandler() http.Handler
 		LogoutHandler() http.Handler

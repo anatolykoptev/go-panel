@@ -28,7 +28,7 @@ func (headingDemoter) Transform(doc *ast.Document, _ text.Reader, _ parser.Conte
 		}
 		if h, ok := n.(*ast.Heading); ok {
 			const maxHeadingLevel = 6
-		if h.Level < maxHeadingLevel {
+			if h.Level < maxHeadingLevel {
 				h.Level++
 			}
 			// h6 clamped: stays at 6.
