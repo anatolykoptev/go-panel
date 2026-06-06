@@ -1,0 +1,13 @@
+# Changelog
+
+## [0.2.0](https://github.com/anatolykoptev/go-panel/compare/v0.1.0...v0.2.0) (2026-06-06)
+
+
+### Features
+
+* go-panel foundations — shell/auth/render/tenant/resource kit on go-kit, templ+htmx ([22cc109](https://github.com/anatolykoptev/go-panel/commit/22cc109418cca4bdac5dd6a1215ee5cd1f73691e))
+
+
+### Bug Fixes
+
+* depend on go-kit/admintable instead of a local duplicate ([#1](https://github.com/anatolykoptev/go-panel/issues/1)) ([aa013d6](https://github.com/anatolykoptev/go-panel/commit/aa013d6afe0ab043fa4625c53ad604c092d0dc58))
