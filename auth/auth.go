@@ -40,6 +40,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -185,7 +186,11 @@ func (a *HMACAuth) LoginHandler() http.Handler {
 			const maxLoginBodyBytes = 4096 // 4KB is plenty for a login form
 			r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
 			_ = r.ParseForm()
-			if r.FormValue("username") == a.cfg.Username && r.FormValue("password") == a.cfg.Password {
+			// Constant-time on both fields: a byte-wise == short-circuits on the
+			// first mismatch and leaks credential prefixes through timing.
+			userOK := subtle.ConstantTimeCompare([]byte(r.FormValue("username")), []byte(a.cfg.Username)) == 1
+			passOK := subtle.ConstantTimeCompare([]byte(r.FormValue("password")), []byte(a.cfg.Password)) == 1
+			if userOK && passOK {
 				tok, err := a.makeToken()
 				if err != nil {
 					slog.Error("auth: failed to generate session token", "err", err)
