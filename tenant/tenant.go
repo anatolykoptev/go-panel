@@ -96,12 +96,21 @@ type PathResolver struct {
 	Segment int
 }
 
-// Resolve implements Resolver.
+// tenantPathMarker is the literal path segment that must precede the slug.
+// Without this guard the resolver grabs ANY segment at the configured index:
+// /admin/rating_sponsorships/new resolved to city "new" and /{name}/{id}/edit
+// to city "{id}", silently breaking every city-scoped query behind a form
+// (empirically hit in go-grad on 2026-06-11).
+const tenantPathMarker = "tenant"
+
+// Resolve implements Resolver. The slug at Segment is honoured ONLY when the
+// preceding segment is the literal "tenant" (the documented
+// /admin/tenant/{slug}/... shape); any other URL falls back to the global
+// default tenant.
 func (pr PathResolver) Resolve(r *http.Request) Tenant {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if pr.Segment < len(parts) {
-		slug := parts[pr.Segment]
-		if slug != "" {
+	if pr.Segment >= 1 && pr.Segment < len(parts) && parts[pr.Segment-1] == tenantPathMarker {
+		if slug := parts[pr.Segment]; slug != "" {
 			return Tenant{
 				CitySlug:    slug,
 				CountryCode: global.CountryCode,
