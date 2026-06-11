@@ -31,6 +31,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,6 +46,9 @@ import (
 const (
 	defaultPageSize = 50
 	maxPageSize     = 500
+	// minCSRFKeyLen is the minimum acceptable length for CSRFKey.
+	// Keys shorter than this are rejected at Register time (fail-closed).
+	minCSRFKeyLen = 32
 )
 
 // Cell is one table cell value.
@@ -108,7 +112,7 @@ type Resource struct {
 	Lister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
 
 	// Writer enables create/edit forms. Nil = read-only (Phase 1 behaviour, default).
-	// When non-nil, CSRFKey must be set in Config (panic at Register if missing — fail-closed).
+	// When non-nil, CSRFKey must be set in Config (panic at Register if missing or < 32 bytes — fail-closed).
 	Writer *Writer
 }
 
@@ -148,6 +152,7 @@ type Config struct {
 	// CSRFKey is the HMAC signing key for CSRF double-submit tokens.
 	// Required when any Resource has a non-nil Writer; omitting it causes
 	// a panic at Register time (fail-closed configuration).
+	// Must be at least 32 bytes.
 	CSRFKey []byte
 }
 
@@ -195,14 +200,16 @@ func (p *Panel) NavItems() []shell.NavItem {
 
 // Register mounts the resource's list handler and adds it to the sidebar nav.
 // Panics at startup if Sort or Filter are misconfigured (fail-fast, not at runtime).
-// When the resource has a Writer, also panics if CSRFKey is empty (fail-closed).
+// When the resource has a Writer, also panics if:
+//   - CSRFKey is empty or shorter than 32 bytes (fail-closed key floor, SEC-CR-001)
+//   - the authenticator does not implement SessionCookieName() (fail-closed session binding)
 //
 // Mounted routes:
 //
 //	GET  {basePath}/{name}            — list page (full or htmx fragment)
 //	GET  {basePath}/{name}/rows       — htmx row fragment only (sort/filter swap target)
 //	GET  {basePath}/{name}/new        — empty create form (only when Writer != nil)
-//	GET  {basePath}/{name}/{id}/edit  — pre-populated edit form (only when Writer != nil)
+//	GET  {basePath}/{name}/{id}/edit  — pre-populated edit form (only when Writer != nil; id=="new" → 404)
 //	POST {basePath}/{name}/{id}/save  — save (id=="new" means create) (only when Writer != nil)
 func Register(p *Panel, r Resource) {
 	if err := r.Sort.Valid(); err != nil {
@@ -212,12 +219,7 @@ func Register(p *Panel, r Resource) {
 		panic(fmt.Sprintf("resource.Register %q: invalid Filter: %v", r.Name, err))
 	}
 	if r.Writer != nil {
-		if len(p.csrfKey) == 0 {
-			panic(fmt.Sprintf("resource.Register %q: Writer is set but Config.CSRFKey is empty — set CSRFKey to enable write forms (fail-closed)", r.Name))
-		}
-		if err := r.Writer.Form.Valid(); err != nil {
-			panic(fmt.Sprintf("resource.Register %q: invalid Writer.Form: %v", r.Name, err))
-		}
+		validateWriterConfig(p, r)
 	}
 
 	// Add nav entry.
@@ -250,7 +252,6 @@ func Register(p *Panel, r Resource) {
 
 	listHandler := p.makeListHandler(r)
 	p.mux.HandleFunc("GET "+listPath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
-		// Update nav active state.
 		nav := p.activeNav(r.Name)
 		shell.SecurityHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -264,137 +265,192 @@ func Register(p *Panel, r Resource) {
 
 	// Writer routes — only mounted when Writer is configured.
 	if r.Writer != nil {
-		newPath := p.basePath + "/" + r.Name + "/new"
-		editPath := p.basePath + "/" + r.Name + "/{id}/edit"
-		savePath := p.basePath + "/" + r.Name + "/{id}/save"
+		mountWriterRoutes(p, r)
+	}
+}
 
-		p.mux.HandleFunc("GET "+newPath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
-			shell.SecurityHeaders(w)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			nav := p.activeNav(r.Name)
-			tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
-			d := formPageData{
-				Resource:  r,
-				Values:    map[string]string{},
-				CSRFToken: tok,
-				BasePath:  p.basePath,
-			}
-			layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-			if err := layoutComp.Render(req.Context(), w); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-		}))
+// validateWriterConfig panics if the Writer configuration is invalid.
+// Called at Register time — all checks are fail-closed.
+func validateWriterConfig(p *Panel, r Resource) {
+	if len(p.csrfKey) == 0 {
+		panic(fmt.Sprintf("resource.Register %q: Writer is set but Config.CSRFKey is empty — set CSRFKey to enable write forms (fail-closed)", r.Name))
+	}
+	if len(p.csrfKey) < minCSRFKeyLen {
+		panic(fmt.Sprintf("resource.Register %q: Config.CSRFKey must be at least %d bytes, got %d (fail-closed, SEC-CR-001)", r.Name, minCSRFKeyLen, len(p.csrfKey)))
+	}
+	if _, ok := p.auth.(sessionCookier); !ok {
+		panic(fmt.Sprintf("resource.Register %q: Writer is set but the authenticator does not implement SessionCookieName() — CSRF tokens cannot be bound to the session cookie (fail-closed)", r.Name))
+	}
+	if err := r.Writer.Form.Valid(); err != nil {
+		panic(fmt.Sprintf("resource.Register %q: invalid Writer.Form: %v", r.Name, err))
+	}
+}
 
-		p.mux.HandleFunc("GET "+editPath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
-			shell.SecurityHeaders(w)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			id := req.PathValue("id")
-			t := tenant.From(req.Context())
-			values, err := r.Writer.Load(req.Context(), t, id)
-			if err != nil {
-				http.Error(w, "load failed: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			nav := p.activeNav(r.Name)
-			tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
-			d := formPageData{
-				Resource:  r,
-				ID:        id,
-				Values:    values,
-				CSRFToken: tok,
-				BasePath:  p.basePath,
-			}
-			layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-			if err := layoutComp.Render(req.Context(), w); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-		}))
+// mountWriterRoutes mounts the create/edit/save handler triplet for a Writer-enabled resource.
+// Called only when r.Writer != nil and all pre-conditions (key, session binding) have been verified.
+func mountWriterRoutes(p *Panel, r Resource) {
+	newPath := p.basePath + "/" + r.Name + "/new"
+	editPath := p.basePath + "/" + r.Name + "/{id}/edit"
+	savePath := p.basePath + "/" + r.Name + "/{id}/save"
 
-		p.mux.HandleFunc("POST "+savePath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
-			shell.SecurityHeaders(w)
-			const maxFormBytes = 1 << 20 // 1 MB
-			req.Body = http.MaxBytesReader(w, req.Body, maxFormBytes)
-			if err := req.ParseForm(); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
+	p.mux.HandleFunc("GET "+newPath, p.auth.Require(newFormHandler(p, r)))
+	p.mux.HandleFunc("GET "+editPath, p.auth.Require(editFormHandler(p, r)))
+	p.mux.HandleFunc("POST "+savePath, p.auth.Require(saveHandler(p, r)))
+}
 
-			// CSRF check.
-			token := req.FormValue(csrf.FormField)
-			if err := csrf.Verify(p.csrfKey, p.sessionValue(req), token); err != nil {
-				http.Error(w, "forbidden: "+err.Error(), http.StatusForbidden)
-				return
-			}
+// newFormHandler returns the handler for GET /{name}/new.
+func newFormHandler(p *Panel, r Resource) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		shell.SecurityHeaders(w)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		nav := p.activeNav(r.Name)
+		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+		d := formPageData{
+			Resource:  r,
+			Values:    map[string]string{},
+			CSRFToken: tok,
+			BasePath:  p.basePath,
+		}
+		layoutComp := shell.Layout(p.title, nav, formPageContent(d))
+		if err := layoutComp.Render(req.Context(), w); err != nil {
+			slog.Error("resource: render new form", "resource", r.Name, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
+	}
+}
 
-			id := req.PathValue("id")
-			if id == "new" {
-				id = ""
-			}
+// editFormHandler returns the handler for GET /{name}/{id}/edit.
+// id=="new" is rejected with 404 (symmetric with save, which treats id=="new" as create).
+func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		shell.SecurityHeaders(w)
+		id := req.PathValue("id")
+		if id == "new" {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		t := tenant.From(req.Context())
+		values, err := r.Writer.Load(req.Context(), t, id)
+		if err != nil {
+			slog.Error("resource: load for edit", "resource", r.Name, "err", err)
+			http.Error(w, "load failed", http.StatusInternalServerError)
+			return
+		}
+		nav := p.activeNav(r.Name)
+		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+		d := formPageData{
+			Resource:  r,
+			ID:        id,
+			Values:    values,
+			CSRFToken: tok,
+			BasePath:  p.basePath,
+		}
+		layoutComp := shell.Layout(p.title, nav, formPageContent(d))
+		if err := layoutComp.Render(req.Context(), w); err != nil {
+			slog.Error("resource: render edit form", "resource", r.Name, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
+	}
+}
 
-			// Collect values.
-			values := make(map[string]string, len(r.Writer.Form.Fields))
-			for _, fld := range r.Writer.Form.Fields {
-				if fld.Kind == FieldCheckbox {
-					// Unchecked checkboxes are not submitted; normalise to "true"/"false".
-					val := req.FormValue(fld.Key)
-					if val == "true" || val == "on" || val == "1" {
-						values[fld.Key] = "true"
-					} else {
-						values[fld.Key] = "false"
-					}
-				} else {
-					values[fld.Key] = req.FormValue(fld.Key)
-				}
-			}
+// saveHandler returns the handler for POST /{name}/{id}/save.
+func saveHandler(p *Panel, r Resource) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		shell.SecurityHeaders(w)
+		const maxFormBytes = 1 << 20 // 1 MB
+		req.Body = http.MaxBytesReader(w, req.Body, maxFormBytes)
+		if err := req.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 
-			// Server-side validation.
-			errs := r.Writer.Form.validate(values)
-			if errs.hasErrors() {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.WriteHeader(http.StatusUnprocessableEntity)
-				nav := p.activeNav(r.Name)
-				tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
-				d := formPageData{
-					Resource:  r,
-					ID:        id,
-					Values:    values,
-					Errors:    errs,
-					CSRFToken: tok,
-					BasePath:  p.basePath,
-				}
-				layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-				if err := layoutComp.Render(req.Context(), w); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-				}
-				return
-			}
+		// CSRF check — generic error body; detail logged server-side.
+		token := req.FormValue(csrf.FormField)
+		if err := csrf.Verify(p.csrfKey, p.sessionValue(req), token); err != nil {
+			slog.Warn("resource: CSRF verification failed", "resource", r.Name, "err", err)
+			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
 
-			// Persist.
-			t := tenant.From(req.Context())
-			if err := r.Writer.Save(req.Context(), t, id, values); err != nil {
-				http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
+		id := req.PathValue("id")
+		if id == "new" {
+			id = ""
+		}
 
-			// Redirect to list (PRG pattern).
-			if render.IsHTMX(req) {
-				w.Header().Set("HX-Redirect", p.basePath+"/"+r.Name)
-				w.WriteHeader(http.StatusOK)
-				return
+		values := collectFormValues(req, r.Writer.Form)
+
+		// Server-side validation.
+		errs := r.Writer.Form.validate(values)
+		if errs.hasErrors() {
+			renderValidationErrors(w, req, p, r, id, values, errs)
+			return
+		}
+
+		// Persist — generic error body; detail logged server-side.
+		t := tenant.From(req.Context())
+		if err := r.Writer.Save(req.Context(), t, id, values); err != nil {
+			slog.Error("resource: save failed", "resource", r.Name, "err", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+
+		// Redirect to list (PRG pattern).
+		if render.IsHTMX(req) {
+			w.Header().Set("HX-Redirect", p.basePath+"/"+r.Name)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, req, p.basePath+"/"+r.Name, http.StatusSeeOther)
+	}
+}
+
+// collectFormValues reads submitted form values for all fields in the spec.
+// Checkboxes are normalised to checkboxTrue/"false" (unchecked = not submitted).
+func collectFormValues(req *http.Request, form FormSpec) map[string]string {
+	values := make(map[string]string, len(form.Fields))
+	for _, fld := range form.Fields {
+		if fld.Kind == FieldCheckbox {
+			val := req.FormValue(fld.Key)
+			if val == checkboxTrue || val == "on" || val == "1" {
+				values[fld.Key] = checkboxTrue
+			} else {
+				values[fld.Key] = "false"
 			}
-			http.Redirect(w, req, p.basePath+"/"+r.Name, http.StatusSeeOther)
-		}))
+		} else {
+			values[fld.Key] = req.FormValue(fld.Key)
+		}
+	}
+	return values
+}
+
+// renderValidationErrors re-renders the form with field-level validation errors (HTTP 422).
+func renderValidationErrors(w http.ResponseWriter, req *http.Request, p *Panel, r Resource, id string, values map[string]string, errs formErrors) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	nav := p.activeNav(r.Name)
+	tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+	d := formPageData{
+		Resource:  r,
+		ID:        id,
+		Values:    values,
+		Errors:    errs,
+		CSRFToken: tok,
+		BasePath:  p.basePath,
+	}
+	layoutComp := shell.Layout(p.title, nav, formPageContent(d))
+	if err := layoutComp.Render(req.Context(), w); err != nil {
+		slog.Error("resource: render validation errors", "resource", r.Name, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
 }
 
 // sessionValue extracts the session cookie value from the request.
 // Used as the binding input for CSRF tokens.
+// The authenticator must implement SessionCookieName() — enforced at Register time.
 func (p *Panel) sessionValue(r *http.Request) string {
-	name := "panel_admin"
-	if sc, ok := p.auth.(sessionCookier); ok {
-		name = sc.SessionCookieName()
-	}
-	c, err := r.Cookie(name)
+	sc := p.auth.(sessionCookier)
+	c, err := r.Cookie(sc.SessionCookieName())
 	if err != nil {
 		return ""
 	}
@@ -533,3 +589,4 @@ func max(a, b int) int {
 	}
 	return b
 }
+

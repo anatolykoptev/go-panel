@@ -1,13 +1,28 @@
 // Package csrf provides double-submit CSRF protection for go-panel write forms.
 //
-// Token format: HMAC(key, sessionValue|expiry) + "|" + expiry (hex-encoded MAC).
-// The token is issued as a hidden form input on GET and verified on POST.
-// Comparison is constant-time (hmac.Equal) to prevent timing attacks.
+// # Wire format
 //
-// Key lifecycle: the CSRFKey is passed via resource.Config. An empty key with
-// any Writer-enabled resource causes a panic at Register time (fail-closed).
+//	token = expiry "|" hex(HMAC-SHA256(key, sessionValue "|" expiry))
 //
-// Usage:
+// The expiry (Unix seconds, decimal) appears FIRST. The MAC covers both the
+// session binding value and the expiry, preventing either from being tampered.
+//
+// Example: "1735689600|ab8662f5..."
+//
+// # Binding
+//
+// The CSRF token is bound to the session cookie value at issue time.
+// Currently the HMACAuth cookie stores deterministic "username|expiry" — logout
+// does not invalidate outstanding tokens within their TTL window.
+// See: auth: per-login random nonce in session cookie (CSRF logout revocation).
+//
+// # Key lifecycle
+//
+// The CSRFKey is passed via resource.Config.CSRFKey. Register panics at startup
+// if CSRFKey is shorter than 32 bytes or if a Writer-enabled resource is
+// configured without a key (fail-closed).
+//
+// # Usage
 //
 //	token := csrf.Issue(key, sessionCookieValue, ttl)
 //	// embed token in the form hidden input named "_csrf"
@@ -33,6 +48,10 @@ const (
 	FormField = "_csrf"
 	// DefaultTTL is the default CSRF token lifetime.
 	DefaultTTL = 2 * time.Hour
+	// maxFutureTTL is the upper ceiling on token expiry accepted by Verify.
+	// Tokens claiming an expiry more than 24h in the future are rejected,
+	// regardless of whether the MAC is valid.
+	maxFutureTTL = 24 * time.Hour
 )
 
 var (
@@ -40,7 +59,7 @@ var (
 	ErrMissing = errors.New("csrf: token missing")
 	// ErrExpired is returned when the token has expired.
 	ErrExpired = errors.New("csrf: token expired")
-	// ErrInvalid is returned when the token signature does not match.
+	// ErrInvalid is returned when the token signature does not match or the token is malformed.
 	ErrInvalid = errors.New("csrf: token invalid")
 )
 
@@ -54,6 +73,10 @@ func Issue(key []byte, sessionValue string, ttl time.Duration) string {
 
 // Verify checks the token against the session cookie value.
 // Returns ErrMissing, ErrExpired, or ErrInvalid on failure; nil on success.
+//
+// Additional checks beyond basic expiry:
+//   - exp > now+maxFutureTTL → ErrInvalid (issuer TTL ceiling, SEC-CR-003)
+//   - MAC mismatch → ErrInvalid (constant-time compare)
 func Verify(key []byte, sessionValue, token string) error {
 	if token == "" {
 		return ErrMissing
@@ -66,8 +89,13 @@ func Verify(key []byte, sessionValue, token string) error {
 	if err != nil {
 		return ErrInvalid
 	}
-	if time.Now().Unix() > exp {
+	now := time.Now().Unix()
+	if now > exp {
 		return ErrExpired
+	}
+	// Ceiling: reject tokens claiming expiry more than maxFutureTTL ahead.
+	if exp > now+int64(maxFutureTTL/time.Second) {
+		return ErrInvalid
 	}
 	got := token[sep+1:]
 	expected := sign(key, sessionValue, exp)

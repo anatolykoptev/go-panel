@@ -472,3 +472,168 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// writerResourceWithDate builds a test resource with a FieldDate field.
+func writerResourceWithDate(
+	saveFn func(context.Context, tenant.Tenant, string, map[string]string) error,
+) resource.Resource {
+	r := testResource
+	r.Writer = &resource.Writer{
+		Form: resource.FormSpec{
+			Fields: []resource.Field{
+				{Key: "name", Label: "Name", Kind: resource.FieldText, Required: true},
+				{Key: "due", Label: "Due Date", Kind: resource.FieldDate},
+			},
+		},
+		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		Save:     saveFn,
+		WriteAny: true,
+	}
+	return r
+}
+
+// TestWriterRoutes_FieldDateInvalid verifies that an invalid date returns 422 and Save is not called.
+func TestWriterRoutes_FieldDateInvalid(t *testing.T) {
+	saveCount := 0
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithDate(
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+	form := url.Values{
+		"name":  {"Test"},
+		"due":   {"not-a-date"},
+		"_csrf": {tok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid date, got %d", w.Code)
+	}
+	if saveCount != 0 {
+		t.Errorf("Save must not be called on invalid date, called %d times", saveCount)
+	}
+}
+
+// TestWriterRoutes_FieldDateValid verifies that a valid YYYY-MM-DD date passes validation.
+func TestWriterRoutes_FieldDateValid(t *testing.T) {
+	saveCount := 0
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithDate(
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+	form := url.Values{
+		"name":  {"Test"},
+		"due":   {"2025-12-31"},
+		"_csrf": {tok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("expected 303 redirect for valid date, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if saveCount != 1 {
+		t.Errorf("Save must be called exactly once for valid date, called %d times", saveCount)
+	}
+}
+
+// TestRegisterPanicsOnShortCSRFKey verifies that Register panics when CSRFKey < 32 bytes (SEC-CR-001).
+func TestRegisterPanicsOnShortCSRFKey(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for CSRFKey shorter than 32 bytes")
+		}
+	}()
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath: "/admin",
+		Secure:   false,
+	})
+	p := resource.New(resource.Config{
+		Title:    "Test Panel",
+		BasePath: "/admin",
+		Auth:     a,
+		CSRFKey:  []byte("short"), // < 32 bytes — must panic
+	})
+	resource.Register(p, writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) { return nil, nil },
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error { return nil },
+	))
+}
+
+// TestRegisterPanicsOnNoSessionCookieName verifies that Register panics when the authenticator
+// does not implement SessionCookieName() — fail-closed binding requirement.
+func TestRegisterPanicsOnNoSessionCookieName(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when authenticator lacks SessionCookieName()")
+		}
+	}()
+	// Use a minimal auth implementation that does NOT implement SessionCookieName.
+	p := resource.New(resource.Config{
+		Title:    "Test Panel",
+		BasePath: "/admin",
+		Auth:     noSessionNameAuth{},
+		CSRFKey:  testCSRFKey,
+	})
+	resource.Register(p, writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) { return nil, nil },
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error { return nil },
+	))
+}
+
+// TestWriterRoutes_EditWithIDNew returns 404 — "new" is not a valid edit id.
+func TestWriterRoutes_EditWithIDNew(t *testing.T) {
+	p := newWriterPanel()
+	resource.Register(p, writerResource(
+		func(_ context.Context, _ tenant.Tenant, id string) (map[string]string, error) {
+			// Should not be called for id="new".
+			return nil, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items/new/edit", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for GET /new/edit, got %d", w.Code)
+	}
+}
+
+// noSessionNameAuth is a minimal auth stub that does NOT implement SessionCookieName.
+type noSessionNameAuth struct{}
+
+func (noSessionNameAuth) Require(h http.HandlerFunc) http.HandlerFunc { return h }
+func (noSessionNameAuth) LoginHandler() http.Handler                  { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }
+func (noSessionNameAuth) LogoutHandler() http.Handler                 { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }

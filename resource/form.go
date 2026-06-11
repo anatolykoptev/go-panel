@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/anatolykoptev/go-panel/tenant"
 )
@@ -29,6 +30,9 @@ const (
 	FieldJSON
 )
 
+// checkboxTrue is the canonical normalised value for a checked checkbox.
+const checkboxTrue = "true"
+
 // Option is a single option for a FieldSelect field.
 type Option struct {
 	Value string
@@ -43,7 +47,7 @@ type Field struct {
 	Required    bool
 	Options     []Option // required for FieldSelect
 	Placeholder string
-	Help        string   // optional helper text shown below the field
+	Help        string // optional helper text shown below the field
 }
 
 // FormSpec declares the form structure for a Writer.
@@ -103,35 +107,68 @@ func (fs FormSpec) validate(values map[string]string) formErrors {
 		if val == "" {
 			continue
 		}
-		switch fld.Kind {
-		case FieldNumber:
-			// Accept integers and decimals.
-			var f float64
-			if err := json.Unmarshal([]byte(val), &f); err != nil {
-				errs[fld.Key] = fld.Label + " must be a number"
-			}
-		case FieldSelect:
-			allowed := false
-			for _, opt := range fld.Options {
-				if opt.Value == val {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				errs[fld.Key] = fld.Label + " is not a valid choice"
-			}
-		case FieldJSON:
-			if !json.Valid([]byte(val)) {
-				errs[fld.Key] = fld.Label + " must be valid JSON"
-			}
-		case FieldCheckbox:
-			if val != "true" && val != "false" && val != "on" && val != "1" && val != "0" && val != "" {
-				errs[fld.Key] = fld.Label + " must be a boolean"
-			}
+		if msg := validateField(fld, val); msg != "" {
+			errs[fld.Key] = msg
 		}
 	}
 	return errs
+}
+
+// validateField validates a single non-empty field value against its Kind.
+// Returns an error message string, or "" if valid.
+func validateField(fld Field, val string) string {
+	switch fld.Kind {
+	case FieldNumber:
+		return validateNumber(fld, val)
+	case FieldDate:
+		return validateDate(fld, val)
+	case FieldSelect:
+		return validateSelect(fld, val)
+	case FieldJSON:
+		return validateJSON(fld, val)
+	case FieldCheckbox:
+		return validateCheckbox(fld, val)
+	}
+	return ""
+}
+
+func validateNumber(fld Field, val string) string {
+	var f float64
+	if err := json.Unmarshal([]byte(val), &f); err != nil {
+		return fld.Label + " must be a number"
+	}
+	return ""
+}
+
+func validateDate(fld Field, val string) string {
+	if _, err := time.Parse("2006-01-02", val); err != nil {
+		return fld.Label + " must be a valid date (YYYY-MM-DD)"
+	}
+	return ""
+}
+
+func validateSelect(fld Field, val string) string {
+	for _, opt := range fld.Options {
+		if opt.Value == val {
+			return ""
+		}
+	}
+	return fld.Label + " is not a valid choice"
+}
+
+func validateJSON(fld Field, val string) string {
+	if !json.Valid([]byte(val)) {
+		return fld.Label + " must be valid JSON"
+	}
+	return ""
+}
+
+func validateCheckbox(fld Field, val string) string {
+	switch val {
+	case checkboxTrue, "false", "on", "1", "0":
+		return ""
+	}
+	return fld.Label + " must be a boolean"
 }
 
 // hasErrors reports whether any field errors exist.
