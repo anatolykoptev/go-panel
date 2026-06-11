@@ -88,3 +88,22 @@ func TestSubdomainResolver_NoSubdomainFallback(t *testing.T) {
 		t.Errorf("expected default spb, got %q", got.CitySlug)
 	}
 }
+
+// TestPathResolver_IgnoresNonTenantSegments locks the 2026-06-11 class: the
+// resolver must NOT treat arbitrary path segments at the configured index as a
+// tenant slug. /admin/{resource}/new and /admin/{resource}/{id}/edit resolved
+// to city "new"/"{id}", breaking every city-scoped query behind a form.
+func TestPathResolver_IgnoresNonTenantSegments(t *testing.T) {
+	pr := tenant.PathResolver{Segment: 2}
+	for _, path := range []string{
+		"/admin/rating_sponsorships/new",
+		"/admin/rating_segments/5/edit",
+		"/admin/rating_segments/5/save",
+		"/admin/places/rows",
+	} {
+		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+		if got := pr.Resolve(r); got.CitySlug != "spb" {
+			t.Errorf("%s: expected global default spb, got %q", path, got.CitySlug)
+		}
+	}
+}
