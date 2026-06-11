@@ -1,6 +1,9 @@
 package csrf_test
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -92,24 +95,25 @@ func TestVerify_FarFutureExpiry(t *testing.T) {
 //
 // Wire format: expiry "|" hex(HMAC-SHA256(key, sessionValue "|" expiry)) — expiry FIRST.
 // Inputs: key="test-csrf-key-32-bytes-long-here", session="kat-session", exp=1735689600 (2025-01-01 00:00:00 UTC)
-// Expected MAC: computed at implementation time (see comment below).
-//
-// To recompute: HMAC-SHA256("test-csrf-key-32-bytes-long-here", "kat-session|1735689600")
+// TestVerify_KAT pins the exact MAC construction by recomputing the HMAC
+// independently in the test: token = "<exp>|" + hex(HMAC-SHA256(key, sessionValue+"|"+exp)).
+// A round-trip test alone would stay green if Issue and Verify drifted to a new
+// format together; this independent recomputation catches that class.
 func TestVerify_KAT(t *testing.T) {
-	// Use a known past expiry so the token is treated as expired — we only want to check
-	// that the format and MAC are stable, not test expiry behaviour here.
-	// Issue a fresh token and verify the MAC segment matches what we'd expect.
-
-	// We test the round-trip: Issue produces a token that Verify accepts.
-	// The format invariant is: token = "<exp>|<hex-mac>".
-	// Tamper test below verifies that changing exp invalidates the MAC.
 	tok := csrf.Issue(testKey, "kat-session", csrf.DefaultTTL)
 	parts := strings.SplitN(tok, "|", 2)
 	if len(parts) != 2 {
 		t.Fatalf("token format broken: expected 'exp|mac', got %q", tok)
 	}
 	if len(parts[1]) != 64 {
-		t.Errorf("MAC should be 64 hex chars (SHA-256), got %d chars: %q", len(parts[1]), parts[1])
+		t.Fatalf("MAC should be 64 hex chars (SHA-256), got %d chars: %q", len(parts[1]), parts[1])
+	}
+	// Independent recomputation of the documented wire construction.
+	mac := hmac.New(sha256.New, testKey)
+	mac.Write([]byte("kat-session|" + parts[0]))
+	want := hex.EncodeToString(mac.Sum(nil))
+	if parts[1] != want {
+		t.Errorf("MAC construction drifted:\n  token mac: %s\n  HMAC-SHA256(key, sessionValue|exp): %s", parts[1], want)
 	}
 	// Round-trip must pass.
 	if err := csrf.Verify(testKey, "kat-session", tok); err != nil {
