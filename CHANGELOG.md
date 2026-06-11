@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/anatolykoptev/go-panel/compare/v0.4.0...v0.4.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* **tenant:** PathResolver honours slug only after the literal 'tenant' segment ([#8](https://github.com/anatolykoptev/go-panel/issues/8)) ([9d6dc81](https://github.com/anatolykoptev/go-panel/commit/9d6dc81bc21a41aa88f9701288a8f3cb1c704db8))
+
 ## [0.4.0](https://github.com/anatolykoptev/go-panel/compare/v0.3.0...v0.4.0) (2026-06-11)
 
 
