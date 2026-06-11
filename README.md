@@ -10,12 +10,12 @@ Mirrors [@krolik/landing-kit](https://github.com/anatolykoptev/landing-kit) phil
 | Package | Responsibility | Status |
 |---|---|---|
 | [`admintable`](./admintable/) | SQL-injection-safe `Spec` (sort) + `FilterSpec` (filter) | foundations |
-| [`auth`](./auth/) | Pluggable session: `HMACAuth` (single-user) + `BcryptTOTPAuth` stub | foundations |
+| [`auth`](./auth/) | Pluggable session: `HMACAuth` (single-user, per-login nonce) + `BcryptTOTPAuth` stub | foundations |
+| [`csrf`](./csrf/) | Double-submit CSRF tokens bound to session cookie (32-byte key floor) | foundations |
 | [`render`](./render/) | htmx fragment vs full-page, goldmark markdown | foundations |
+| [`resource`](./resource/) | **Core**: `Resource` declaration → list + CRUD form handlers (`Writer`, `OptionsFunc`) + nav entry | foundations |
 | [`shell`](./shell/) | Layout + sidebar nav + static assets (htmx, pm7 CSS/JS) | foundations |
 | [`tenant`](./tenant/) | city_slug scope seam: `Resolver`, `ScopeClause`, `Middleware` | foundations |
-| [`resource`](./resource/) | **Core**: `Resource` declaration → list handler + nav entry | foundations (list only) |
-| `form` | CRUD form rendering + validation | Phase 2 |
 | `mcp` | Auto-expose a Resource as MCP read/list tools | Phase 3 |
 | `media` | Upload + crop + imgproxy URL | Phase 4 |
 | `components` | pm7 widgets: sparkline, badge, pagination | grows with need |
@@ -83,15 +83,15 @@ go run ./example
 ```
 go-kit (data primitives: admintable Spec/FilterSpec)
   ↑
-go-panel (admin UI kit: shell/auth/render/tenant/resource)
+go-panel (admin UI kit: admintable/auth/csrf/render/shell/tenant/resource/writer)
   ↑
-apps (go-piter, oxpulse-admin, go-nerv — compose the kit)
+apps (go-grad, oxpulse-admin, go-nerv — compose the kit)
 ```
 
 ## Architecture constraints
 
 - **No framework entry point** — import only what you need.
-- **No schema ownership** — `Lister` and (future) `Writer` are app-supplied closures. The kit never assumes a schema.
+- **No schema ownership** — `Lister` and `Writer` (CRUD) are app-supplied closures. The kit never assumes a schema.
 - **No CDN** — all static assets (htmx.min.js, pm7 CSS/JS) served from embedded FS. Safe behind ТСПУ.
 - **Tenant scope is unconditional** — a Resource with `Scope.Column != ""` always gets the WHERE injected. Cannot be bypassed per-call.
 - **SQL safety via admintable** — only author-declared `SQLExpr` compile-time constants + literal operators reach SQL. URL bytes are bind args only.

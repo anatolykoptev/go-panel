@@ -40,12 +40,24 @@ type Option struct {
 }
 
 // Field declares one form field.
+//
+// For FieldSelect, set exactly one of Options or OptionsFunc:
+//   - Options: static list known at init time.
+//   - OptionsFunc: called on each form render (GET) and POST validation to
+//     provide a fresh list (e.g. from a database query). Mutually exclusive
+//     with Options — FormSpec.Valid() enforces this.
 type Field struct {
 	Key         string
 	Label       string
 	Kind        FieldKind
 	Required    bool
-	Options     []Option // required for FieldSelect
+	Options     []Option // static list for FieldSelect; mutually exclusive with OptionsFunc
+	// OptionsFunc provides dynamic options for FieldSelect.
+	// Called on every form render (GET new/edit) and on every POST validation
+	// to build the whitelist. An error causes a 500 — the form is not rendered
+	// with a silently empty select.
+	// Mutually exclusive with Options.
+	OptionsFunc func(ctx context.Context, t tenant.Tenant) ([]Option, error)
 	Placeholder string
 	Help        string // optional helper text shown below the field
 }
@@ -56,7 +68,8 @@ type FormSpec struct {
 }
 
 // Valid reports whether the FormSpec is correctly configured.
-// Returns a non-nil error for: duplicate keys, empty Key/Label, FieldSelect without Options.
+// Returns a non-nil error for: duplicate keys, empty Key/Label,
+// FieldSelect with neither Options nor OptionsFunc, or both set simultaneously.
 func (f FormSpec) Valid() error {
 	seen := make(map[string]bool, len(f.Fields))
 	for i, fld := range f.Fields {
@@ -70,11 +83,38 @@ func (f FormSpec) Valid() error {
 			return fmt.Errorf("resource.FormSpec: duplicate field Key %q", fld.Key)
 		}
 		seen[fld.Key] = true
-		if fld.Kind == FieldSelect && len(fld.Options) == 0 {
-			return fmt.Errorf("resource.FormSpec: field %q is FieldSelect but has no Options", fld.Key)
+		if fld.Kind == FieldSelect {
+			hasStatic := len(fld.Options) > 0
+			hasDynamic := fld.OptionsFunc != nil
+			if !hasStatic && !hasDynamic {
+				return fmt.Errorf("resource.FormSpec: field %q is FieldSelect but has neither Options nor OptionsFunc", fld.Key)
+			}
+			if hasStatic && hasDynamic {
+				return fmt.Errorf("resource.FormSpec: field %q is FieldSelect with both Options and OptionsFunc — they are mutually exclusive", fld.Key)
+			}
 		}
 	}
 	return nil
+}
+
+// resolveOptions returns a copy of the FormSpec with all OptionsFunc fields
+// resolved into their static Options slice. ctx and t are forwarded to each func.
+// Returns an error if any OptionsFunc call fails; the error identifies the field.
+func (fs FormSpec) resolveOptions(ctx context.Context, t tenant.Tenant) (FormSpec, error) {
+	out := FormSpec{Fields: make([]Field, len(fs.Fields))}
+	copy(out.Fields, fs.Fields)
+	for i, fld := range out.Fields {
+		if fld.Kind != FieldSelect || fld.OptionsFunc == nil {
+			continue
+		}
+		opts, err := fld.OptionsFunc(ctx, t)
+		if err != nil {
+			return FormSpec{}, fmt.Errorf("resource: OptionsFunc for field %q: %w", fld.Key, err)
+		}
+		out.Fields[i].Options = opts
+		out.Fields[i].OptionsFunc = nil // resolved; no longer needed
+	}
+	return out, nil
 }
 
 // Writer enables create/edit forms for the resource.
