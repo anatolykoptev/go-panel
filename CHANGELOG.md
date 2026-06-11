@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/anatolykoptev/go-panel/compare/v0.3.0...v0.4.0) (2026-06-11)
+
+
+### Features
+
+* **auth,resource:** per-login session nonce + HMACKey floor + dynamic Select options ([#6](https://github.com/anatolykoptev/go-panel/issues/6)) ([b9da954](https://github.com/anatolykoptev/go-panel/commit/b9da954eae07f5f4dcea3d12ea702a51c65e0d5e))
+
 ## [0.3.0](https://github.com/anatolykoptev/go-panel/compare/v0.2.0...v0.3.0) (2026-06-11)
 
 
