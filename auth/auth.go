@@ -7,6 +7,20 @@
 //     oxpulse-admin). Stubbed behind the same Authenticator interface; wire in
 //     Phase 2 when a second editor is needed.
 //
+// # Session cookie format (v2)
+//
+//	exp.nonce.HMAC-SHA256(key, username|exp|nonce)
+//
+// The nonce is 16 bytes of crypto/rand, hex-encoded (32 chars). It changes on
+// every login, so CSRF tokens bound to a prior session value are invalidated the
+// moment the user logs in again. Logout + re-login = full CSRF token rotation.
+//
+// # Breaking change from v1
+//
+// The old 2-part format "exp.HMAC" is rejected by Verified. Active sessions
+// from a v1 deployment are invalidated on first deploy of v2. Operators will
+// need to log in again.
+//
 // Usage:
 //
 //	a := auth.NewHMACAuth(auth.HMACConfig{
@@ -24,9 +38,11 @@ package auth
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -80,10 +96,14 @@ type HMACAuth struct {
 	basePath   string
 }
 
-// NewHMACAuth creates a configured HMACAuth. Panics on empty HMACKey or Username.
+// minHMACKeyLen is the minimum acceptable HMAC key length.
+// Matches the RFC 2104 recommendation and the CSRFKey floor in resource/resource.go.
+const minHMACKeyLen = 32
+
+// NewHMACAuth creates a configured HMACAuth. Panics on short/empty HMACKey or Username.
 func NewHMACAuth(cfg HMACConfig) *HMACAuth {
-	if len(cfg.HMACKey) == 0 {
-		panic("auth.NewHMACAuth: HMACKey must not be empty")
+	if len(cfg.HMACKey) < minHMACKeyLen {
+		panic(fmt.Sprintf("auth.NewHMACAuth: HMACKey must be at least %d bytes, got %d (RFC 2104 key-length floor)", minHMACKeyLen, len(cfg.HMACKey)))
 	}
 	if cfg.Username == "" {
 		panic("auth.NewHMACAuth: Username must not be empty")
@@ -110,31 +130,51 @@ func (a *HMACAuth) SessionCookieName() string {
 }
 
 // Verified reports whether the request has a valid, non-expired HMAC session cookie.
+//
+// Cookie format (v2, introduced with per-login nonce):
+//
+//	exp.nonce.HMAC-SHA256(key, username|exp|nonce)
+//
+// All three parts are required. The legacy 2-part format (exp.HMAC) is explicitly
+// rejected so that old sessions are invalidated after a deploy of this version.
 func (a *HMACAuth) Verified(r *http.Request) bool {
 	c, err := r.Cookie(a.cookieName)
 	if err != nil {
 		return false
 	}
-	dot := strings.IndexByte(c.Value, '.')
-	if dot < 0 {
+	// Expect exactly 2 dots → 3 parts: exp, nonce, sig.
+	const cookieParts = 3
+	parts := strings.SplitN(c.Value, ".", cookieParts)
+	if len(parts) != cookieParts {
 		return false
 	}
-	exp, _ := strconv.ParseInt(c.Value[:dot], 10, 64)
-	if exp == 0 || time.Now().Unix() > exp {
+	expStr, nonce, sig := parts[0], parts[1], parts[2]
+	if nonce == "" || sig == "" {
+		return false
+	}
+	exp, err2 := strconv.ParseInt(expStr, 10, 64)
+	if err2 != nil || exp == 0 || time.Now().Unix() > exp {
 		return false
 	}
 	mac := hmac.New(sha256.New, a.cfg.HMACKey)
-	_, _ = fmt.Fprintf(mac, "%s|%d", a.cfg.Username, exp)
+	_, _ = fmt.Fprintf(mac, "%s|%d|%s", a.cfg.Username, exp, nonce)
 	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(c.Value[dot+1:]))
+	return hmac.Equal([]byte(expected), []byte(sig))
 }
 
-func (a *HMACAuth) makeToken() string {
+// makeToken generates a new session token with a per-login random nonce.
+// Returns ("", error) on crypto/rand failure — callers must treat this as fatal.
+func (a *HMACAuth) makeToken() (string, error) {
 	exp := time.Now().Add(a.sessionTTL).Unix()
+	var nb [16]byte
+	if _, err := rand.Read(nb[:]); err != nil {
+		return "", fmt.Errorf("auth: crypto/rand failed: %w", err)
+	}
+	nonce := hex.EncodeToString(nb[:])
 	mac := hmac.New(sha256.New, a.cfg.HMACKey)
-	_, _ = fmt.Fprintf(mac, "%s|%d", a.cfg.Username, exp)
+	_, _ = fmt.Fprintf(mac, "%s|%d|%s", a.cfg.Username, exp, nonce)
 	sig := hex.EncodeToString(mac.Sum(nil))
-	return fmt.Sprintf("%d.%s", exp, sig)
+	return fmt.Sprintf("%d.%s.%s", exp, nonce, sig), nil
 }
 
 // LoginHandler returns an http.Handler for GET + POST /admin/login.
@@ -146,9 +186,15 @@ func (a *HMACAuth) LoginHandler() http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
 			_ = r.ParseForm()
 			if r.FormValue("username") == a.cfg.Username && r.FormValue("password") == a.cfg.Password {
+				tok, err := a.makeToken()
+				if err != nil {
+					slog.Error("auth: failed to generate session token", "err", err)
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
 				http.SetCookie(w, &http.Cookie{
 					Name:     a.cookieName,
-					Value:    a.makeToken(),
+					Value:    tok,
 					Path:     a.basePath,
 					MaxAge:   int(a.sessionTTL.Seconds()),
 					HttpOnly: true,

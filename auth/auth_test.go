@@ -126,6 +126,84 @@ func TestHMACAuth_Logout_ClearsCookie(t *testing.T) {
 	}
 }
 
+// TestNewHMACAuth_PanicsOnShortKey verifies that NewHMACAuth panics when the key is < 32 bytes.
+func TestNewHMACAuth_PanicsOnShortKey(t *testing.T) {
+	cases := []struct {
+		name string
+		key  []byte
+	}{
+		{"empty", []byte{}},
+		{"nil", nil},
+		{"short", []byte("short-key")},
+		{"31bytes", []byte("31-bytes-key-just-one-too-short")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected panic for short HMACKey")
+				}
+			}()
+			auth.NewHMACAuth(auth.HMACConfig{
+				Username: "admin",
+				Password: "secret",
+				HMACKey:  tc.key,
+				BasePath: "/admin",
+			})
+		})
+	}
+}
+
+// TestNewHMACAuth_OKOnExactFloor verifies that NewHMACAuth succeeds with exactly 32 bytes.
+func TestNewHMACAuth_OKOnExactFloor(t *testing.T) {
+	// Must not panic.
+	_ = auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("exactly-32-bytes-long-key-here!!"),
+		BasePath: "/admin",
+	})
+}
+
+// TestHMACAuth_PerLoginNonce verifies that two consecutive logins produce different cookie values.
+func TestHMACAuth_PerLoginNonce(t *testing.T) {
+	a := newTestAuth()
+
+	login := func() string {
+		body := strings.NewReader("username=admin&password=secret")
+		r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/login", body)
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		a.LoginHandler().ServeHTTP(w, r)
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("login failed, status=%d", w.Code)
+		}
+		return extractCookieValue(w.Header().Get("Set-Cookie"), "panel_admin")
+	}
+
+	v1 := login()
+	v2 := login()
+
+	if v1 == "" || v2 == "" {
+		t.Fatal("expected non-empty cookie values")
+	}
+	if v1 == v2 {
+		t.Errorf("same-user back-to-back logins must produce different cookie values (nonce); got %q both times", v1)
+	}
+}
+
+// TestHMACAuth_OldTwoPartFormatRejected verifies that the legacy exp.HMAC cookie format is rejected.
+func TestHMACAuth_OldTwoPartFormatRejected(t *testing.T) {
+	a := newTestAuth()
+	// Craft a fake 2-part token (old format). It has correct structure but must be rejected.
+	legacyCookie := "9999999999.deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567"
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: legacyCookie})
+	if a.Verified(r) {
+		t.Error("legacy 2-part cookie format must be rejected by Verified()")
+	}
+}
+
 // extractCookieValue parses the Set-Cookie header to get the named cookie value.
 func extractCookieValue(setCookie, name string) string {
 	prefix := name + "="

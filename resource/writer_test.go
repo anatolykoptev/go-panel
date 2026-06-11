@@ -2,6 +2,7 @@ package resource_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -441,7 +442,7 @@ func TestFormSpec_Valid(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "select without options",
+			name: "select without options or func",
 			spec: resource.FormSpec{Fields: []resource.Field{
 				{Key: "status", Label: "Status", Kind: resource.FieldSelect},
 			}},
@@ -454,6 +455,26 @@ func TestFormSpec_Valid(t *testing.T) {
 					Options: []resource.Option{{Value: "a", Label: "A"}}},
 			}},
 			wantErr: false,
+		},
+		{
+			name: "select with OptionsFunc OK",
+			spec: resource.FormSpec{Fields: []resource.Field{
+				{Key: "status", Label: "Status", Kind: resource.FieldSelect,
+					OptionsFunc: func(_ context.Context, _ tenant.Tenant) ([]resource.Option, error) {
+						return []resource.Option{{Value: "a", Label: "A"}}, nil
+					}},
+			}},
+			wantErr: false,
+		},
+		{
+			name: "select with both Options and OptionsFunc",
+			spec: resource.FormSpec{Fields: []resource.Field{
+				{Key: "status", Label: "Status", Kind: resource.FieldSelect,
+					Options:     []resource.Option{{Value: "a", Label: "A"}},
+					OptionsFunc: func(_ context.Context, _ tenant.Tenant) ([]resource.Option, error) { return nil, nil },
+				},
+			}},
+			wantErr: true,
 		},
 	}
 	for _, tc := range cases {
@@ -637,3 +658,204 @@ type noSessionNameAuth struct{}
 func (noSessionNameAuth) Require(h http.HandlerFunc) http.HandlerFunc { return h }
 func (noSessionNameAuth) LoginHandler() http.Handler                  { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }
 func (noSessionNameAuth) LogoutHandler() http.Handler                 { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }
+
+// writerResourceWithOptionsFunc builds a resource with a FieldSelect backed by OptionsFunc.
+func writerResourceWithOptionsFunc(
+	opts func(context.Context, tenant.Tenant) ([]resource.Option, error),
+	saveFn func(context.Context, tenant.Tenant, string, map[string]string) error,
+) resource.Resource {
+	r := testResource
+	r.Writer = &resource.Writer{
+		Form: resource.FormSpec{
+			Fields: []resource.Field{
+				{Key: "name", Label: "Name", Kind: resource.FieldText, Required: true},
+				{Key: "category", Label: "Category", Kind: resource.FieldSelect, OptionsFunc: opts},
+			},
+		},
+		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		Save:     saveFn,
+		WriteAny: true,
+	}
+	return r
+}
+
+// TestWriterRoutes_OptionsFuncRendered verifies that GET /new renders options from OptionsFunc.
+func TestWriterRoutes_OptionsFuncRendered(t *testing.T) {
+	callCount := 0
+	opts := func(_ context.Context, _ tenant.Tenant) ([]resource.Option, error) {
+		callCount++
+		return []resource.Option{
+			{Value: "food", Label: "Food"},
+			{Value: "art", Label: "Art"},
+		}, nil
+	}
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithOptionsFunc(opts,
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error { return nil },
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items/new", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `value="food"`) {
+		t.Errorf("expected option value=food in response, body snippet: %s", body[:min(len(body), 800)])
+	}
+	if !strings.Contains(body, "Art") {
+		t.Errorf("expected option label Art in response")
+	}
+	if callCount == 0 {
+		t.Error("OptionsFunc was never called")
+	}
+}
+
+// TestWriterRoutes_OptionsFuncPostOutOfWhitelist verifies POST with stale/invalid select value returns 422.
+func TestWriterRoutes_OptionsFuncPostOutOfWhitelist(t *testing.T) {
+	saveCount := 0
+	// OptionsFunc returns only "food" and "art" — "deleted" is not in the fresh list.
+	opts := func(_ context.Context, _ tenant.Tenant) ([]resource.Option, error) {
+		return []resource.Option{
+			{Value: "food", Label: "Food"},
+			{Value: "art", Label: "Art"},
+		}, nil
+	}
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithOptionsFunc(opts,
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+	form := url.Values{
+		"name":     {"My Item"},
+		"category": {"deleted"}, // not in fresh whitelist
+		"_csrf":    {tok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for out-of-whitelist select, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if saveCount != 0 {
+		t.Errorf("Save must not be called on validation error, called %d times", saveCount)
+	}
+}
+
+// TestWriterRoutes_OptionsFuncError verifies that OptionsFunc error on GET returns 500.
+func TestWriterRoutes_OptionsFuncError(t *testing.T) {
+	opts := func(_ context.Context, _ tenant.Tenant) ([]resource.Option, error) {
+		return nil, errors.New("db connection lost")
+	}
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithOptionsFunc(opts,
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error { return nil },
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items/new", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when OptionsFunc fails, got %d", w.Code)
+	}
+	// Must not render an empty select silently.
+	if strings.Contains(w.Body.String(), `name="category"`) {
+		t.Error("form must not be rendered when OptionsFunc fails")
+	}
+}
+
+// TestWriterRoutes_OptionsFuncErrorOnPost verifies that OptionsFunc error on POST returns 500.
+func TestWriterRoutes_OptionsFuncErrorOnPost(t *testing.T) {
+	saveCount := 0
+	opts := func(_ context.Context, _ tenant.Tenant) ([]resource.Option, error) {
+		return nil, errors.New("db connection lost")
+	}
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithOptionsFunc(opts,
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+	form := url.Values{
+		"name":     {"My Item"},
+		"category": {"food"},
+		"_csrf":    {tok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when OptionsFunc fails on POST, got %d", w.Code)
+	}
+	if saveCount != 0 {
+		t.Error("Save must not be called when OptionsFunc fails")
+	}
+}
+
+// TestHMACAuth_OldCSRFTokenRejectedAfterRelogin verifies that a CSRF token bound to
+// an old session cookie value (old nonce) is rejected when the user logs in again
+// and the new cookie carries a different nonce (SEC-CR-002).
+func TestHMACAuth_OldCSRFTokenRejectedAfterRelogin(t *testing.T) {
+	p := newWriterPanel()
+	resource.Register(p, writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			t.Error("Save must not be called with a stale CSRF token")
+			return nil
+		},
+	))
+
+	// First login — capture session cookie and CSRF token.
+	oldCookieVal, _ := loginAndGetCookie(t, p)
+	oldTok := csrf.Issue(testCSRFKey, oldCookieVal, csrf.DefaultTTL)
+
+	// Second login — new nonce, new cookie value.
+	newCookieVal, _ := loginAndGetCookie(t, p)
+	if oldCookieVal == newCookieVal {
+		t.Skip("nonce collision — retry (astronomically unlikely)")
+	}
+
+	// POST using the NEW session cookie but the OLD CSRF token (bound to old nonce).
+	form := url.Values{
+		"name":  {"Item"},
+		"_csrf": {oldTok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: newCookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when old CSRF token used with new session cookie, got %d", w.Code)
+	}
+}

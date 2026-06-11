@@ -298,15 +298,38 @@ func mountWriterRoutes(p *Panel, r Resource) {
 	p.mux.HandleFunc("POST "+savePath, p.auth.Require(saveHandler(p, r)))
 }
 
+// withResolvedForm returns a shallow copy of r whose Writer.Form has all
+// OptionsFunc fields resolved into their static Options slices for the given
+// context and tenant. The original r is not mutated.
+// Returns an error if any OptionsFunc call fails; callers should 500.
+func withResolvedForm(r Resource, ctx context.Context, t tenant.Tenant) (Resource, error) {
+	resolved, err := r.Writer.Form.resolveOptions(ctx, t)
+	if err != nil {
+		return r, err
+	}
+	// Shallow-copy the Writer so we don't mutate the registered Resource.
+	wCopy := *r.Writer
+	wCopy.Form = resolved
+	r.Writer = &wCopy
+	return r, nil
+}
+
 // newFormHandler returns the handler for GET /{name}/new.
 func newFormHandler(p *Panel, r Resource) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		shell.SecurityHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		t := tenant.From(req.Context())
+		rr, err := withResolvedForm(r, req.Context(), t)
+		if err != nil {
+			slog.Error("resource: resolve options for new form", "resource", r.Name, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		nav := p.activeNav(r.Name)
 		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
 		d := formPageData{
-			Resource:  r,
+			Resource:  rr,
 			Values:    map[string]string{},
 			CSRFToken: tok,
 			BasePath:  p.basePath,
@@ -337,10 +360,16 @@ func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
 			http.Error(w, "load failed", http.StatusInternalServerError)
 			return
 		}
+		rr, err := withResolvedForm(r, req.Context(), t)
+		if err != nil {
+			slog.Error("resource: resolve options for edit form", "resource", r.Name, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		nav := p.activeNav(r.Name)
 		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
 		d := formPageData{
-			Resource:  r,
+			Resource:  rr,
 			ID:        id,
 			Values:    values,
 			CSRFToken: tok,
@@ -378,18 +407,26 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 			id = ""
 		}
 
-		values := collectFormValues(req, r.Writer.Form)
+		// Resolve dynamic options fresh for this POST — whitelist must be live.
+		t := tenant.From(req.Context())
+		rr, err := withResolvedForm(r, req.Context(), t)
+		if err != nil {
+			slog.Error("resource: resolve options for save", "resource", r.Name, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		values := collectFormValues(req, rr.Writer.Form)
 
 		// Server-side validation.
-		errs := r.Writer.Form.validate(values)
+		errs := rr.Writer.Form.validate(values)
 		if errs.hasErrors() {
-			renderValidationErrors(w, req, p, r, id, values, errs)
+			renderValidationErrors(w, req, p, rr, id, values, errs)
 			return
 		}
 
 		// Persist — generic error body; detail logged server-side.
-		t := tenant.From(req.Context())
-		if err := r.Writer.Save(req.Context(), t, id, values); err != nil {
+		if err := rr.Writer.Save(req.Context(), t, id, values); err != nil {
 			slog.Error("resource: save failed", "resource", r.Name, "err", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return

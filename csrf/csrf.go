@@ -11,10 +11,11 @@
 //
 // # Binding
 //
-// The CSRF token is bound to the session cookie value at issue time.
-// Currently the HMACAuth cookie stores deterministic "username|expiry" — logout
-// does not invalidate outstanding tokens within their TTL window.
-// See: auth: per-login random nonce in session cookie (CSRF logout revocation).
+// The CSRF token is bound to the full session cookie value at issue time.
+// HMACAuth v2 embeds a per-login random nonce in the cookie value, so every
+// new login produces a distinct cookie value and thereby invalidates all CSRF
+// tokens that were bound to the previous session. Logout + re-login = full
+// CSRF token rotation (SEC-CR-002 resolved).
 //
 // # Key lifecycle
 //
