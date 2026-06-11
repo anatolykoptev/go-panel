@@ -193,14 +193,60 @@ func TestHMACAuth_PerLoginNonce(t *testing.T) {
 }
 
 // TestHMACAuth_OldTwoPartFormatRejected verifies that the legacy exp.HMAC cookie format is rejected.
+//
+// The legacy token carries a VALID v1 HMAC-SHA256(key, "admin|9999999999") signature under the
+// test key "test-hmac-key-32-bytes-long-here" (verified independently via crypto/hmac). A v1
+// parser would accept this token; the v2 parser must reject it purely on format grounds (only
+// 2 dot-separated parts, not 3). Without a valid v1 signature the test is tautological — a
+// garbage-sig cookie is rejected by both old and new parsers.
 func TestHMACAuth_OldTwoPartFormatRejected(t *testing.T) {
 	a := newTestAuth()
-	// Craft a fake 2-part token (old format). It has correct structure but must be rejected.
-	legacyCookie := "9999999999.deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567"
+	// valid v1 sig = HMAC-SHA256("test-hmac-key-32-bytes-long-here", "admin|9999999999")
+	// = 5d00c7ed8b01869123334abee7d0cb389419395ea0a5fcf6e9da82be38a59992
+	legacyCookie := "9999999999.5d00c7ed8b01869123334abee7d0cb389419395ea0a5fcf6e9da82be38a59992"
 	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/", nil)
 	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: legacyCookie})
 	if a.Verified(r) {
 		t.Error("legacy 2-part cookie format must be rejected by Verified()")
+	}
+}
+
+// TestHMACAuth_Verified_KAT is a known-answer test for the v2 cookie format.
+// It independently recomputes HMAC-SHA256(key, "admin|exp|nonce") for a fixed
+// triple and asserts Verified() accepts it. A round-trip test alone would stay
+// green if makeToken and Verified drifted to a new format together (e.g. field
+// reorder or separator change); this independent recomputation catches that class.
+// See csrf/csrf_test.go TestVerify_KAT for the same pattern on the CSRF token.
+//
+// Fixed triple:
+//
+//	key   = "test-hmac-key-32-bytes-long-here"
+//	user  = "admin"
+//	exp   = 1799999999 (far future; won't expire until 2027)
+//	nonce = "aabbccddeeff00112233445566778899"
+//	sig   = HMAC-SHA256(key, "admin|1799999999|aabbccddeeff00112233445566778899")
+//	      = 63ab12f322f2669d1121c17f9e8c82b821497dc0897547125bac7b22817a21b3
+func TestHMACAuth_Verified_KAT(t *testing.T) {
+	a := newTestAuth()
+	// The cookie is pre-computed — Verified() must accept it without calling makeToken.
+	katCookie := "1799999999.aabbccddeeff00112233445566778899.63ab12f322f2669d1121c17f9e8c82b821497dc0897547125bac7b22817a21b3"
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: katCookie})
+	if !a.Verified(r) {
+		t.Errorf("KAT failed: Verified() rejected a correctly-formed v2 cookie; cookie=%q", katCookie)
+	}
+}
+
+// TestHMACAuth_Verified_KAT_TamperedNonce verifies that mutating the nonce in the KAT
+// cookie invalidates the MAC (catches nonce-not-in-MAC regressions).
+func TestHMACAuth_Verified_KAT_TamperedNonce(t *testing.T) {
+	a := newTestAuth()
+	// Same sig as KAT but nonce changed → MAC must not match.
+	tampered := "1799999999.0000000000000000000000000000bbbb.63ab12f322f2669d1121c17f9e8c82b821497dc0897547125bac7b22817a21b3"
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: tampered})
+	if a.Verified(r) {
+		t.Error("Verified() accepted a cookie with a tampered nonce — nonce must be covered by the MAC")
 	}
 }
 
