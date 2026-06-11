@@ -24,8 +24,19 @@ type listPageData struct {
 // Wrapped by Layout for non-htmx requests; used directly for htmx fragment swap.
 templ listPageContent(d listPageData) {
 	<div class="page-header">
-		<h2>{ d.Resource.Title }</h2>
-		<p>{ strconv.Itoa(d.Total) } total</p>
+		<div style="display:flex;align-items:center;justify-content:space-between;gap:1rem">
+			<div>
+				<h2>{ d.Resource.Title }</h2>
+				<p>{ strconv.Itoa(d.Total) } total</p>
+			</div>
+			if d.Resource.Writer != nil {
+				<a
+					href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/new") }
+					class="pm7-button pm7-button--primary"
+					style="text-decoration:none;white-space:nowrap"
+				>+ New</a>
+			}
+		</div>
 	</div>
 	@filterBar(d)
 	@listTable(d)
@@ -100,12 +111,18 @@ templ listTable(d listPageData) {
 						}
 					</th>
 				}
+				if d.Resource.Writer != nil {
+					<th style="width:4rem"></th>
+				}
 			</tr>
 		</thead>
 		<tbody>
 			if len(d.Rows) == 0 {
 				<tr>
-					<td colspan={ strconv.Itoa(len(d.Resource.Sort.Columns)) } style="text-align:center;color:var(--text-muted);padding:2rem">
+					<td
+						colspan={ listColspan(d) }
+						style="text-align:center;color:var(--text-muted);padding:2rem"
+					>
 						No results
 					</td>
 				</tr>
@@ -122,6 +139,14 @@ templ listTable(d listPageData) {
 						} else {
 							<td>{ cell.Value }</td>
 						}
+					}
+					if d.Resource.Writer != nil {
+						<td style="text-align:right">
+							<a
+								href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + row.ID + "/edit") }
+								style="font-size:.75rem;color:var(--text-secondary);text-decoration:none"
+							>Edit</a>
+						</td>
 					}
 				</tr>
 			}
@@ -161,6 +186,15 @@ templ pagination(d listPageData) {
 }
 
 // --- helper functions (not components) ---
+
+// listColspan returns the total column count including the optional edit column.
+func listColspan(d listPageData) string {
+	n := len(d.Resource.Sort.Columns)
+	if d.Resource.Writer != nil {
+		n++
+	}
+	return strconv.Itoa(n)
+}
 
 func sortURL(d listPageData, colKey string) string {
 	dir := "asc"

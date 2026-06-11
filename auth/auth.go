@@ -103,6 +103,12 @@ func NewHMACAuth(cfg HMACConfig) *HMACAuth {
 	return &HMACAuth{cfg: cfg, cookieName: name, sessionTTL: ttl, basePath: bp}
 }
 
+// SessionCookieName returns the cookie name used for session tokens.
+// Implements resource.sessionCookier for CSRF double-submit binding.
+func (a *HMACAuth) SessionCookieName() string {
+	return a.cookieName
+}
+
 // Verified reports whether the request has a valid, non-expired HMAC session cookie.
 func (a *HMACAuth) Verified(r *http.Request) bool {
 	c, err := r.Cookie(a.cookieName)

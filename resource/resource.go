@@ -36,6 +36,7 @@ import (
 	"strings"
 
 	"github.com/anatolykoptev/go-kit/admintable"
+	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/render"
 	"github.com/anatolykoptev/go-panel/shell"
 	"github.com/anatolykoptev/go-panel/tenant"
@@ -105,6 +106,10 @@ type Resource struct {
 	// Lister fetches one page of rows. The kit hands it a safe ListQuery;
 	// the app owns the row type + scan. go-panel never assumes a schema.
 	Lister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
+
+	// Writer enables create/edit forms. Nil = read-only (Phase 1 behaviour, default).
+	// When non-nil, CSRFKey must be set in Config (panic at Register if missing — fail-closed).
+	Writer *Writer
 }
 
 // Panel is the minimal composition root go-panel provides.
@@ -121,6 +126,13 @@ type Panel struct {
 	basePath string
 	nav      []shell.NavItem
 	title    string
+	csrfKey  []byte
+}
+
+// sessionCookier is the optional interface implemented by authenticators that
+// expose their session cookie name, used for CSRF double-submit binding.
+type sessionCookier interface {
+	SessionCookieName() string
 }
 
 // Config holds Panel configuration.
@@ -133,6 +145,10 @@ type Config struct {
 		LogoutHandler() http.Handler
 	}
 	Resolver tenant.Resolver // nil = PathResolver{Segment:2}
+	// CSRFKey is the HMAC signing key for CSRF double-submit tokens.
+	// Required when any Resource has a non-nil Writer; omitting it causes
+	// a panic at Register time (fail-closed configuration).
+	CSRFKey []byte
 }
 
 // New creates a Panel with the given config.
@@ -155,6 +171,7 @@ func New(cfg Config) *Panel {
 		resolver: resolver,
 		basePath: bp,
 		title:    title,
+		csrfKey:  cfg.CSRFKey,
 	}
 	// Mount standard routes.
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
@@ -178,17 +195,29 @@ func (p *Panel) NavItems() []shell.NavItem {
 
 // Register mounts the resource's list handler and adds it to the sidebar nav.
 // Panics at startup if Sort or Filter are misconfigured (fail-fast, not at runtime).
+// When the resource has a Writer, also panics if CSRFKey is empty (fail-closed).
 //
 // Mounted routes:
 //
-//	GET {basePath}/{name}       — list page (full or htmx fragment)
-//	GET {basePath}/{name}/rows  — htmx row fragment only (sort/filter swap target)
+//	GET  {basePath}/{name}            — list page (full or htmx fragment)
+//	GET  {basePath}/{name}/rows       — htmx row fragment only (sort/filter swap target)
+//	GET  {basePath}/{name}/new        — empty create form (only when Writer != nil)
+//	GET  {basePath}/{name}/{id}/edit  — pre-populated edit form (only when Writer != nil)
+//	POST {basePath}/{name}/{id}/save  — save (id=="new" means create) (only when Writer != nil)
 func Register(p *Panel, r Resource) {
 	if err := r.Sort.Valid(); err != nil {
 		panic(fmt.Sprintf("resource.Register %q: invalid Sort: %v", r.Name, err))
 	}
 	if err := r.Filter.Valid(); err != nil {
 		panic(fmt.Sprintf("resource.Register %q: invalid Filter: %v", r.Name, err))
+	}
+	if r.Writer != nil {
+		if len(p.csrfKey) == 0 {
+			panic(fmt.Sprintf("resource.Register %q: Writer is set but Config.CSRFKey is empty — set CSRFKey to enable write forms (fail-closed)", r.Name))
+		}
+		if err := r.Writer.Form.Valid(); err != nil {
+			panic(fmt.Sprintf("resource.Register %q: invalid Writer.Form: %v", r.Name, err))
+		}
 	}
 
 	// Add nav entry.
@@ -232,6 +261,144 @@ func Register(p *Panel, r Resource) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		listHandler(w, req, nil, true)
 	}))
+
+	// Writer routes — only mounted when Writer is configured.
+	if r.Writer != nil {
+		newPath := p.basePath + "/" + r.Name + "/new"
+		editPath := p.basePath + "/" + r.Name + "/{id}/edit"
+		savePath := p.basePath + "/" + r.Name + "/{id}/save"
+
+		p.mux.HandleFunc("GET "+newPath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
+			shell.SecurityHeaders(w)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			nav := p.activeNav(r.Name)
+			tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+			d := formPageData{
+				Resource:  r,
+				Values:    map[string]string{},
+				CSRFToken: tok,
+				BasePath:  p.basePath,
+			}
+			layoutComp := shell.Layout(p.title, nav, formPageContent(d))
+			if err := layoutComp.Render(req.Context(), w); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		}))
+
+		p.mux.HandleFunc("GET "+editPath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
+			shell.SecurityHeaders(w)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			id := req.PathValue("id")
+			t := tenant.From(req.Context())
+			values, err := r.Writer.Load(req.Context(), t, id)
+			if err != nil {
+				http.Error(w, "load failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			nav := p.activeNav(r.Name)
+			tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+			d := formPageData{
+				Resource:  r,
+				ID:        id,
+				Values:    values,
+				CSRFToken: tok,
+				BasePath:  p.basePath,
+			}
+			layoutComp := shell.Layout(p.title, nav, formPageContent(d))
+			if err := layoutComp.Render(req.Context(), w); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		}))
+
+		p.mux.HandleFunc("POST "+savePath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
+			shell.SecurityHeaders(w)
+			const maxFormBytes = 1 << 20 // 1 MB
+			req.Body = http.MaxBytesReader(w, req.Body, maxFormBytes)
+			if err := req.ParseForm(); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+
+			// CSRF check.
+			token := req.FormValue(csrf.FormField)
+			if err := csrf.Verify(p.csrfKey, p.sessionValue(req), token); err != nil {
+				http.Error(w, "forbidden: "+err.Error(), http.StatusForbidden)
+				return
+			}
+
+			id := req.PathValue("id")
+			if id == "new" {
+				id = ""
+			}
+
+			// Collect values.
+			values := make(map[string]string, len(r.Writer.Form.Fields))
+			for _, fld := range r.Writer.Form.Fields {
+				if fld.Kind == FieldCheckbox {
+					// Unchecked checkboxes are not submitted; normalise to "true"/"false".
+					val := req.FormValue(fld.Key)
+					if val == "true" || val == "on" || val == "1" {
+						values[fld.Key] = "true"
+					} else {
+						values[fld.Key] = "false"
+					}
+				} else {
+					values[fld.Key] = req.FormValue(fld.Key)
+				}
+			}
+
+			// Server-side validation.
+			errs := r.Writer.Form.validate(values)
+			if errs.hasErrors() {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				nav := p.activeNav(r.Name)
+				tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+				d := formPageData{
+					Resource:  r,
+					ID:        id,
+					Values:    values,
+					Errors:    errs,
+					CSRFToken: tok,
+					BasePath:  p.basePath,
+				}
+				layoutComp := shell.Layout(p.title, nav, formPageContent(d))
+				if err := layoutComp.Render(req.Context(), w); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+				return
+			}
+
+			// Persist.
+			t := tenant.From(req.Context())
+			if err := r.Writer.Save(req.Context(), t, id, values); err != nil {
+				http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Redirect to list (PRG pattern).
+			if render.IsHTMX(req) {
+				w.Header().Set("HX-Redirect", p.basePath+"/"+r.Name)
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			http.Redirect(w, req, p.basePath+"/"+r.Name, http.StatusSeeOther)
+		}))
+	}
+}
+
+// sessionValue extracts the session cookie value from the request.
+// Used as the binding input for CSRF tokens.
+func (p *Panel) sessionValue(r *http.Request) string {
+	name := "panel_admin"
+	if sc, ok := p.auth.(sessionCookier); ok {
+		name = sc.SessionCookieName()
+	}
+	c, err := r.Cookie(name)
+	if err != nil {
+		return ""
+	}
+	return c.Value
 }
 
 // activeNav returns a copy of the nav with the given resource ID marked active.

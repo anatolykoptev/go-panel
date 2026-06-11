@@ -1,0 +1,213 @@
+package resource
+
+// formPageData holds all data needed to render a create/edit form page.
+type formPageData struct {
+	Resource  Resource
+	ID        string            // empty = create
+	Values    map[string]string // current field values
+	Errors    formErrors        // per-field validation errors (may be nil)
+	CSRFToken string
+	BasePath  string
+}
+
+// isEdit returns true when editing an existing record.
+func (d formPageData) isEdit() bool {
+	return d.ID != ""
+}
+
+// saveURL returns the POST action URL for the form.
+func (d formPageData) saveURL() string {
+	if d.ID == "" {
+		return d.BasePath + "/" + d.Resource.Name + "/new/save"
+	}
+	return d.BasePath + "/" + d.Resource.Name + "/" + d.ID + "/save"
+}
+
+// fieldValue returns the current value for a field.
+func (d formPageData) fieldValue(key string) string {
+	if d.Values == nil {
+		return ""
+	}
+	return d.Values[key]
+}
+
+// fieldError returns the error message for a field (empty if none).
+func (d formPageData) fieldError(key string) string {
+	if d.Errors == nil {
+		return ""
+	}
+	return d.Errors.get(key)
+}
+
+// formPageContent renders the form page content (header + form).
+templ formPageContent(d formPageData) {
+	<div class="page-header">
+		if d.isEdit() {
+			<h2>Edit { d.Resource.Title }</h2>
+		} else {
+			<h2>New { d.Resource.Title }</h2>
+		}
+		<a
+			href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name) }
+			style="font-size:.8125rem;color:var(--text-secondary);text-decoration:none"
+		>&larr; Back to list</a>
+	</div>
+	<form
+		method="POST"
+		action={ templ.SafeURL(d.saveURL()) }
+		style="max-width:40rem"
+	>
+		<input type="hidden" name="_csrf" value={ d.CSRFToken }/>
+		for _, fld := range d.Resource.Writer.Form.Fields {
+			@formField(fld, d.fieldValue(fld.Key), d.fieldError(fld.Key))
+		}
+		<div style="display:flex;gap:.75rem;margin-top:1.5rem">
+			<button type="submit" class="pm7-button pm7-button--primary">
+				if d.isEdit() {
+					Save Changes
+				} else {
+					Create
+				}
+			</button>
+			<a
+				href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name) }
+				class="pm7-button pm7-button--outline"
+				style="text-decoration:none"
+			>Cancel</a>
+		</div>
+	</form>
+}
+
+// formField renders a single form field by Kind.
+templ formField(fld Field, value, errMsg string) {
+	<div style="margin-bottom:1rem">
+		<label
+			for={ "field-" + fld.Key }
+			style="display:block;font-size:.875rem;color:var(--pm7-muted-foreground);margin-bottom:.375rem"
+		>
+			{ fld.Label }
+			if fld.Required {
+				<span style="color:#ef4444;margin-left:.125rem" aria-hidden="true">*</span>
+			}
+		</label>
+		if fld.Kind == FieldText {
+			<input
+				id={ "field-" + fld.Key }
+				name={ fld.Key }
+				type="text"
+				value={ value }
+				placeholder={ fld.Placeholder }
+				if fld.Required {
+					required
+				}
+				class="pm7-input"
+				if errMsg != "" {
+					aria-invalid="true"
+				}
+			/>
+		} else if fld.Kind == FieldNumber {
+			<input
+				id={ "field-" + fld.Key }
+				name={ fld.Key }
+				type="number"
+				value={ value }
+				placeholder={ fld.Placeholder }
+				if fld.Required {
+					required
+				}
+				class="pm7-input"
+				if errMsg != "" {
+					aria-invalid="true"
+				}
+			/>
+		} else if fld.Kind == FieldDate {
+			<input
+				id={ "field-" + fld.Key }
+				name={ fld.Key }
+				type="date"
+				value={ value }
+				if fld.Required {
+					required
+				}
+				class="pm7-input"
+				if errMsg != "" {
+					aria-invalid="true"
+				}
+			/>
+		} else if fld.Kind == FieldTextarea {
+			<textarea
+				id={ "field-" + fld.Key }
+				name={ fld.Key }
+				placeholder={ fld.Placeholder }
+				rows="4"
+				if fld.Required {
+					required
+				}
+				class="pm7-input"
+				style="resize:vertical"
+				if errMsg != "" {
+					aria-invalid="true"
+				}
+			>{ value }</textarea>
+		} else if fld.Kind == FieldJSON {
+			<textarea
+				id={ "field-" + fld.Key }
+				name={ fld.Key }
+				placeholder={ fld.Placeholder }
+				rows="6"
+				if fld.Required {
+					required
+				}
+				class="pm7-input"
+				style="resize:vertical;font-family:var(--font-mono);font-size:.8125rem"
+				if errMsg != "" {
+					aria-invalid="true"
+				}
+			>{ value }</textarea>
+		} else if fld.Kind == FieldSelect {
+			<select
+				id={ "field-" + fld.Key }
+				name={ fld.Key }
+				if fld.Required {
+					required
+				}
+				class="pm7-input"
+				if errMsg != "" {
+					aria-invalid="true"
+				}
+			>
+				if !fld.Required {
+					<option value="">— select —</option>
+				}
+				for _, opt := range fld.Options {
+					<option
+						value={ opt.Value }
+						if opt.Value == value {
+							selected
+						}
+					>{ opt.Label }</option>
+				}
+			</select>
+		} else if fld.Kind == FieldCheckbox {
+			<label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+				<input
+					id={ "field-" + fld.Key }
+					name={ fld.Key }
+					type="checkbox"
+					value="true"
+					if value == "true" || value == "on" || value == "1" {
+						checked
+					}
+					class="pm7-checkbox"
+				/>
+				<span style="font-size:.875rem;color:var(--pm7-foreground)">{ fld.Label }</span>
+			</label>
+		}
+		if errMsg != "" {
+			<p style="margin-top:.25rem;font-size:.75rem;color:#ef4444" role="alert">{ errMsg }</p>
+		}
+		if fld.Help != "" {
+			<p style="margin-top:.25rem;font-size:.75rem;color:var(--pm7-muted-foreground)">{ fld.Help }</p>
+		}
+	</div>
+}
