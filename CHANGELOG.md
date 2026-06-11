@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/anatolykoptev/go-panel/compare/v0.2.0...v0.3.0) (2026-06-11)
+
+
+### Features
+
+* **resource:** Phase 2 Writer — create/edit forms + CSRF ([#3](https://github.com/anatolykoptev/go-panel/issues/3)) ([937a2ee](https://github.com/anatolykoptev/go-panel/commit/937a2eeb2d332b0a2c25f925dbb67a82a8f7ed3f))
+
 ## [0.2.0](https://github.com/anatolykoptev/go-panel/compare/v0.1.0...v0.2.0) (2026-06-06)
 
 
