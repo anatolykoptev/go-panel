@@ -220,7 +220,7 @@ The framework MUST NOT assume a single region: no package-level pepper, no packa
 
 | Property | Mechanism |
 |---|---|
-| provider_uid privacy (152-FZ) | HMAC-SHA256(value, per-region pepper from env) — never stored plaintext. See ADR-002. |
+| provider_uid privacy (152-FZ) | identity-link index = HMAC-SHA256(value, per-region pepper from env); the user's email contact address is stored plaintext in `auth.users` per the ADR-002 amendment (operational need: email registered users). See ADR-002. |
 | Token single-use | Redis GETDEL (atomic); token in email is plaintext, only SHA256 in Redis |
 | Session fixation | Rotate(oldID) on login creates new session id, deletes old |
 | Cookie isolation | Exact-host, no Domain= wildcard |

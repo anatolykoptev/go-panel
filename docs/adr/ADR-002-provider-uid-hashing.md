@@ -14,7 +14,7 @@ These values are small-keyspace or guessable. An email address is ~30 bits of en
 
 ## Decision
 
-Store `provider_uid_hmac = HMAC-SHA256(provider_uid, per_region_pepper)` as `bytea` in `auth.identities`. Never store the plaintext provider UID in the `auth` schema.
+Store `provider_uid_hmac = HMAC-SHA256(provider_uid, per_region_pepper)` as `bytea` in `auth.identities`. Never store the plaintext provider UID in `auth.identities` (the identity-link index). See the 2026-06-15 amendment below for the separate treatment of `auth.users.email` (the user's contact address).
 
 `per_region_pepper` is:
 - A secret byte string, at least 32 bytes, generated once per region during initial provisioning
@@ -66,3 +66,35 @@ The HMAC is computed in the application (go-grad), not in the DB. The DB stores 
 **Bcrypt/Argon2id**: rejected for identity lookups. These are designed to be slow (login-time acceptable). Identity lookup happens on every magic-link verify — O(1) HMAC is sufficient and does not introduce latency on the verification path.
 
 **Encryption (AES-GCM)**: rejected. Encryption is reversible with the key; if the key leaks, all plaintext is exposed. HMAC is one-way even with key in hand — you can verify a candidate value but cannot recover the plaintext from the stored value alone.
+
+
+## Amendment 2026-06-15 — email contact address stored plaintext in `auth.users`
+
+This ADR governs the **identity-link index** (`auth.identities.provider_uid_hmac`),
+which stays HMAC-keyed as decided above. It does **not** govern the user's contact
+address.
+
+**Operator decision:** `auth.users.email` stores the email **in plaintext**
+(WordPress `wp_users.user_email` model). The Context premise — "plaintext is not
+needed for any operational purpose" — does not hold for the consumer product: the
+service must be able to email a registered user (login links, notifications,
+re-engagement, and later advertiser/consumer comms). Plaintext is the operational
+requirement, not an oversight.
+
+Implications:
+- `go-panel/identity.UserStore.UpsertIdentity` receives the raw email (in addition
+  to the HMAC) so go-grad can persist it. The HMAC remains the lookup key and the
+  `uidHash` still never contains the raw email (enforced by test).
+- The identities index keeps its rainbow-table resistance and multi-provider
+  generality: a VK ID / Google subject is still HMAC-only — those are not contact
+  addresses — so the HMAC index is retained even though, for the email provider
+  specifically, the plaintext address also lives one table over in `auth.users`.
+- **152-FZ basis** shifts from "minimization by non-storage" to "minimization to
+  only what is necessary + lawful basis": the email is the minimum PII required for
+  the communication purpose, collected under user consent at registration, confined
+  to the `auth` schema whose write-ownership is asserted by the F2 canary. A DB dump
+  exposes the plaintext email — an accepted, consent-backed tradeoff.
+- **Encryption-at-rest** for `auth.users.email` was considered and deferred: it adds
+  a reversible key whose leak exposes everything (see the Encryption rejection above)
+  while not removing the plaintext from application memory at send time. Revisit if a
+  future threat model requires dump-resistance for the contact column.

@@ -92,9 +92,10 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 			return
 		}
 
-		// ADR-002: the store only ever sees HMAC(email, pepper), never the raw email.
+		// ADR-002: the identity lookup KEY is HMAC(email, pepper); the raw email is
+		// forwarded separately as the contact address (stored plaintext by go-grad).
 		uidHash := a.cfg.Hasher([]byte(id.Email))
-		userID, _, err := a.cfg.Users.UpsertIdentity(ctx, id.ProviderName, uidHash)
+		userID, _, err := a.cfg.Users.UpsertIdentity(ctx, id.ProviderName, uidHash, id.Email)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: upsert identity failed", slog.String("err", err.Error()))
 			a.cfg.Observer.Observe(OpMagicVerify, OutcomeError, time.Since(start))

@@ -27,6 +27,7 @@ import (
 type upsertCall struct {
 	provider string
 	uidHash  []byte
+	email    string
 }
 
 type fakeUserStore struct {
@@ -42,8 +43,8 @@ type fakeUserStore struct {
 	linkUsers []string
 }
 
-func (f *fakeUserStore) UpsertIdentity(_ context.Context, prov string, uidHash []byte) (string, bool, error) {
-	f.upserts = append(f.upserts, upsertCall{provider: prov, uidHash: append([]byte(nil), uidHash...)})
+func (f *fakeUserStore) UpsertIdentity(_ context.Context, prov string, uidHash []byte, email string) (string, bool, error) {
+	f.upserts = append(f.upserts, upsertCall{provider: prov, uidHash: append([]byte(nil), uidHash...), email: email})
 	return f.userID, f.created, f.upsertErr
 }
 
@@ -331,10 +332,12 @@ func TestMagicVerifySetsCookieAndRedirects(t *testing.T) {
 	}
 }
 
-// TestMagicVerifyHashesEmailWithPepper locks the ADR-002 wiring: the store
-// receives HMAC-SHA256(email, pepper), never the raw email. Falsifiability: if
-// the handler passed the raw email bytes, the comparison to the hasher output
-// fails.
+// TestMagicVerifyHashesEmailWithPepper locks the ADR-002 wiring: the identity
+// LOOKUP KEY handed to the store is HMAC-SHA256(email, pepper), not a plaintext
+// key, while the raw email is passed separately as the user's contact address.
+// Falsifiability: if the handler passed the raw email bytes as the key, the
+// hash comparison fails; if it stopped forwarding the contact email, the email
+// assertion fails.
 func TestMagicVerifyHashesEmailWithPepper(t *testing.T) {
 	h := newHarness(t)
 	rec := httptest.NewRecorder()
@@ -354,7 +357,10 @@ func TestMagicVerifyHashesEmailWithPepper(t *testing.T) {
 	}
 	want := newHasher(t, testPepper).Hash([]byte(testEmail))
 	if !bytes.Equal(got.uidHash, want) {
-		t.Fatalf("uidHash = %x, want HMAC %x (raw email must never reach the store)", got.uidHash, want)
+		t.Fatalf("uidHash = %x, want HMAC %x (the identity lookup key stays hashed)", got.uidHash, want)
+	}
+	if got.email != testEmail {
+		t.Fatalf("store contact email = %q, want raw %q (persisted plaintext per operator decision)", got.email, testEmail)
 	}
 	if bytes.Contains(got.uidHash, []byte(testEmail)) {
 		t.Fatal("raw email present in uidHash bytes")
