@@ -42,27 +42,34 @@ func MagicStartHandler(a *PublicAuthenticator) http.Handler {
 			return
 		}
 		ctx := r.Context()
+		start := time.Now()
 		emailAddr, returnTo := parseStartRequest(r)
 
 		// Every path below collapses to 204 (no enumeration).
 		defer w.WriteHeader(http.StatusNoContent)
 
 		if !validEmail(emailAddr) {
+			a.cfg.Observer.Observe(OpMagicStart, OutcomeBadRequest, time.Since(start))
 			return
 		}
 		if !a.allowStart(ctx, emailAddr, a.cfg.ClientIP(r)) {
+			a.cfg.Observer.Observe(OpMagicStart, OutcomeRateLimited, time.Since(start))
 			return
 		}
 		token, err := a.magic.Start(ctx, emailAddr)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: magic start failed", slog.String("err", err.Error()))
+			a.cfg.Observer.Observe(OpMagicStart, OutcomeError, time.Since(start))
 			return
 		}
 		link := a.magicLink(token, returnTo)
 		htmlBody, textBody := magicEmailBodies(link)
 		if err := a.cfg.Email.Send(ctx, emailAddr, a.cfg.EmailSubject, htmlBody, textBody); err != nil {
 			a.log.ErrorContext(ctx, "identity: magic email send failed", slog.String("err", err.Error()))
+			a.cfg.Observer.Observe(OpMagicStart, OutcomeError, time.Since(start))
+			return
 		}
+		a.cfg.Observer.Observe(OpMagicStart, OutcomeOK, time.Since(start))
 	})
 }
 
@@ -76,9 +83,11 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 			return
 		}
 		ctx := r.Context()
+		start := time.Now()
 
 		id, err := a.magic.Verify(ctx, r.URL.Query().Get("token"))
 		if err != nil {
+			a.cfg.Observer.Observe(OpMagicVerify, OutcomeInvalidToken, time.Since(start))
 			a.redirectLogin(w, r)
 			return
 		}
@@ -88,12 +97,14 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 		userID, _, err := a.cfg.Users.UpsertIdentity(ctx, id.ProviderName, uidHash)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: upsert identity failed", slog.String("err", err.Error()))
+			a.cfg.Observer.Observe(OpMagicVerify, OutcomeError, time.Since(start))
 			a.redirectLogin(w, r)
 			return
 		}
 		snap, err := a.cfg.Users.GetUserSnapshot(ctx, userID)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: snapshot failed", slog.String("err", err.Error()))
+			a.cfg.Observer.Observe(OpMagicVerify, OutcomeError, time.Since(start))
 			a.redirectLogin(w, r)
 			return
 		}
@@ -104,6 +115,7 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 		newSID, err := a.cfg.Sessions.Create(ctx, a.stampSnapshot(snap), a.cfg.SessionTTL)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: session create failed", slog.String("err", err.Error()))
+			a.cfg.Observer.Observe(OpMagicVerify, OutcomeError, time.Since(start))
 			a.redirectLogin(w, r)
 			return
 		}
@@ -123,6 +135,7 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 		ck.MaxAge = int(a.cfg.SessionTTL.Seconds())
 		http.SetCookie(w, ck)
 
+		a.cfg.Observer.Observe(OpMagicVerify, OutcomeOK, time.Since(start))
 		http.Redirect(w, r, safeReturnURL(r.URL.Query().Get("return"), r.Host), http.StatusFound)
 	})
 }
@@ -139,12 +152,14 @@ func LogoutHandler(a *PublicAuthenticator) http.Handler {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		start := time.Now()
 		if sid := cookieValue(r, a.cfg.Cookie.Name); sid != "" {
 			if err := a.cfg.Sessions.Revoke(r.Context(), sid); err != nil {
 				a.log.WarnContext(r.Context(), "identity: logout revoke failed", slog.String("err", err.Error()))
 			}
 		}
 		http.SetCookie(w, a.cfg.Cookie.Expire(r.Host))
+		a.cfg.Observer.Observe(OpLogout, OutcomeOK, time.Since(start))
 		http.Redirect(w, r, rootPath, http.StatusFound)
 	})
 }
@@ -163,13 +178,16 @@ func LinkDeviceHandler(a *PublicAuthenticator) http.Handler {
 			return
 		}
 		ctx := r.Context()
+		start := time.Now()
 		sid := cookieValue(r, a.cfg.Cookie.Name)
 		if sid == "" {
+			a.cfg.Observer.Observe(OpLinkDevice, OutcomeBadRequest, time.Since(start))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		snap, err := a.cfg.Sessions.Get(ctx, sid)
 		if err != nil {
+			a.cfg.Observer.Observe(OpLinkDevice, OutcomeInvalidToken, time.Since(start))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -178,14 +196,17 @@ func LinkDeviceHandler(a *PublicAuthenticator) http.Handler {
 			Epid string `json:"epid"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, maxBodyBytes)).Decode(&body); err != nil || body.Epid == "" {
+			a.cfg.Observer.Observe(OpLinkDevice, OutcomeBadRequest, time.Since(start))
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		if err := a.cfg.Users.LinkDevice(ctx, body.Epid, snap.UserID); err != nil {
 			a.log.ErrorContext(ctx, "identity: link device failed", slog.String("err", err.Error()))
+			a.cfg.Observer.Observe(OpLinkDevice, OutcomeError, time.Since(start))
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		a.cfg.Observer.Observe(OpLinkDevice, OutcomeOK, time.Since(start))
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
