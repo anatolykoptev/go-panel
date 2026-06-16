@@ -55,15 +55,12 @@ func TestHasherIsHMACSHA256(t *testing.T) {
 	}
 }
 
-// TestHasherFunc verifies the Hash method can be passed as a func([]byte) []byte,
-// which is how PublicAuthenticator.Config.Hasher consumes it.
+// TestHasherFunc verifies the Hash method is assignable to Config.Hasher (a
+// func([]byte) []byte), which is how the handlers consume it.
 func TestHasherFunc(t *testing.T) {
 	h := identity.NewProviderUIDHasher([]byte("pepper-32-bytes-dddddddddddddddd"))
-	var fn func([]byte) []byte = h.Hash
-	if fn == nil {
-		t.Fatal("Hash method not assignable to func([]byte) []byte")
-	}
-	if len(fn([]byte("x"))) != sha256.Size {
+	cfg := identity.Config{Hasher: h.Hash} // compiles only if the types match
+	if len(cfg.Hasher([]byte("x"))) != sha256.Size {
 		t.Fatal("Hasher func produced wrong-length output")
 	}
 }

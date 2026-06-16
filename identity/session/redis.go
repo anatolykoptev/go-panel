@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -126,7 +127,7 @@ func (s *RedisSessionStore) Revoke(ctx context.Context, sid string) error {
 	// Learn the owning user so we can also prune the index set.
 	uid, err := s.rdb.HGet(ctx, sessKey(sid), fUserID).Result()
 	switch {
-	case err == redis.Nil:
+	case errors.Is(err, redis.Nil):
 		// Session already gone; nothing to remove from any set.
 		return nil
 	case err != nil:
