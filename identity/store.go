@@ -18,7 +18,8 @@ import (
 // storing the address.
 type UserStore interface {
 	// UpsertIdentity finds or creates the user+identity for (provider, uidHash),
-	// recording email as the user's contact address when a new user is created.
+	// recording email as the user's contact address (forwarded on every verify;
+	// the store decides insert-only vs. update-on-login).
 	// Returns the user id and whether a new user was created.
 	UpsertIdentity(ctx context.Context, provider string, uidHash []byte, email string) (userID string, created bool, err error)
 	// GetUserSnapshot returns the session snapshot (identity + memberships) for a
