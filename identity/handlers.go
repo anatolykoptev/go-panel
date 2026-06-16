@@ -21,6 +21,14 @@ const (
 
 	// maxBodyBytes bounds request bodies parsed by these handlers.
 	maxBodyBytes = 1 << 16
+
+	// maxEmailLen is the RFC 5321 maximum address length.
+	maxEmailLen = 254
+	// minPrintable is the first printable ASCII byte; anything below it (CR, LF,
+	// NUL, etc.) is a control character and is rejected to prevent header
+	// injection when the address is interpolated into an email header.
+	minPrintable = 0x20
+	delChar      = 0x7f
 )
 
 // MagicStartHandler begins the passwordless flow. It ALWAYS returns 204 — for a
@@ -42,7 +50,7 @@ func MagicStartHandler(a *PublicAuthenticator) http.Handler {
 		if !validEmail(emailAddr) {
 			return
 		}
-		if !a.allowStart(ctx, emailAddr, clientIP(r)) {
+		if !a.allowStart(ctx, emailAddr, a.cfg.ClientIP(r)) {
 			return
 		}
 		token, err := a.magic.Start(ctx, emailAddr)
@@ -71,7 +79,7 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 
 		id, err := a.magic.Verify(ctx, r.URL.Query().Get("token"))
 		if err != nil {
-			http.Redirect(w, r, a.cfg.LoginPath, http.StatusFound)
+			a.redirectLogin(w, r)
 			return
 		}
 
@@ -80,13 +88,13 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 		userID, _, err := a.cfg.Users.UpsertIdentity(ctx, id.ProviderName, uidHash)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: upsert identity failed", slog.String("err", err.Error()))
-			http.Redirect(w, r, a.cfg.LoginPath, http.StatusFound)
+			a.redirectLogin(w, r)
 			return
 		}
 		snap, err := a.cfg.Users.GetUserSnapshot(ctx, userID)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: snapshot failed", slog.String("err", err.Error()))
-			http.Redirect(w, r, a.cfg.LoginPath, http.StatusFound)
+			a.redirectLogin(w, r)
 			return
 		}
 
@@ -96,7 +104,7 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 		newSID, err := a.cfg.Sessions.Create(ctx, a.stampSnapshot(snap), a.cfg.SessionTTL)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: session create failed", slog.String("err", err.Error()))
-			http.Redirect(w, r, a.cfg.LoginPath, http.StatusFound)
+			a.redirectLogin(w, r)
 			return
 		}
 		if oldSID != "" {
@@ -120,6 +128,11 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 }
 
 // LogoutHandler revokes the current session and expires the cookie.
+//
+// CSRF posture: this is a state-changing POST protected by the session cookie's
+// SameSite=Lax attribute (a cross-site POST does not carry the cookie). If a
+// deployment needs stronger protection it should wrap this handler with the
+// repo's csrf package before mounting.
 func LogoutHandler(a *PublicAuthenticator) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -138,6 +151,11 @@ func LogoutHandler(a *PublicAuthenticator) http.Handler {
 
 // LinkDeviceHandler links an anonymous device id to the authenticated user. It
 // requires a live session.
+//
+// CSRF posture: state-changing POST guarded by SameSite=Lax plus the
+// application/json content-type requirement (which forces a CORS preflight for
+// cross-origin callers). Wrap with the csrf package if stronger protection is
+// required.
 func LinkDeviceHandler(a *PublicAuthenticator) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -186,9 +204,23 @@ func parseStartRequest(r *http.Request) (emailAddr, returnTo string) {
 	return strings.TrimSpace(r.FormValue("email")), r.FormValue("return")
 }
 
-// validEmail is a deliberately minimal syntactic check: one "@", a non-empty
-// local part, and a dotted domain. Deliverability is the provider's concern.
+// validEmail is a deliberately minimal syntactic check: bounded length, no
+// control characters, one "@", a non-empty local part, and a dotted domain.
+// Deliverability is the provider's concern.
+//
+// Rejecting control characters (CR, LF, NUL, …) here is security-load-bearing:
+// the address is interpolated into email headers downstream, and a pluggable
+// EmailSender (e.g. an HTTP API backend) without its own guard would otherwise
+// permit header injection (Bcc smuggling → magic-link token theft).
 func validEmail(s string) bool {
+	if len(s) == 0 || len(s) > maxEmailLen {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < minPrintable || s[i] == delChar {
+			return false
+		}
+	}
 	at := strings.IndexByte(s, '@')
 	if at <= 0 || at == len(s)-1 {
 		return false
@@ -240,6 +272,10 @@ func (a *PublicAuthenticator) stampSnapshot(s session.UserSnapshot) session.User
 	return s
 }
 
+func (a *PublicAuthenticator) redirectLogin(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, a.cfg.LoginPath, http.StatusFound)
+}
+
 func cookieValue(r *http.Request, name string) string {
 	c, err := r.Cookie(name)
 	if err != nil {
@@ -257,6 +293,14 @@ func safeReturnURL(raw, host string) string {
 	}
 	if strings.HasPrefix(raw, "//") || strings.HasPrefix(raw, `/\`) || strings.HasPrefix(raw, `\`) {
 		return rootPath
+	}
+	// Defense-in-depth: reject a percent-encoded "//"/"/\" that decodes to a
+	// protocol-relative target (non-exploitable in Go's http.Redirect today, but
+	// cheap to guard).
+	if dec, err := url.PathUnescape(raw); err == nil {
+		if strings.HasPrefix(dec, "//") || strings.HasPrefix(dec, `/\`) {
+			return rootPath
+		}
 	}
 	u, err := url.Parse(raw)
 	if err != nil {

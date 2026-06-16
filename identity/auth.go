@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/anatolykoptev/go-panel/identity/email"
@@ -20,7 +21,6 @@ const (
 	defaultMagicProviderName = "email"
 	defaultLoginPath         = "/login"
 	defaultEmailSubject      = "Sign in"
-	defaultMagicTTL          = 15 * time.Minute
 	defaultSessionTTL        = 30 * 24 * time.Hour
 
 	// verifyPath is the path appended to BaseURL for the emitted magic link.
@@ -50,6 +50,11 @@ type Config struct {
 	Cookie      CookieConfig
 	BaseURL     string
 
+	// MagicTTL is the magic-link lifetime go-grad uses when CONSTRUCTING the
+	// MagicLinkProvider. It is surfaced here for config cohesion; the
+	// authenticator does not re-apply it (the provider owns and caps its own TTL
+	// at 15 min). Setting it here without also passing it to magiclink.New has no
+	// effect on an already-registered provider.
 	MagicTTL   time.Duration
 	SessionTTL time.Duration
 	EmailRate  RateRule // per-email magic-start throttle
@@ -63,6 +68,13 @@ type Config struct {
 	LoginPath string
 	// EmailSubject is the magic-link email subject (default "Sign in").
 	EmailSubject string
+
+	// ClientIP extracts the client IP used for the per-IP magic-start throttle.
+	// It defaults to r.RemoteAddr's host. DEPLOYERS BEHIND A REVERSE PROXY MUST
+	// override this with a trusted-hop X-Forwarded-For parser — otherwise every
+	// request carries the proxy's IP and the per-IP limit collapses into one
+	// shared bucket (ineffective throttle / accidental site-wide DoS).
+	ClientIP func(*http.Request) string
 
 	Logger *slog.Logger
 }
@@ -138,11 +150,11 @@ func applyDefaults(cfg Config) Config {
 	if cfg.EmailSubject == "" {
 		cfg.EmailSubject = defaultEmailSubject
 	}
-	if cfg.MagicTTL <= 0 {
-		cfg.MagicTTL = defaultMagicTTL
-	}
 	if cfg.SessionTTL <= 0 {
 		cfg.SessionTTL = defaultSessionTTL
+	}
+	if cfg.ClientIP == nil {
+		cfg.ClientIP = clientIP
 	}
 	return cfg
 }

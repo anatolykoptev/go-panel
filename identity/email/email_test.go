@@ -67,6 +67,25 @@ func TestSMTPSenderSendsToRecipient(t *testing.T) {
 	}
 }
 
+// TestBuildMessageRejectsHeaderInjection locks the defense-in-depth guard against
+// SMTP header injection: a CR/LF in any header value must error, never produce a
+// message with a smuggled extra header. Falsifiability: removing the CR/LF check
+// in buildMessage makes this return a nil error and an injected message.
+func TestBuildMessageRejectsHeaderInjection(t *testing.T) {
+	cases := []struct{ name, from, to, subject string }{
+		{"crlf in to", "f@x.com", "victim@x.com\r\nBcc: attacker@evil.com", "Sign in"},
+		{"lf in subject", "f@x.com", "a@b.com", "Sign in\nBcc: attacker@evil.com"},
+		{"cr in from", "f@x.com\rX-Spoof: 1", "a@b.com", "Sign in"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := buildMessage(tc.from, tc.to, tc.subject, "<p>x</p>", "x"); err == nil {
+				t.Fatal("buildMessage accepted a CR/LF header value (header injection)")
+			}
+		})
+	}
+}
+
 func TestSMTPSenderPropagatesError(t *testing.T) {
 	s := NewSMTPSender(SMTPConfig{Host: "h", Port: 25, From: "f@x"})
 	sentinel := errors.New("smtp down")

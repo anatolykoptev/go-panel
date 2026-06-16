@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
@@ -58,7 +59,16 @@ const boundaryBytes = 16
 
 // buildMessage renders an RFC 5322 / MIME multipart/alternative message with a
 // plain-text and an HTML part.
+//
+// Header values are rejected if they contain CR or LF: interpolating an
+// attacker-controlled address/subject into a header line would otherwise allow
+// header injection (RFC 5322 §2.2). This is defense-in-depth behind validEmail.
 func buildMessage(from, to, subject, htmlBody, textBody string) ([]byte, error) {
+	for _, h := range []string{from, to, subject} {
+		if strings.ContainsAny(h, "\r\n") {
+			return nil, errors.New("identity/email: header value contains CR/LF")
+		}
+	}
 	b := make([]byte, boundaryBytes)
 	if _, err := rand.Read(b); err != nil {
 		return nil, fmt.Errorf("identity/email: boundary: %w", err)

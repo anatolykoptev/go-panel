@@ -198,6 +198,10 @@ func TestMagicStartAlways204(t *testing.T) {
 		{"malformed email no send", `{"email":"not-an-email"}`, true, 0},
 		{"rate limited no send", `{"email":"alice@example.com"}`, false, 0},
 		{"empty body no send", `{}`, true, 0},
+		// CRLF in the address would smuggle headers; validEmail must reject it so
+		// no email is sent. Falsifiable: drop the control-char check and a send
+		// occurs (wantSends becomes 1).
+		{"crlf injection no send", `{"email":"a@b.co\r\nBcc:x@y.com"}`, true, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -233,6 +237,51 @@ func TestMagicStartRateLimitsEmailAndIP(t *testing.T) {
 	}
 	if !sawEmailKey || !sawIPKey {
 		t.Fatalf("rate-limit keys = %v, want both per-email and per-IP", h.rl.keys)
+	}
+}
+
+// TestMagicStartUsesConfigClientIP locks the per-IP throttle seam: a custom
+// Config.ClientIP (e.g. an XFF parser behind a proxy) is used for the IP key,
+// not r.RemoteAddr. Falsifiability: if the handler hardcoded RemoteAddr, the
+// per-IP key would contain 203.0.113.7, not the override.
+func TestMagicStartUsesConfigClientIP(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ml := magiclink.New(rdb, []byte(testPepper), 10*time.Minute)
+	reg := provider.NewRegistry()
+	reg.Register(ml)
+	rl := &fakeRateLimiter{allow: true}
+
+	auth, err := identity.New(identity.Config{
+		Registry: reg, Sessions: session.NewRedisSessionStore(rdb),
+		Users:       &fakeUserStore{userID: "u"},
+		Email:       &fakeEmail{},
+		Hasher:      identity.NewProviderUIDHasher([]byte(testPepper)).Hash,
+		RateLimiter: rl, Cookie: identity.DefaultCookieConfig(), BaseURL: baseURL,
+		EmailRate: identity.RateRule{Limit: 5, Window: time.Minute},
+		IPRate:    identity.RateRule{Limit: 20, Window: time.Minute},
+		ClientIP:  func(*http.Request) string { return "10.9.9.9" },
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	identity.MagicStartHandler(auth).ServeHTTP(rec, postJSON("/auth/magic/start", `{"email":"alice@example.com"}`))
+
+	var sawOverride bool
+	for _, k := range rl.keys {
+		if strings.Contains(k, "10.9.9.9") {
+			sawOverride = true
+		}
+		if strings.Contains(k, "203.0.113.7") {
+			t.Fatalf("per-IP key used RemoteAddr, not Config.ClientIP: %v", rl.keys)
+		}
+	}
+	if !sawOverride {
+		t.Fatalf("Config.ClientIP override not used; keys = %v", rl.keys)
 	}
 }
 
