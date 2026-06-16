@@ -182,6 +182,8 @@ func New(cfg Config) *Panel {
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
 	p.mux.Handle(bp+"/login", cfg.Auth.LoginHandler())
 	p.mux.Handle(bp+"/logout", cfg.Auth.LogoutHandler())
+	// Index route: redirect to the first real resource (or show a minimal page).
+	p.mux.HandleFunc("GET "+bp+"/{$}", p.auth.Require(p.handleIndex))
 	return p
 }
 
@@ -189,6 +191,24 @@ func New(cfg Config) *Panel {
 // Mount at the admin path (e.g. /admin/) in your app mux.
 func (p *Panel) Handler() http.Handler {
 	return p.mux
+}
+
+// handleIndex serves GET {basePath}/{$} (the bare base path).
+// Authenticated: redirects to the first registered resource with a non-empty URL.
+// If no resources are registered, returns a minimal 200 HTML page.
+// Unauthenticated: handled by p.auth.Require before this is reached.
+func (p *Panel) handleIndex(w http.ResponseWriter, r *http.Request) {
+	for _, n := range p.nav {
+		// Skip group headers (empty URL, ID prefixed with "group:").
+		if n.URL == "" {
+			continue
+		}
+		http.Redirect(w, r, n.URL, http.StatusSeeOther)
+		return
+	}
+	// No resources registered yet — return a minimal placeholder page.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte("<html><body><h1>Admin</h1><p>No resources registered yet.</p></body></html>"))
 }
 
 // NavItems returns a snapshot of registered nav items (for testing/introspection).
