@@ -94,7 +94,7 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 
 		// ADR-002: the store only ever sees HMAC(email, pepper), never the raw email.
 		uidHash := a.cfg.Hasher([]byte(id.Email))
-		userID, _, err := a.cfg.Users.UpsertIdentity(ctx, id.ProviderName, uidHash)
+		userID, _, err := a.cfg.Users.UpsertIdentity(ctx, id.ProviderName, uidHash, id.Email)
 		if err != nil {
 			a.log.ErrorContext(ctx, "identity: upsert identity failed", slog.String("err", err.Error()))
 			a.cfg.Observer.Observe(OpMagicVerify, OutcomeError, time.Since(start))

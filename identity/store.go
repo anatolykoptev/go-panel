@@ -10,12 +10,17 @@ import (
 // UserStore is the persistence seam implemented by go-grad/identitystore over
 // pgxpool. The framework depends only on this interface; it never imports go-grad.
 //
-// Provider UIDs are passed already hashed (HMAC-SHA256 with the per-region
-// pepper, ADR-002): the store sees only opaque bytes, never a raw email.
+// The provider UID is passed already hashed (HMAC-SHA256 with the per-region
+// pepper, ADR-002) and serves as the identity-lookup key. The raw email is ALSO
+// passed so the store can persist it as the user's contact address (operator
+// decision: plaintext email, WordPress wp_users style — needed to email
+// registered users later). The HMAC stays the lookup index; it does not replace
+// storing the address.
 type UserStore interface {
-	// UpsertIdentity finds or creates the user+identity for (provider, uidHash).
+	// UpsertIdentity finds or creates the user+identity for (provider, uidHash),
+	// recording email as the user's contact address when a new user is created.
 	// Returns the user id and whether a new user was created.
-	UpsertIdentity(ctx context.Context, provider string, uidHash []byte) (userID string, created bool, err error)
+	UpsertIdentity(ctx context.Context, provider string, uidHash []byte, email string) (userID string, created bool, err error)
 	// GetUserSnapshot returns the session snapshot (identity + memberships) for a
 	// user, used to populate a new session.
 	GetUserSnapshot(ctx context.Context, userID string) (session.UserSnapshot, error)
