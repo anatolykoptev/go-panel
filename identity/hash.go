@@ -10,7 +10,15 @@ package identity
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"fmt"
 )
+
+// MinPepperLen is the minimum accepted pepper length in bytes. A pepper shorter
+// than the HMAC-SHA256 output (32 bytes / 256 bits) weakens the keyed hash toward
+// brute-force / rainbow recovery of the small-keyspace identifiers it protects
+// (ADR-002). Construction fails below this floor rather than silently accepting a
+// weak or empty key (SEC-CR-001).
+const MinPepperLen = 32
 
 // ProviderUIDHasher computes HMAC-SHA256(value, pepper) for provider-uid storage.
 //
@@ -25,11 +33,14 @@ type ProviderUIDHasher struct {
 // NewProviderUIDHasher returns a hasher keyed by pepper. The pepper is a secret
 // (≥32 bytes recommended) injected by go-grad from AUTH_IDENTITY_PEPPER; it is
 // never read from a package global (ADR-001/002).
-func NewProviderUIDHasher(pepper []byte) *ProviderUIDHasher {
+func NewProviderUIDHasher(pepper []byte) (*ProviderUIDHasher, error) {
+	if len(pepper) < MinPepperLen {
+		return nil, fmt.Errorf("identity: pepper must be at least %d bytes, got %d", MinPepperLen, len(pepper))
+	}
 	// Copy so callers cannot mutate the key underneath us.
 	cp := make([]byte, len(pepper))
 	copy(cp, pepper)
-	return &ProviderUIDHasher{pepper: cp}
+	return &ProviderUIDHasher{pepper: cp}, nil
 }
 
 // Hash returns HMAC-SHA256(value, pepper). The output is 32 bytes. The method

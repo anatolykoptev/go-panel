@@ -45,6 +45,10 @@ const (
 	magicPrefix = "magic:"
 	tokenBytes  = 48 // 16-byte selector + 32-byte (256-bit) verifier
 	selectorLen = 16
+
+	// minPepperLen mirrors identity.MinPepperLen (32): the keyed-HMAC pepper floor,
+	// kept local to avoid a package dependency on identity.
+	minPepperLen = 32
 )
 
 // MagicLinkProvider implements provider.Provider plus Start/Verify.
@@ -63,13 +67,16 @@ type magicRecord struct {
 
 // New returns a MagicLinkProvider. ttl is clamped to (0, MaxTTL]; a non-positive
 // or over-long ttl falls back to MaxTTL so the ≤15min invariant holds structurally.
-func New(rdb redis.Cmdable, pepper []byte, ttl time.Duration) *MagicLinkProvider {
+func New(rdb redis.Cmdable, pepper []byte, ttl time.Duration) (*MagicLinkProvider, error) {
+	if len(pepper) < minPepperLen {
+		return nil, fmt.Errorf("identity/magiclink: pepper must be at least %d bytes, got %d", minPepperLen, len(pepper))
+	}
 	if ttl <= 0 || ttl > MaxTTL {
 		ttl = MaxTTL
 	}
 	cp := make([]byte, len(pepper))
 	copy(cp, pepper)
-	return &MagicLinkProvider{rdb: rdb, pepper: cp, ttl: ttl}
+	return &MagicLinkProvider{rdb: rdb, pepper: cp, ttl: ttl}, nil
 }
 
 // Name implements provider.Provider.

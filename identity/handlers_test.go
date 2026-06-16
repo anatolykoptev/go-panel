@@ -103,7 +103,10 @@ func newHarness(t *testing.T) *harness {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 
-	ml := magiclink.New(rdb, []byte(testPepper), 10*time.Minute)
+	ml, err := magiclink.New(rdb, []byte(testPepper), 10*time.Minute)
+	if err != nil {
+		t.Fatalf("magiclink.New: %v", err)
+	}
 	reg := provider.NewRegistry()
 	reg.Register(ml)
 
@@ -124,7 +127,7 @@ func newHarness(t *testing.T) *harness {
 		Sessions:    sess,
 		Users:       users,
 		Email:       mail,
-		Hasher:      identity.NewProviderUIDHasher([]byte(testPepper)).Hash,
+		Hasher:      newHasher(t, testPepper).Hash,
 		RateLimiter: rl,
 		Cookie:      identity.DefaultCookieConfig(),
 		BaseURL:     baseURL,
@@ -248,7 +251,10 @@ func TestMagicStartUsesConfigClientIP(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	ml := magiclink.New(rdb, []byte(testPepper), 10*time.Minute)
+	ml, err := magiclink.New(rdb, []byte(testPepper), 10*time.Minute)
+	if err != nil {
+		t.Fatalf("magiclink.New: %v", err)
+	}
 	reg := provider.NewRegistry()
 	reg.Register(ml)
 	rl := &fakeRateLimiter{allow: true}
@@ -257,7 +263,7 @@ func TestMagicStartUsesConfigClientIP(t *testing.T) {
 		Registry: reg, Sessions: session.NewRedisSessionStore(rdb),
 		Users:       &fakeUserStore{userID: "u"},
 		Email:       &fakeEmail{},
-		Hasher:      identity.NewProviderUIDHasher([]byte(testPepper)).Hash,
+		Hasher:      newHasher(t, testPepper).Hash,
 		RateLimiter: rl, Cookie: identity.DefaultCookieConfig(), BaseURL: baseURL,
 		EmailRate: identity.RateRule{Limit: 5, Window: time.Minute},
 		IPRate:    identity.RateRule{Limit: 20, Window: time.Minute},
@@ -346,7 +352,7 @@ func TestMagicVerifyHashesEmailWithPepper(t *testing.T) {
 	if got.provider != "email" {
 		t.Fatalf("provider = %q, want email", got.provider)
 	}
-	want := identity.NewProviderUIDHasher([]byte(testPepper)).Hash([]byte(testEmail))
+	want := newHasher(t, testPepper).Hash([]byte(testEmail))
 	if !bytes.Equal(got.uidHash, want) {
 		t.Fatalf("uidHash = %x, want HMAC %x (raw email must never reach the store)", got.uidHash, want)
 	}

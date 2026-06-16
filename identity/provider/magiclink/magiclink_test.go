@@ -26,7 +26,11 @@ func newProvider(t *testing.T) (*magiclink.MagicLinkProvider, *miniredis.Minired
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	return magiclink.New(rdb, []byte(testPepper), testTTL), mr
+	p, err := magiclink.New(rdb, []byte(testPepper), testTTL)
+	if err != nil {
+		t.Fatalf("magiclink.New: %v", err)
+	}
+	return p, mr
 }
 
 func TestProviderMetadata(t *testing.T) {
@@ -107,7 +111,10 @@ func TestTTLCappedAt15Min(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	p := magiclink.New(rdb, []byte(testPepper), 24*time.Hour) // absurdly long
+	p, err := magiclink.New(rdb, []byte(testPepper), 24*time.Hour) // absurdly long
+	if err != nil {
+		t.Fatalf("magiclink.New: %v", err)
+	}
 	ctx := context.Background()
 
 	if _, err := p.Start(ctx, testEmail); err != nil {
@@ -190,5 +197,19 @@ func TestTokensAreRandom(t *testing.T) {
 	t2, _ := p.Start(ctx, testEmail)
 	if t1 == t2 {
 		t.Fatal("two Start calls produced identical tokens — not crypto-random")
+	}
+}
+
+// TestNewRejectsShortPepper locks SEC-CR-001 for the magic-link provider: a
+// short, empty, or nil pepper is rejected at construction. With a weak pepper
+// the keyed-HMAC selector/verifier records become forgeable.
+func TestNewRejectsShortPepper(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	for _, pepper := range [][]byte{nil, {}, []byte("short")} {
+		if _, err := magiclink.New(rdb, pepper, testTTL); err == nil {
+			t.Fatalf("magiclink.New accepted a %d-byte pepper; want error", len(pepper))
+		}
 	}
 }

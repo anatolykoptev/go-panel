@@ -14,7 +14,7 @@ import (
 // nonce (non-deterministic), the two outputs would differ and this test fails —
 // which would also break O(1) identity lookups (ADR-002).
 func TestHasherDeterminism(t *testing.T) {
-	h := identity.NewProviderUIDHasher([]byte("pepper-32-bytes-aaaaaaaaaaaaaaaa"))
+	h := newHasher(t, "pepper-32-bytes-aaaaaaaaaaaaaaaa")
 	a := h.Hash([]byte("alice@example.com"))
 	b := h.Hash([]byte("alice@example.com"))
 	if !bytes.Equal(a, b) {
@@ -30,8 +30,8 @@ func TestHasherDeterminism(t *testing.T) {
 // (e.g. bare sha256.Sum256 instead of HMAC-with-pepper), both outputs would be
 // equal and this test fails — that is exactly the ADR-002 rainbow-table hole.
 func TestHasherPepperSensitivity(t *testing.T) {
-	h1 := identity.NewProviderUIDHasher([]byte("pepper-one-aaaaaaaaaaaaaaaaaaaaaa"))
-	h2 := identity.NewProviderUIDHasher([]byte("pepper-two-bbbbbbbbbbbbbbbbbbbbbb"))
+	h1 := newHasher(t, "pepper-one-aaaaaaaaaaaaaaaaaaaaaa")
+	h2 := newHasher(t, "pepper-two-bbbbbbbbbbbbbbbbbbbbbb")
 	a := h1.Hash([]byte("alice@example.com"))
 	b := h2.Hash([]byte("alice@example.com"))
 	if bytes.Equal(a, b) {
@@ -44,7 +44,7 @@ func TestHasherPepperSensitivity(t *testing.T) {
 func TestHasherIsHMACSHA256(t *testing.T) {
 	pepper := []byte("pepper-32-bytes-cccccccccccccccc")
 	value := []byte("alice@example.com")
-	h := identity.NewProviderUIDHasher(pepper)
+	h := newHasher(t, string(pepper))
 
 	mac := hmac.New(sha256.New, pepper)
 	mac.Write(value)
@@ -58,9 +58,34 @@ func TestHasherIsHMACSHA256(t *testing.T) {
 // TestHasherFunc verifies the Hash method is assignable to Config.Hasher (a
 // func([]byte) []byte), which is how the handlers consume it.
 func TestHasherFunc(t *testing.T) {
-	h := identity.NewProviderUIDHasher([]byte("pepper-32-bytes-dddddddddddddddd"))
+	h := newHasher(t, "pepper-32-bytes-dddddddddddddddd")
 	cfg := identity.Config{Hasher: h.Hash} // compiles only if the types match
 	if len(cfg.Hasher([]byte("x"))) != sha256.Size {
 		t.Fatal("Hasher func produced wrong-length output")
+	}
+}
+
+func newHasher(t *testing.T, pepper string) *identity.ProviderUIDHasher {
+	t.Helper()
+	h, err := identity.NewProviderUIDHasher([]byte(pepper))
+	if err != nil {
+		t.Fatalf("NewProviderUIDHasher(%d bytes): %v", len(pepper), err)
+	}
+	return h
+}
+
+// TestHasherRejectsShortPepper locks SEC-CR-001: a pepper shorter than
+// MinPepperLen (or empty/nil) is rejected at construction, not silently
+// accepted. A weak pepper makes the keyed HMAC brute-forceable, enabling
+// provider-uid forgery and rainbow-table recovery of the protected identifiers.
+func TestHasherRejectsShortPepper(t *testing.T) {
+	weak := [][]byte{nil, {}, []byte("short"), make([]byte, identity.MinPepperLen-1)}
+	for _, pepper := range weak {
+		if _, err := identity.NewProviderUIDHasher(pepper); err == nil {
+			t.Fatalf("NewProviderUIDHasher accepted a weak %d-byte pepper; want error", len(pepper))
+		}
+	}
+	if _, err := identity.NewProviderUIDHasher(make([]byte, identity.MinPepperLen)); err != nil {
+		t.Fatalf("NewProviderUIDHasher rejected a %d-byte pepper: %v", identity.MinPepperLen, err)
 	}
 }
