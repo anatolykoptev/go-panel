@@ -153,13 +153,15 @@ func LogoutHandler(a *PublicAuthenticator) http.Handler {
 			return
 		}
 		start := time.Now()
+		outcome := OutcomeOK
 		if sid := cookieValue(r, a.cfg.Cookie.Name); sid != "" {
 			if err := a.cfg.Sessions.Revoke(r.Context(), sid); err != nil {
 				a.log.WarnContext(r.Context(), "identity: logout revoke failed", slog.String("err", err.Error()))
+				outcome = OutcomeError
 			}
 		}
 		http.SetCookie(w, a.cfg.Cookie.Expire(r.Host))
-		a.cfg.Observer.Observe(OpLogout, OutcomeOK, time.Since(start))
+		a.cfg.Observer.Observe(OpLogout, outcome, time.Since(start))
 		http.Redirect(w, r, rootPath, http.StatusFound)
 	})
 }

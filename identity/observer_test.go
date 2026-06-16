@@ -375,3 +375,78 @@ func TestObserverLinkDeviceInvalidSession(t *testing.T) {
 	}
 	h.obs.assertOne(t, identity.OpLinkDevice, identity.OutcomeInvalidToken)
 }
+
+// TestObserverMagicStartEmailSendError verifies that an email-send failure emits
+// exactly one (OpMagicStart, OutcomeError) and NOT a trailing OutcomeOK. This is
+// the load-bearing backstop for the explicit return on the Email.Send error
+// branch: if that return regressed, the handler would fall through to the
+// OutcomeOK emit and assertOne would see two calls.
+func TestObserverMagicStartEmailSendError(t *testing.T) {
+	h := newObsHarness(t)
+	h.mail.err = errors.New("smtp unavailable")
+	rec := httptest.NewRecorder()
+	identity.MagicStartHandler(h.auth).ServeHTTP(rec, postJSON("/auth/magic/start", `{"email":"alice@example.com"}`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (no enumeration)", rec.Code)
+	}
+	h.obs.assertOne(t, identity.OpMagicStart, identity.OutcomeError)
+}
+
+// TestObserverMagicVerifySnapshotError verifies that a GetUserSnapshot failure
+// after a successful upsert emits (OpMagicVerify, OutcomeError).
+func TestObserverMagicVerifySnapshotError(t *testing.T) {
+	h := newObsHarness(t)
+	h.users.snapErr = errors.New("snapshot db error")
+	rec := httptest.NewRecorder()
+	identity.MagicStartHandler(h.auth).ServeHTTP(rec, postJSON("/auth/magic/start", `{"email":"alice@example.com"}`))
+	token := h.extractToken(t)
+	h.obs.reset()
+	rec = httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/auth/magic/verify?token="+url.QueryEscape(token), nil)
+	identity.MagicVerifyHandler(h.auth).ServeHTTP(rec, r)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302 (redirect to login)", rec.Code)
+	}
+	h.obs.assertOne(t, identity.OpMagicVerify, identity.OutcomeError)
+}
+
+// TestObserverLinkDeviceLinkError verifies that a LinkDevice store failure on an
+// authenticated request emits (OpLinkDevice, OutcomeError) and returns 500.
+func TestObserverLinkDeviceLinkError(t *testing.T) {
+	h := newObsHarness(t)
+	h.users.linkErr = errors.New("link db error")
+	sid, err := h.sess.Create(context.Background(), h.users.snap, time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	r := postJSON("/auth/device/link", `{"epid":"device-42"}`)
+	r.AddCookie(&http.Cookie{Name: identity.DefaultCookieName, Value: sid})
+	identity.LinkDeviceHandler(h.auth).ServeHTTP(rec, r)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	h.obs.assertOne(t, identity.OpLinkDevice, identity.OutcomeError)
+}
+
+// TestObserverLogoutRevokeError verifies that when the server-side session revoke
+// fails, logout still expires the cookie and redirects (UX unchanged) but the
+// observation is (OpLogout, OutcomeError) so a session-leak logout is visible to
+// metrics. Falsifiability: if LogoutHandler hardcoded OutcomeOK, assertOne fails
+// on the outcome mismatch.
+func TestObserverLogoutRevokeError(t *testing.T) {
+	h := newObsHarness(t)
+	sid, err := h.sess.Create(context.Background(), h.users.snap, time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	h.mr.Close() // backing store down -> Revoke errors
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	r.AddCookie(&http.Cookie{Name: identity.DefaultCookieName, Value: sid})
+	identity.LogoutHandler(h.auth).ServeHTTP(rec, r)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302 (logout UX unchanged on revoke failure)", rec.Code)
+	}
+	h.obs.assertOne(t, identity.OpLogout, identity.OutcomeError)
+}
