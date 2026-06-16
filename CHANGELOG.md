@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0](https://github.com/anatolykoptev/go-panel/compare/v0.4.1...v0.5.0) (2026-06-16)
+
+
+### Features
+
+* **identity:** forward raw email to UserStore for plaintext contact storage ([#15](https://github.com/anatolykoptev/go-panel/issues/15)) ([5ff2ab9](https://github.com/anatolykoptev/go-panel/commit/5ff2ab94ca78dd6b8f709baafa04c6293a4c9105))
+* **identity:** observability seam — Observer interface on Config, RED outcomes at auth handlers ([#14](https://github.com/anatolykoptev/go-panel/issues/14)) ([034fc40](https://github.com/anatolykoptev/go-panel/commit/034fc40d6c61d2936c9fa530133f732a280369f5))
+* **identity:** public-auth framework — magic-link, Redis sessions, pepper-keyed provider-uid, exact-host cookies ([#13](https://github.com/anatolykoptev/go-panel/issues/13)) ([3304c40](https://github.com/anatolykoptev/go-panel/commit/3304c40520022eb98aad54c259f55057d2d277da))
+* **resource:** index route at base path — redirect unauth to login, land auth on first resource (fixes /admin/ 404) ([#10](https://github.com/anatolykoptev/go-panel/issues/10)) ([d5f9b86](https://github.com/anatolykoptev/go-panel/commit/d5f9b8697cd65da2fcc0d1bcbaaec21099d7cca7))
+
 ## [0.4.1](https://github.com/anatolykoptev/go-panel/compare/v0.4.0...v0.4.1) (2026-06-11)
 
 
