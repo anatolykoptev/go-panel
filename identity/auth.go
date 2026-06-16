@@ -76,6 +76,11 @@ type Config struct {
 	// shared bucket (ineffective throttle / accidental site-wide DoS).
 	ClientIP func(*http.Request) string
 
+	// Observer receives one observation per auth-operation outcome.
+	// Optional — defaults to NopObserver. The framework imports no metrics library;
+	// go-grad provides the concrete Prometheus implementation.
+	Observer Observer
+
 	Logger *slog.Logger
 }
 
@@ -155,6 +160,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.ClientIP == nil {
 		cfg.ClientIP = clientIP
+	}
+	if cfg.Observer == nil {
+		cfg.Observer = NopObserver{}
 	}
 	return cfg
 }
