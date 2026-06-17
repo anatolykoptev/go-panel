@@ -1,27 +1,26 @@
-GOWORK=off
-GO=go
-TEMPL=templ
-GOLANGCI_LINT=golangci-lint
+# go-panel — developer quality gate. `make check` is the pre-merge contract.
+.RECIPEPREFIX = >
+.PHONY: check build vet test race lint vuln
 
-.PHONY: generate build test lint check clean
+# GOWORK=off — this repo must build standalone (krolik has a stray ~/go.work).
+export GOWORK = off
 
-generate:
-	$(TEMPL) generate ./...
+check: build vet race lint vuln
 
-build: generate
-	GOWORK=off $(GO) build ./...
+build:
+> go build ./...
 
-test: generate
-	GOWORK=off $(GO) test -race ./...
+vet:
+> go vet ./...
 
-lint: generate
-	GOWORK=off $(GOLANGCI_LINT) run ./...
+test:
+> go test ./...
 
-check: lint test
+race:
+> go test -race ./...
 
-clean:
-	find . -name '*_templ.go' -delete
+lint:
+> golangci-lint run
 
-fmt:
-	$(TEMPL) fmt ./...
-	GOWORK=off $(GO) fmt ./...
+vuln:
+> go run golang.org/x/vuln/cmd/govulncheck@latest ./...
