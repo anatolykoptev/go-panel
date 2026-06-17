@@ -55,3 +55,19 @@ func TestRedisLimiter_WindowResetsAfterExpiry(t *testing.T) {
 		t.Errorf("after window expiry: want allowed, ok=%v err=%v", ok, err)
 	}
 }
+
+// TestRedisLimiter_FailsClosedOnRedisError asserts the security-relevant branch:
+// a Redis outage must DENY (return false + error), never silently allow. The
+// framework's allowStart treats a non-nil error as "deny", so a fail-OPEN here
+// would defeat the throttle during exactly the incident it must hold.
+func TestRedisLimiter_FailsClosedOnRedisError(t *testing.T) {
+	lim, mr := newLimiter(t)
+	mr.Close() // simulate a Redis outage
+	ok, err := lim.Allow(context.Background(), "k", 5, time.Minute)
+	if err == nil {
+		t.Fatalf("want a Redis error after outage, got nil")
+	}
+	if ok {
+		t.Errorf("on Redis error Allow MUST fail closed (false), got allowed")
+	}
+}
