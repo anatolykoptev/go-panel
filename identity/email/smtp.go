@@ -69,7 +69,7 @@ func NewSMTPSender(cfg SMTPConfig) *SMTPSender {
 func dialSMTP(cfg SMTPConfig) (smtpClient, bool, error) {
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	if cfg.Port == implicitTLSPort {
-		conn, err := tls.Dial("tcp", addr, tlsConfigFor(cfg.Host))
+		conn, err := tls.Dial("tcp", addr, tlsConfigFor(cfg.Host)) //nolint:noctx // net/smtp (smtp.Dial + client ops below) has no context-aware API; a ctx-aware TLS dial alone yields no cancellation benefit. See Send.
 		if err != nil {
 			return nil, false, fmt.Errorf("identity/email: tls dial: %w", err)
 		}

@@ -81,3 +81,4 @@ linters:
           - goconst
           - gocognit
           - cyclop
+          - noctx       # context-aware HTTP/dial not needed in test setup
