@@ -39,6 +39,18 @@ func TestNewSet(t *testing.T) {
 	})
 }
 
+func TestNewSetCopiesAvailable(t *testing.T) {
+	codes := []Locale{"en", "es"}
+	s, err := NewSet("en", codes...)
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	codes[1] = "HACKED" // mutate the caller's backing array
+	if s.Has("HACKED") || !s.Has("es") {
+		t.Fatalf("Set must be isolated from caller slice mutation; got Available=%v", s.Available)
+	}
+}
+
 func mustSet(t *testing.T) Set {
 	t.Helper()
 	s, err := NewSet("en", "en", "es")

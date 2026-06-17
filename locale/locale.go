@@ -20,6 +20,8 @@ import (
 )
 
 // Locale is a short language code, e.g. "en", "es", "ru". Empty = unset (default).
+// Codes are compared exactly (case-sensitive) — use canonical lowercase; the
+// caller (or frontend) normalizes incoming values before resolution.
 type Locale string
 
 // Set is a deployment's configured locales: an ordered Available list (display
@@ -52,7 +54,9 @@ func NewSet(def Locale, available ...Locale) (Set, error) {
 	if !foundDefault {
 		return Set{}, fmt.Errorf("locale: default %q not in available", def)
 	}
-	return Set{Default: def, Available: available}, nil
+	// Copy the slice so a caller mutating its backing array cannot corrupt this
+	// validated, immutable Set (e.g. re-introduce a duplicate/empty code).
+	return Set{Default: def, Available: append([]Locale(nil), available...)}, nil
 }
 
 // Has reports whether l is one of the configured locales.
