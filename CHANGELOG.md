@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/anatolykoptev/go-panel/compare/v0.7.0...v0.8.0) (2026-06-17)
+
+
+### Features
+
+* **locale:** locale axis for go-panel i18n (ADR-003 Phase 1a) ([#22](https://github.com/anatolykoptev/go-panel/issues/22)) ([54861ed](https://github.com/anatolykoptev/go-panel/commit/54861ed5b5e5420fdfc769a605a97b7db21f1f4d))
+* **resource:** translatable fields + per-locale admin forms ([#24](https://github.com/anatolykoptev/go-panel/issues/24)) ([67c3ce8](https://github.com/anatolykoptev/go-panel/commit/67c3ce8aa8a3666b00981cc58a9ae99db920d4ac))
+
 ## [0.7.0](https://github.com/anatolykoptev/go-panel/compare/v0.6.0...v0.7.0) (2026-06-17)
 
 
