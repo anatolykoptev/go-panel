@@ -23,13 +23,16 @@ import (
 // ctxKey is the unexported context key for Tenant values.
 type ctxKey struct{}
 
-// Tenant carries per-request city scope and locale info.
-// Only CitySlug is load-bearing for query scoping; the rest are informational
-// and available to templates for future branding/locale use.
+// Tenant carries per-request city scope. Only CitySlug is load-bearing for
+// query scoping; CountryCode is informational and available to templates for
+// future branding use.
+//
+// Locale is deliberately NOT a Tenant field: i18n is orthogonal to tenancy and
+// owned by the locale package (locale.Set / locale.From(ctx)). A tenant may be
+// served in several locales, so locale lives on the request context, not here.
 type Tenant struct {
 	CitySlug    string // e.g. "spb", "msk" — the scope column value
-	CountryCode string // e.g. "RU" — for locale/branding (deferred)
-	Locale      string // e.g. "ru" — for label catalog (deferred)
+	CountryCode string // e.g. "RU" — for branding (deferred)
 }
 
 // global is the hard-coded single SPb/RU tenant used until a second city exists.
@@ -37,7 +40,6 @@ type Tenant struct {
 var global = Tenant{
 	CitySlug:    "spb",
 	CountryCode: "RU",
-	Locale:      "ru",
 }
 
 // From retrieves the Tenant from ctx. Returns the global default when no tenant
@@ -114,7 +116,6 @@ func (pr PathResolver) Resolve(r *http.Request) Tenant {
 			return Tenant{
 				CitySlug:    slug,
 				CountryCode: global.CountryCode,
-				Locale:      global.Locale,
 			}
 		}
 	}
@@ -140,7 +141,6 @@ func (SubdomainResolver) Resolve(r *http.Request) Tenant {
 		return Tenant{
 			CitySlug:    slug,
 			CountryCode: global.CountryCode,
-			Locale:      global.Locale,
 		}
 	}
 	return global

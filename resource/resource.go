@@ -38,6 +38,7 @@ import (
 
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/csrf"
+	"github.com/anatolykoptev/go-panel/locale"
 	"github.com/anatolykoptev/go-panel/render"
 	"github.com/anatolykoptev/go-panel/shell"
 	"github.com/anatolykoptev/go-panel/tenant"
@@ -131,6 +132,7 @@ type Panel struct {
 	nav      []shell.NavItem
 	title    string
 	csrfKey  []byte
+	locales  locale.Set // configured i18n locales; zero value = single-locale
 }
 
 // sessionCookier is the optional interface implemented by authenticators that
@@ -154,6 +156,14 @@ type Config struct {
 	// a panic at Register time (fail-closed configuration).
 	// Must be at least 32 bytes.
 	CSRFKey []byte
+	// Locales declares the deployment's i18n locale set (Default + Available).
+	// The zero value (no Available) means single-locale: forms render every
+	// field, no locale switcher is shown, and locale.From(ctx) is the empty
+	// Locale (apps treat it as the default / untranslated value).
+	// When more than one locale is configured, edit forms show a locale
+	// switcher and Translatable fields are edited per locale; the active locale
+	// is handed to Writer.Load / Writer.Save via context (locale.From(ctx)).
+	Locales locale.Set
 }
 
 // New creates a Panel with the given config.
@@ -177,6 +187,7 @@ func New(cfg Config) *Panel {
 		basePath: bp,
 		title:    title,
 		csrfKey:  cfg.CSRFKey,
+		locales:  cfg.Locales,
 	}
 	// Mount standard routes.
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
@@ -334,13 +345,31 @@ func withResolvedForm(r Resource, ctx context.Context, t tenant.Tenant) (Resourc
 	return r, nil
 }
 
+// multiLocale reports whether more than one locale is configured.
+func (p *Panel) multiLocale() bool {
+	return len(p.locales.Available) > 1
+}
+
+// activeLocale resolves the locale to edit from the request's ?locale= query,
+// validated against the configured set. An absent/unknown value resolves to
+// the configured Default (or "" for a single-locale deployment).
+func (p *Panel) activeLocale(req *http.Request) locale.Locale {
+	return p.locales.Resolve(locale.Locale(req.URL.Query().Get("locale")))
+}
+
 // newFormHandler returns the handler for GET /{name}/new.
+//
+// Create always happens in the Default locale: a new record must capture its
+// shared (non-translatable) fields, and you cannot translate a record that does
+// not exist yet. Secondary-locale translations are added later via the edit
+// form. The ?locale= query is therefore ignored here.
 func newFormHandler(p *Panel, r Resource) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		shell.SecurityHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		t := tenant.From(req.Context())
-		rr, err := withResolvedForm(r, req.Context(), t)
+		ctx := locale.WithLocale(req.Context(), p.locales.Default)
+		t := tenant.From(ctx)
+		rr, err := withResolvedForm(r, ctx, t)
 		if err != nil {
 			slog.Error("resource: resolve options for new form", "resource", r.Name, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -349,13 +378,15 @@ func newFormHandler(p *Panel, r Resource) http.HandlerFunc {
 		nav := p.activeNav(r.Name)
 		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
 		d := formPageData{
-			Resource:  rr,
-			Values:    map[string]string{},
-			CSRFToken: tok,
-			BasePath:  p.basePath,
+			Resource:     rr,
+			Values:       map[string]string{},
+			CSRFToken:    tok,
+			BasePath:     p.basePath,
+			Locales:      p.locales,
+			ActiveLocale: p.locales.Default,
 		}
 		layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-		if err := layoutComp.Render(req.Context(), w); err != nil {
+		if err := layoutComp.Render(ctx, w); err != nil {
 			slog.Error("resource: render new form", "resource", r.Name, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
@@ -373,14 +404,19 @@ func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		t := tenant.From(req.Context())
-		values, err := r.Writer.Load(req.Context(), t, id)
+		// Active locale from ?locale=; handed to Load via context so the app
+		// returns that locale's translatable values (shared values are locale
+		// independent).
+		loc := p.activeLocale(req)
+		ctx := locale.WithLocale(req.Context(), loc)
+		t := tenant.From(ctx)
+		values, err := r.Writer.Load(ctx, t, id)
 		if err != nil {
 			slog.Error("resource: load for edit", "resource", r.Name, "err", err)
 			http.Error(w, "load failed", http.StatusInternalServerError)
 			return
 		}
-		rr, err := withResolvedForm(r, req.Context(), t)
+		rr, err := withResolvedForm(r, ctx, t)
 		if err != nil {
 			slog.Error("resource: resolve options for edit form", "resource", r.Name, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -389,14 +425,16 @@ func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
 		nav := p.activeNav(r.Name)
 		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
 		d := formPageData{
-			Resource:  rr,
-			ID:        id,
-			Values:    values,
-			CSRFToken: tok,
-			BasePath:  p.basePath,
+			Resource:     rr,
+			ID:           id,
+			Values:       values,
+			CSRFToken:    tok,
+			BasePath:     p.basePath,
+			Locales:      p.locales,
+			ActiveLocale: loc,
 		}
 		layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-		if err := layoutComp.Render(req.Context(), w); err != nil {
+		if err := layoutComp.Render(ctx, w); err != nil {
 			slog.Error("resource: render edit form", "resource", r.Name, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
@@ -423,30 +461,44 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		}
 
 		id := req.PathValue("id")
-		if id == "new" {
+		creating := id == "new"
+		if creating {
 			id = ""
 		}
 
+		// Active locale: create always lands in Default (symmetric with the new
+		// form); edit honours ?locale=. The locale-filtered field set drives
+		// collection AND validation so that shared fields, absent on a secondary
+		// locale, are not spuriously "required".
+		loc := p.locales.Default
+		multi := false
+		if !creating {
+			loc = p.activeLocale(req)
+			multi = p.multiLocale()
+		}
+		ctx := locale.WithLocale(req.Context(), loc)
+
 		// Resolve dynamic options fresh for this POST — whitelist must be live.
-		t := tenant.From(req.Context())
-		rr, err := withResolvedForm(r, req.Context(), t)
+		t := tenant.From(ctx)
+		rr, err := withResolvedForm(r, ctx, t)
 		if err != nil {
 			slog.Error("resource: resolve options for save", "resource", r.Name, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
-		values := collectFormValues(req, rr.Writer.Form)
+		fields := rr.Writer.Form.localeFields(loc, p.locales.Default, multi)
+		values := collectFormValues(req, fields)
 
-		// Server-side validation.
-		errs := rr.Writer.Form.validate(values)
+		// Server-side validation over the active locale's field set.
+		errs := validateFields(fields, values)
 		if errs.hasErrors() {
-			renderValidationErrors(w, req, p, rr, id, values, errs)
+			renderValidationErrors(w, req, p, rr, id, loc, values, errs)
 			return
 		}
 
 		// Persist — generic error body; detail logged server-side.
-		if err := rr.Writer.Save(req.Context(), t, id, values); err != nil {
+		if err := rr.Writer.Save(ctx, t, id, values); err != nil {
 			slog.Error("resource: save failed", "resource", r.Name, "err", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -462,11 +514,12 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 	}
 }
 
-// collectFormValues reads submitted form values for all fields in the spec.
-// Checkboxes are normalised to checkboxTrue/"false" (unchecked = not submitted).
-func collectFormValues(req *http.Request, form FormSpec) map[string]string {
-	values := make(map[string]string, len(form.Fields))
-	for _, fld := range form.Fields {
+// collectFormValues reads submitted form values for the given fields (the
+// active locale's field set). Checkboxes are normalised to checkboxTrue/"false"
+// (unchecked = not submitted).
+func collectFormValues(req *http.Request, fields []Field) map[string]string {
+	values := make(map[string]string, len(fields))
+	for _, fld := range fields {
 		if fld.Kind == FieldCheckbox {
 			val := req.FormValue(fld.Key)
 			if val == checkboxTrue || val == "on" || val == "1" {
@@ -482,18 +535,22 @@ func collectFormValues(req *http.Request, form FormSpec) map[string]string {
 }
 
 // renderValidationErrors re-renders the form with field-level validation errors (HTTP 422).
-func renderValidationErrors(w http.ResponseWriter, req *http.Request, p *Panel, r Resource, id string, values map[string]string, errs formErrors) {
+// loc is the active locale so the re-rendered form (and its POST action) stay on
+// the locale the editor submitted.
+func renderValidationErrors(w http.ResponseWriter, req *http.Request, p *Panel, r Resource, id string, loc locale.Locale, values map[string]string, errs formErrors) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	nav := p.activeNav(r.Name)
 	tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
 	d := formPageData{
-		Resource:  r,
-		ID:        id,
-		Values:    values,
-		Errors:    errs,
-		CSRFToken: tok,
-		BasePath:  p.basePath,
+		Resource:     r,
+		ID:           id,
+		Values:       values,
+		Errors:       errs,
+		CSRFToken:    tok,
+		BasePath:     p.basePath,
+		Locales:      p.locales,
+		ActiveLocale: loc,
 	}
 	layoutComp := shell.Layout(p.title, nav, formPageContent(d))
 	if err := layoutComp.Render(req.Context(), w); err != nil {
