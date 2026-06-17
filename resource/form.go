@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/anatolykoptev/go-panel/locale"
 	"github.com/anatolykoptev/go-panel/tenant"
 )
 
@@ -47,11 +48,19 @@ type Option struct {
 //     provide a fresh list (e.g. from a database query). Mutually exclusive
 //     with Options — FormSpec.Valid() enforces this.
 type Field struct {
-	Key         string
-	Label       string
-	Kind        FieldKind
-	Required    bool
-	Options     []Option // static list for FieldSelect; mutually exclusive with OptionsFunc
+	Key      string
+	Label    string
+	Kind     FieldKind
+	Required bool
+	// Translatable marks a field whose value differs per locale (e.g. a title or
+	// description). When the deployment configures more than one locale, edit
+	// forms render a locale switcher and these fields are edited one locale at a
+	// time; the active locale reaches Writer.Load / Writer.Save via context
+	// (locale.From(ctx)). Non-translatable fields are locale-independent (e.g. a
+	// slug, coordinates, a price) and are edited only on the Default locale.
+	// In a single-locale deployment Translatable has no effect.
+	Translatable bool
+	Options      []Option // static list for FieldSelect; mutually exclusive with OptionsFunc
 	// OptionsFunc provides dynamic options for FieldSelect.
 	// Called on every form render (GET new/edit) and on every POST validation
 	// to build the whitelist. An error causes a 500 — the form is not rendered
@@ -97,6 +106,30 @@ func (f FormSpec) Valid() error {
 	return nil
 }
 
+// localeFields returns the fields to render, collect, and validate for the
+// active locale.
+//
+//   - Single-locale (multi=false), or the Default locale, or no active locale:
+//     every field is returned (shared + translatable).
+//   - A secondary locale: only Translatable fields are returned. Shared fields
+//     are locale-independent and edited on the Default locale, so they are
+//     neither shown, collected, nor required when translating.
+//
+// This keeps the rendered form, the POST collection, and validation in lockstep
+// for whichever locale is active.
+func (fs FormSpec) localeFields(active, def locale.Locale, multi bool) []Field {
+	if !multi || active == "" || active == def {
+		return fs.Fields
+	}
+	out := make([]Field, 0, len(fs.Fields))
+	for _, fld := range fs.Fields {
+		if fld.Translatable {
+			out = append(out, fld)
+		}
+	}
+	return out
+}
+
 // resolveOptions returns a copy of the FormSpec with all OptionsFunc fields
 // resolved into their static Options slice. ctx and t are forwarded to each func.
 // Returns an error if any OptionsFunc call fails; the error identifies the field.
@@ -119,13 +152,29 @@ func (fs FormSpec) resolveOptions(ctx context.Context, t tenant.Tenant) (FormSpe
 
 // Writer enables create/edit forms for the resource.
 // Nil = read-only (Phase 1 behaviour, default).
+//
+// Locale contract (multi-locale deployments only — see Config.Locales): the
+// active locale is carried on ctx; read it with locale.From(ctx). For a
+// single-locale deployment locale.From(ctx) is "" and both closures behave
+// exactly as before.
 type Writer struct {
 	Form FormSpec
 	// Load returns field values for the edit form. id is the row primary key.
+	// On a secondary locale (locale.From(ctx) != "" and != Default) Load should
+	// return that locale's Translatable values; shared (non-translatable) values
+	// are locale-independent and may be returned as-is or omitted (they are not
+	// rendered on a secondary-locale form).
 	Load func(ctx context.Context, t tenant.Tenant, id string) (map[string]string, error)
 	// Save persists the form. id=="" means create.
 	// values are PRE-VALIDATED against Form (required, kind formats, select whitelist).
 	// Consumer maps them to SQL.
+	//
+	// On a secondary locale, values contains ONLY the Translatable fields (shared
+	// fields are neither rendered nor collected there). Save MUST therefore MERGE
+	// per locale — upsert only the supplied translatable columns for
+	// locale.From(ctx) — and MUST NOT issue a full-row replace, or it would null
+	// out the shared columns it never received. Create (id=="") and Default-locale
+	// saves always carry the full field set.
 	Save func(ctx context.Context, t tenant.Tenant, id string, values map[string]string) error
 	// WriteAny allows any authenticated operator to write.
 	WriteAny bool
@@ -134,11 +183,11 @@ type Writer struct {
 // formErrors holds per-field validation errors.
 type formErrors map[string]string
 
-// validate validates posted form values against the FormSpec.
-// Returns formErrors (may be empty on success).
-func (fs FormSpec) validate(values map[string]string) formErrors {
+// validateFields validates posted form values against the given field set (the
+// active locale's fields). Returns formErrors (may be empty on success).
+func validateFields(fields []Field, values map[string]string) formErrors {
 	errs := make(formErrors)
-	for _, fld := range fs.Fields {
+	for _, fld := range fields {
 		val := values[fld.Key]
 		if fld.Required && val == "" {
 			errs[fld.Key] = fld.Label + " is required"

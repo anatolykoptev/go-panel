@@ -17,7 +17,7 @@ func TestFrom_DefaultWhenNoTenantInCtx(t *testing.T) {
 }
 
 func TestWithTenant_RoundTrip(t *testing.T) {
-	want := tenant.Tenant{CitySlug: "msk", CountryCode: "RU", Locale: "ru"}
+	want := tenant.Tenant{CitySlug: "msk", CountryCode: "RU"}
 	ctx := tenant.WithTenant(context.Background(), want)
 	got := tenant.From(ctx)
 	if got != want {
