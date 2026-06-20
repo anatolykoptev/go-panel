@@ -140,19 +140,15 @@ func insertPlace(t *testing.T, pool *pgxpool.Pool, id int64) {
 func defaultSources() []semantic.Source {
 	return []semantic.Source{
 		{
-			Name:       "content",
-			Table:      "sem_test_content_vectors",
-			IDColumn:   "id",
-			VecColumn:  "vec",
-			KindColumn: "kind",
-			LangColumn: "lang",
-			Supports: semantic.SourceCaps{
-				Kind:     true,
-				Lang:     true,
-				Podborka: true,
-				Segment:  true,
-			},
-			ExpectModel: "multilingual-e5-large",
+			Name:           "content",
+			Table:          "sem_test_content_vectors",
+			IDColumn:       "id",
+			VecColumn:      "vec",
+			KindColumn:     "kind",
+			LangColumn:     "lang",
+			PodborkaColumn: "is_podborka",
+			SegmentColumn:  "segment",
+			ExpectModel:    "multilingual-e5-large",
 		},
 		{
 			Name:        "place",
@@ -160,13 +156,12 @@ func defaultSources() []semantic.Source {
 			IDColumn:    "id",
 			VecColumn:   "vec",
 			KindConst:   "place",
-			Supports:    semantic.SourceCaps{},
 			ExpectModel: "multilingual-e5-large",
 		},
 	}
 }
 
-// TestSearch_MultiSource_FanOut: no kind filter → hits from BOTH tables, merged by score.
+// TestSearch_MultiSource_FanOut: no kind filter -> hits from BOTH tables, merged by score.
 func TestSearch_MultiSource_FanOut(t *testing.T) {
 	pool := openPool(t)
 	setupTables(t, pool)
@@ -417,7 +412,7 @@ func TestVectorLiteral(t *testing.T) {
 }
 
 // =============================================================================
-// NEW TESTS — written FIRST (RED phase), implementation follows
+// NEW TESTS -- written FIRST (RED phase), implementation follows
 // =============================================================================
 
 // panicQueryTx wraps a real pgx.Tx but panics when Query is called for a
@@ -437,7 +432,7 @@ func (t *panicQueryTx) Query(ctx context.Context, sql string, args ...any) (pgx.
 // panicBeginPool wraps a pgxpool.Pool; Begin returns a panicQueryTx for
 // transactions that will query panicTable, and a normal tx for others.
 // Since we cannot tell at Begin time which table a tx will query, we always
-// wrap — the tx itself decides whether to panic based on the SQL it sees.
+// wrap -- the tx itself decides whether to panic based on the SQL it sees.
 type panicBeginPool struct {
 	real       *pgxpool.Pool
 	panicTable string
@@ -466,7 +461,7 @@ func TestSearch_PanicRecovery(t *testing.T) {
 	pool := openPool(t)
 	setupTables(t, pool)
 	insertPlace(t, pool, 101)
-	// No content rows — but content table exists, panic fires on SELECT.
+	// No content rows -- but content table exists, panic fires on SELECT.
 
 	emb := newFakeEmbedder(1024)
 
@@ -496,7 +491,7 @@ func TestSearch_PanicRecovery(t *testing.T) {
 // TestHitModel_FromRow verifies that when Source.ModelColumn is set, the
 // returned Hit.Model equals the STORED row model, not src.ExpectModel.
 //
-// RED evidence: ModelColumn field does not exist on Source — compile error.
+// RED evidence: ModelColumn field does not exist on Source -- compile error.
 // GREEN: ModelColumn is added, SELECT'd, and scanned into Hit.Model.
 func TestHitModel_FromRow(t *testing.T) {
 	pool := openPool(t)
@@ -534,7 +529,7 @@ func TestHitModel_FromRow(t *testing.T) {
 		VecColumn:   "vec",
 		KindConst:   "article",
 		ExpectModel: expectModel,
-		ModelColumn: "model", // NEW FIELD — causes compile error until implemented
+		ModelColumn: "model", // NEW FIELD -- causes compile error until implemented
 	}
 
 	emb := newFakeEmbedder(1024)
@@ -559,7 +554,7 @@ func TestHitModel_FromRow(t *testing.T) {
 // Filters.Kinds narrows at row level (WHERE kind = ANY($kinds)), not source level.
 //
 // RED evidence: current code uses sourceEffectiveKind returning src.Name="content"
-// for KindColumn sources, which never matches "article" — the source is skipped
+// for KindColumn sources, which never matches "article" -- the source is skipped
 // entirely; no row-level filter is applied.
 // GREEN: buildSQL emits row-level WHERE clause for KindColumn sources.
 func TestSearch_KindColumn_RowFilter(t *testing.T) {
@@ -574,23 +569,19 @@ func TestSearch_KindColumn_RowFilter(t *testing.T) {
 	// Single source with KindColumn="kind" covering both article and video.
 	sources := []semantic.Source{
 		{
-			Name:       "content",
-			Table:      "sem_test_content_vectors",
-			IDColumn:   "id",
-			VecColumn:  "vec",
-			KindColumn: "kind",
-			LangColumn: "lang",
-			Supports: semantic.SourceCaps{
-				Kind: true,
-				Lang: true,
-			},
+			Name:        "content",
+			Table:       "sem_test_content_vectors",
+			IDColumn:    "id",
+			VecColumn:   "vec",
+			KindColumn:  "kind",
+			LangColumn:  "lang",
 			ExpectModel: "multilingual-e5-large",
 		},
 	}
 	store := semantic.New(pool, emb, sources)
 
 	ctx := context.Background()
-	// Filter by kind=article → only the article row (id=10) should appear.
+	// Filter by kind=article -> only the article row (id=10) should appear.
 	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{Kinds: []string{"article"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -606,7 +597,7 @@ func TestSearch_KindColumn_RowFilter(t *testing.T) {
 }
 
 // TestRelated_NotFound_NonNilSlice verifies that Related returns []Hit{} (not nil)
-// when the id is absent from the Source — matching Search's non-nil-slice contract.
+// when the id is absent from the Source -- matching Search's non-nil-slice contract.
 //
 // RED evidence: Related returns (nil, nil) on not-found.
 // GREEN: Related returns ([]Hit{}, nil) on not-found.

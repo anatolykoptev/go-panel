@@ -27,14 +27,6 @@ func VectorLiteral(v []float32) string {
 	return b.String()
 }
 
-// SourceCaps declares which optional filter columns a Source supports.
-type SourceCaps struct {
-	Kind     bool // Source has a per-row kind column (vs KindConst)
-	Lang     bool // Source has a lang column
-	Podborka bool // Source has an is_podborka column
-	Segment  bool // Source has a segment column
-}
-
 // Source declares a single pgvector table that semantic.Store queries.
 // All Table/column names must be compile-time constants (never user-derived).
 type Source struct {
@@ -57,10 +49,14 @@ type Source struct {
 	// used per-row (e.g. "model"). When set, Hit.Model is populated from the
 	// stored value; otherwise Hit.Model falls back to ExpectModel.
 	// Fix 2: SELECT'd and scanned so Hit.Model reflects the STORED model,
-	// not a constant — important when rows are (re-)embedded with different models.
+	// not a constant - important when rows are (re-)embedded with different models.
 	ModelColumn string
-	// Supports declares which optional filter columns this Source has.
-	Supports SourceCaps
+	// PodborkaColumn is the optional column for the boolean is-podborka filter
+	// (e.g. "is_podborka"). Empty => the IsPodborka filter is never applied to this Source.
+	PodborkaColumn string
+	// SegmentColumn is the optional column for the segment filter (e.g. "segment").
+	// Empty => the Segment filter is never applied to this Source.
+	SegmentColumn string
 	// ExpectModel is the fallback model name when ModelColumn is "" or the row's
 	// model column is NULL. Also used when the Source has no model column at all.
 	ExpectModel string
@@ -72,11 +68,12 @@ type Filters struct {
 	// For Sources with KindColumn, filtering is applied per-row (WHERE kind = ANY($kinds)).
 	// For Sources with KindConst, the whole Source is skipped if its const kind doesn't match.
 	Kinds []string
-	// Lang restricts content by language (only applied to Sources with Supports.Lang).
+	// Lang restricts content by language (only applied to Sources whose LangColumn is set).
 	Lang string
 	// IsPodborka filters by podborka flag (nil = no filter).
+	// Only applied to Sources whose PodborkaColumn is set.
 	IsPodborka *bool
-	// Segment filters by segment (only applied to Sources with Supports.Segment).
+	// Segment filters by segment (only applied to Sources whose SegmentColumn is set).
 	Segment string
 	// ExcludeID excludes this ID from results (0 = no exclusion).
 	ExcludeID int64
@@ -172,7 +169,7 @@ func sourceIncluded(src Source, f Filters) bool {
 	if len(f.Kinds) == 0 {
 		return true
 	}
-	// KindColumn Source: row-level filter — always include the source.
+	// KindColumn Source: row-level filter -- always include the source.
 	if sourceIsKindColumn(src) {
 		return true
 	}
@@ -189,7 +186,7 @@ func sourceIncluded(src Source, f Filters) bool {
 // Panics in the goroutine are caught and logged; returns nil on panic or error
 // (degrade-never-crash). The emptyResult is used on recovery.
 func (s *Store) sourceHits(ctx context.Context, src Source, vec []float32, k int, f Filters) (hits []Hit) {
-	// Fix 1: per-goroutine panic recovery — a panicking Source degrades to
+	// Fix 1: per-goroutine panic recovery -- a panicking Source degrades to
 	// nil hits, exactly like a query error. Other Sources are unaffected.
 	defer func() {
 		if r := recover(); r != nil {
@@ -338,28 +335,28 @@ func buildSQL(src Source, vec []float32, k int, f Filters) (string, []interface{
 		argN++
 	}
 
-	// Lang filter — only if Source supports lang.
-	if src.Supports.Lang && src.LangColumn != "" && f.Lang != "" {
+	// Lang filter -- gate on LangColumn being set (column presence = capability).
+	if src.LangColumn != "" && f.Lang != "" {
 		args = append(args, f.Lang)
 		fmt.Fprintf(&sb, " AND %s = $%d", src.LangColumn, argN)
 		argN++
 	}
 
-	// IsPodborka filter.
-	if src.Supports.Podborka && f.IsPodborka != nil {
+	// IsPodborka filter -- gate on PodborkaColumn being set; emit configured column name.
+	if src.PodborkaColumn != "" && f.IsPodborka != nil {
 		args = append(args, *f.IsPodborka)
-		fmt.Fprintf(&sb, " AND is_podborka = $%d", argN)
+		fmt.Fprintf(&sb, " AND %s = $%d", src.PodborkaColumn, argN)
 		argN++
 	}
 
-	// Segment filter.
-	if src.Supports.Segment && f.Segment != "" {
+	// Segment filter -- gate on SegmentColumn being set; emit configured column name.
+	if src.SegmentColumn != "" && f.Segment != "" {
 		args = append(args, f.Segment)
-		fmt.Fprintf(&sb, " AND segment = $%d", argN)
+		fmt.Fprintf(&sb, " AND %s = $%d", src.SegmentColumn, argN)
 		argN++
 	}
 
-	// ExcludeID — always applied when non-zero.
+	// ExcludeID -- always applied when non-zero.
 	if f.ExcludeID != 0 {
 		args = append(args, f.ExcludeID)
 		fmt.Fprintf(&sb, " AND %s <> $%d", src.IDColumn, argN)
