@@ -19,6 +19,9 @@ func testDSN() string {
 	return os.Getenv("SEMANTIC_TEST_DSN")
 }
 
+// ptrBool returns a pointer to a bool literal; used in filter tests.
+func ptrBool(b bool) *bool { return &b }
+
 // fakeEmbedder captures Embed calls for inspection.
 type fakeEmbedder struct {
 	mu     sync.Mutex
@@ -140,19 +143,15 @@ func insertPlace(t *testing.T, pool *pgxpool.Pool, id int64) {
 func defaultSources() []semantic.Source {
 	return []semantic.Source{
 		{
-			Name:       "content",
-			Table:      "sem_test_content_vectors",
-			IDColumn:   "id",
-			VecColumn:  "vec",
-			KindColumn: "kind",
-			LangColumn: "lang",
-			Supports: semantic.SourceCaps{
-				Kind:     true,
-				Lang:     true,
-				Podborka: true,
-				Segment:  true,
-			},
-			ExpectModel: "multilingual-e5-large",
+			Name:           "content",
+			Table:          "sem_test_content_vectors",
+			IDColumn:       "id",
+			VecColumn:      "vec",
+			KindColumn:     "kind",
+			LangColumn:     "lang",
+			PodborkaColumn: "is_podborka",
+			SegmentColumn:  "segment",
+			ExpectModel:    "multilingual-e5-large",
 		},
 		{
 			Name:        "place",
@@ -160,13 +159,12 @@ func defaultSources() []semantic.Source {
 			IDColumn:    "id",
 			VecColumn:   "vec",
 			KindConst:   "place",
-			Supports:    semantic.SourceCaps{},
 			ExpectModel: "multilingual-e5-large",
 		},
 	}
 }
 
-// TestSearch_MultiSource_FanOut: no kind filter → hits from BOTH tables, merged by score.
+// TestSearch_MultiSource_FanOut: no kind filter -> hits from BOTH tables, merged by score.
 func TestSearch_MultiSource_FanOut(t *testing.T) {
 	pool := openPool(t)
 	setupTables(t, pool)
@@ -417,7 +415,7 @@ func TestVectorLiteral(t *testing.T) {
 }
 
 // =============================================================================
-// NEW TESTS — written FIRST (RED phase), implementation follows
+// NEW TESTS -- written FIRST (RED phase), implementation follows
 // =============================================================================
 
 // panicQueryTx wraps a real pgx.Tx but panics when Query is called for a
@@ -437,7 +435,7 @@ func (t *panicQueryTx) Query(ctx context.Context, sql string, args ...any) (pgx.
 // panicBeginPool wraps a pgxpool.Pool; Begin returns a panicQueryTx for
 // transactions that will query panicTable, and a normal tx for others.
 // Since we cannot tell at Begin time which table a tx will query, we always
-// wrap — the tx itself decides whether to panic based on the SQL it sees.
+// wrap -- the tx itself decides whether to panic based on the SQL it sees.
 type panicBeginPool struct {
 	real       *pgxpool.Pool
 	panicTable string
@@ -466,7 +464,7 @@ func TestSearch_PanicRecovery(t *testing.T) {
 	pool := openPool(t)
 	setupTables(t, pool)
 	insertPlace(t, pool, 101)
-	// No content rows — but content table exists, panic fires on SELECT.
+	// No content rows -- but content table exists, panic fires on SELECT.
 
 	emb := newFakeEmbedder(1024)
 
@@ -496,7 +494,7 @@ func TestSearch_PanicRecovery(t *testing.T) {
 // TestHitModel_FromRow verifies that when Source.ModelColumn is set, the
 // returned Hit.Model equals the STORED row model, not src.ExpectModel.
 //
-// RED evidence: ModelColumn field does not exist on Source — compile error.
+// RED evidence: ModelColumn field does not exist on Source -- compile error.
 // GREEN: ModelColumn is added, SELECT'd, and scanned into Hit.Model.
 func TestHitModel_FromRow(t *testing.T) {
 	pool := openPool(t)
@@ -534,7 +532,7 @@ func TestHitModel_FromRow(t *testing.T) {
 		VecColumn:   "vec",
 		KindConst:   "article",
 		ExpectModel: expectModel,
-		ModelColumn: "model", // NEW FIELD — causes compile error until implemented
+		ModelColumn: "model", // NEW FIELD -- causes compile error until implemented
 	}
 
 	emb := newFakeEmbedder(1024)
@@ -559,7 +557,7 @@ func TestHitModel_FromRow(t *testing.T) {
 // Filters.Kinds narrows at row level (WHERE kind = ANY($kinds)), not source level.
 //
 // RED evidence: current code uses sourceEffectiveKind returning src.Name="content"
-// for KindColumn sources, which never matches "article" — the source is skipped
+// for KindColumn sources, which never matches "article" -- the source is skipped
 // entirely; no row-level filter is applied.
 // GREEN: buildSQL emits row-level WHERE clause for KindColumn sources.
 func TestSearch_KindColumn_RowFilter(t *testing.T) {
@@ -574,23 +572,19 @@ func TestSearch_KindColumn_RowFilter(t *testing.T) {
 	// Single source with KindColumn="kind" covering both article and video.
 	sources := []semantic.Source{
 		{
-			Name:       "content",
-			Table:      "sem_test_content_vectors",
-			IDColumn:   "id",
-			VecColumn:  "vec",
-			KindColumn: "kind",
-			LangColumn: "lang",
-			Supports: semantic.SourceCaps{
-				Kind: true,
-				Lang: true,
-			},
+			Name:        "content",
+			Table:       "sem_test_content_vectors",
+			IDColumn:    "id",
+			VecColumn:   "vec",
+			KindColumn:  "kind",
+			LangColumn:  "lang",
 			ExpectModel: "multilingual-e5-large",
 		},
 	}
 	store := semantic.New(pool, emb, sources)
 
 	ctx := context.Background()
-	// Filter by kind=article → only the article row (id=10) should appear.
+	// Filter by kind=article -> only the article row (id=10) should appear.
 	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{Kinds: []string{"article"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -606,7 +600,7 @@ func TestSearch_KindColumn_RowFilter(t *testing.T) {
 }
 
 // TestRelated_NotFound_NonNilSlice verifies that Related returns []Hit{} (not nil)
-// when the id is absent from the Source — matching Search's non-nil-slice contract.
+// when the id is absent from the Source -- matching Search's non-nil-slice contract.
 //
 // RED evidence: Related returns (nil, nil) on not-found.
 // GREEN: Related returns ([]Hit{}, nil) on not-found.
@@ -625,5 +619,118 @@ func TestRelated_NotFound_NonNilSlice(t *testing.T) {
 	}
 	if hits == nil {
 		t.Error("Related returned nil slice on not-found, want []Hit{} (non-nil empty slice)")
+	}
+}
+
+// TestSearch_FilterPodborka verifies that Filters.IsPodborka drives live row
+// filtering through the real Store.Search code path.
+//
+// This is an end-to-end integration test: it exercises the SHIPPED Store.Search
+// function (not a hand-copied query string), confirms that the PodborkaColumn
+// configured in the Source actually filters rows in the real pgvector DB.
+//
+// RED sanity (falsification): point the content Source's PodborkaColumn at a
+// non-existent column ("_bad_col") -> Store.Search degrades (SQL error) and
+// returns no hits that match the filter, so the final assertion fails.
+// GREEN: restore PodborkaColumn="is_podborka" -> correct rows returned.
+func TestSearch_FilterPodborka(t *testing.T) {
+	pool := openPool(t)
+	setupTables(t, pool)
+
+	// Insert 3 podborka rows and 2 non-podborka rows.
+	insertContent(t, pool, 201, "collection", "ru", true, "")
+	insertContent(t, pool, 202, "collection", "ru", true, "")
+	insertContent(t, pool, 203, "collection", "ru", true, "")
+	insertContent(t, pool, 204, "collection", "ru", false, "")
+	insertContent(t, pool, 205, "collection", "ru", false, "")
+
+	emb := newFakeEmbedder(1024)
+	store := semantic.New(pool, emb, defaultSources())
+	ctx := context.Background()
+
+	// Filter: IsPodborka=true -> expect only rows 201, 202, 203.
+	trueHits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{
+		IsPodborka: ptrBool(true),
+		Kinds:      []string{"collection"},
+	})
+	if err != nil {
+		t.Fatalf("Search(IsPodborka=true): %v", err)
+	}
+	if len(trueHits) == 0 {
+		t.Fatal("Search(IsPodborka=true): expected hits, got none")
+	}
+	for _, h := range trueHits {
+		if h.Source != "content" {
+			continue // place source has no is_podborka column; skip those hits
+		}
+		if h.ID != 201 && h.ID != 202 && h.ID != 203 {
+			t.Errorf("Search(IsPodborka=true): unexpected hit id=%d (expected only 201/202/203)", h.ID)
+		}
+	}
+
+	// Filter: IsPodborka=false -> expect only rows 204, 205.
+	falseHits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{
+		IsPodborka: ptrBool(false),
+		Kinds:      []string{"collection"},
+	})
+	if err != nil {
+		t.Fatalf("Search(IsPodborka=false): %v", err)
+	}
+	if len(falseHits) == 0 {
+		t.Fatal("Search(IsPodborka=false): expected hits, got none")
+	}
+	for _, h := range falseHits {
+		if h.Source != "content" {
+			continue
+		}
+		if h.ID != 204 && h.ID != 205 {
+			t.Errorf("Search(IsPodborka=false): unexpected hit id=%d (expected only 204/205)", h.ID)
+		}
+	}
+}
+
+// TestSearch_FilterSegment verifies that Filters.Segment drives live row
+// filtering through the real Store.Search code path.
+//
+// This is an end-to-end integration test: it exercises the SHIPPED Store.Search
+// function (not a hand-copied query string), confirms that the SegmentColumn
+// configured in the Source actually filters rows in the real pgvector DB.
+//
+// RED sanity (falsification): point the content Source's SegmentColumn at a
+// non-existent column ("_bad_col") -> Store.Search degrades (SQL error) and
+// returns no hits, so the assertion on len(hits)==0 fires.
+// GREEN: restore SegmentColumn="segment" -> only segment-"a" rows returned.
+func TestSearch_FilterSegment(t *testing.T) {
+	pool := openPool(t)
+	setupTables(t, pool)
+
+	// Insert 3 rows with segment "a" and 2 with segment "b".
+	insertContent(t, pool, 301, "collection", "ru", false, "a")
+	insertContent(t, pool, 302, "collection", "ru", false, "a")
+	insertContent(t, pool, 303, "collection", "ru", false, "a")
+	insertContent(t, pool, 304, "collection", "ru", false, "b")
+	insertContent(t, pool, 305, "collection", "ru", false, "b")
+
+	emb := newFakeEmbedder(1024)
+	store := semantic.New(pool, emb, defaultSources())
+	ctx := context.Background()
+
+	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{
+		Segment: "a",
+		Kinds:   []string{"collection"},
+	})
+	if err != nil {
+		t.Fatalf("Search(Segment=a): %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("Search(Segment=a): expected hits, got none")
+	}
+	for _, h := range hits {
+		if h.Source != "content" {
+			continue // place source has no segment column
+		}
+		if h.ID != 301 && h.ID != 302 && h.ID != 303 {
+			t.Errorf("Search(Segment=a): unexpected hit id=%d (expected only 301/302/303)", h.ID)
+		}
 	}
 }
