@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/anatolykoptev/go-panel/semantic"
@@ -230,7 +231,9 @@ func TestSearch_KindRouting_PlaceOnly(t *testing.T) {
 	}
 }
 
-// TestSearch_KindRouting_ContentOnly: Filters.Kinds=["content"] returns only content hits.
+// TestSearch_KindRouting_ContentOnly: Filters.Kinds=["collection"] returns only rows whose
+// stored kind = "collection" (row-level filter for KindColumn Sources). The place Source
+// (KindConst="place") is skipped at source level since "place" not in ["collection"].
 func TestSearch_KindRouting_ContentOnly(t *testing.T) {
 	pool := openPool(t)
 	setupTables(t, pool)
@@ -242,7 +245,9 @@ func TestSearch_KindRouting_ContentOnly(t *testing.T) {
 	store := semantic.New(pool, emb, defaultSources())
 
 	ctx := context.Background()
-	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{Kinds: []string{"content"}})
+	// Filter by row kind "collection": content source applies row-level WHERE,
+	// place source is excluded by KindConst source-level check.
+	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{Kinds: []string{"collection"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -252,7 +257,7 @@ func TestSearch_KindRouting_ContentOnly(t *testing.T) {
 		}
 	}
 	if len(hits) == 0 {
-		t.Error("expected content hits, got none")
+		t.Error("expected content hits (kind=collection), got none")
 	}
 }
 
@@ -408,5 +413,217 @@ func TestVectorLiteral(t *testing.T) {
 	s2 := semantic.VectorLiteral(nil)
 	if s2 != "[]" {
 		t.Errorf("VectorLiteral(nil) = %q, want []", s2)
+	}
+}
+
+// =============================================================================
+// NEW TESTS — written FIRST (RED phase), implementation follows
+// =============================================================================
+
+// panicQueryTx wraps a real pgx.Tx but panics when Query is called for a
+// specific table. This simulates an unrecovered panic in a Source goroutine.
+type panicQueryTx struct {
+	pgx.Tx
+	panicTable string
+}
+
+func (t *panicQueryTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, t.panicTable) {
+		panic("simulated panic querying " + t.panicTable)
+	}
+	return t.Tx.Query(ctx, sql, args...)
+}
+
+// panicBeginPool wraps a pgxpool.Pool; Begin returns a panicQueryTx for
+// transactions that will query panicTable, and a normal tx for others.
+// Since we cannot tell at Begin time which table a tx will query, we always
+// wrap — the tx itself decides whether to panic based on the SQL it sees.
+type panicBeginPool struct {
+	real       *pgxpool.Pool
+	panicTable string
+}
+
+func (p *panicBeginPool) Begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := p.real.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &panicQueryTx{Tx: tx, panicTable: p.panicTable}, nil
+}
+
+func (p *panicBeginPool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return p.real.Query(ctx, sql, args...)
+}
+
+// TestSearch_PanicRecovery verifies that a panicking Source goroutine is caught
+// (degrade-never-crash), and the healthy Source's hits survive.
+//
+// RED evidence: without per-goroutine recover(), the panic propagates through
+// the goroutine scheduler and crashes the test process.
+// GREEN: with defer/recover in each source goroutine, the panic is caught and
+// logged; the place source returns its hits normally.
+func TestSearch_PanicRecovery(t *testing.T) {
+	pool := openPool(t)
+	setupTables(t, pool)
+	insertPlace(t, pool, 101)
+	// No content rows — but content table exists, panic fires on SELECT.
+
+	emb := newFakeEmbedder(1024)
+
+	// panicBeginPool panics when content table is queried.
+	pp := &panicBeginPool{real: pool, panicTable: "sem_test_content_vectors"}
+	store := semantic.New(pp, emb, defaultSources())
+
+	ctx := context.Background()
+	// MUST NOT panic the test process.
+	// MUST return place hits.
+	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{})
+	if err != nil {
+		t.Fatalf("Search must not error after source panic (degrade-never-crash): %v", err)
+	}
+
+	hasPlace := false
+	for _, h := range hits {
+		if h.Source == "place" {
+			hasPlace = true
+		}
+	}
+	if !hasPlace {
+		t.Error("place hits must survive despite content source panic")
+	}
+}
+
+// TestHitModel_FromRow verifies that when Source.ModelColumn is set, the
+// returned Hit.Model equals the STORED row model, not src.ExpectModel.
+//
+// RED evidence: ModelColumn field does not exist on Source — compile error.
+// GREEN: ModelColumn is added, SELECT'd, and scanned into Hit.Model.
+func TestHitModel_FromRow(t *testing.T) {
+	pool := openPool(t)
+	ctx := context.Background()
+
+	_, err := pool.Exec(ctx, `
+		DROP TABLE IF EXISTS sem_test_model_vectors;
+		CREATE TABLE sem_test_model_vectors (
+			id    BIGINT PRIMARY KEY,
+			model TEXT NOT NULL,
+			vec   vector(1024) NOT NULL
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DROP TABLE IF EXISTS sem_test_model_vectors`)
+	})
+
+	const storedModel = "bge-m3"
+	const expectModel = "multilingual-e5-large"
+
+	_, err = pool.Exec(ctx,
+		`INSERT INTO sem_test_model_vectors(id, model, vec) VALUES ($1, $2, $3::vector)`,
+		999, storedModel, semantic.VectorLiteral(unitVec(1024)))
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	src := semantic.Source{
+		Name:        "model_test",
+		Table:       "sem_test_model_vectors",
+		IDColumn:    "id",
+		VecColumn:   "vec",
+		KindConst:   "article",
+		ExpectModel: expectModel,
+		ModelColumn: "model", // NEW FIELD — causes compile error until implemented
+	}
+
+	emb := newFakeEmbedder(1024)
+	store := semantic.New(pool, emb, []semantic.Source{src})
+
+	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected at least one hit")
+	}
+	for _, h := range hits {
+		if h.Model != storedModel {
+			t.Errorf("Hit.Model = %q, want stored model %q (ExpectModel=%q was wrong value)",
+				h.Model, storedModel, expectModel)
+		}
+	}
+}
+
+// TestSearch_KindColumn_RowFilter verifies that for a Source WITH KindColumn,
+// Filters.Kinds narrows at row level (WHERE kind = ANY($kinds)), not source level.
+//
+// RED evidence: current code uses sourceEffectiveKind returning src.Name="content"
+// for KindColumn sources, which never matches "article" — the source is skipped
+// entirely; no row-level filter is applied.
+// GREEN: buildSQL emits row-level WHERE clause for KindColumn sources.
+func TestSearch_KindColumn_RowFilter(t *testing.T) {
+	pool := openPool(t)
+	setupTables(t, pool)
+
+	// Insert one article and one video in the same KindColumn source.
+	insertContent(t, pool, 10, "article", "ru", false, "")
+	insertContent(t, pool, 11, "video", "ru", false, "")
+
+	emb := newFakeEmbedder(1024)
+	// Single source with KindColumn="kind" covering both article and video.
+	sources := []semantic.Source{
+		{
+			Name:       "content",
+			Table:      "sem_test_content_vectors",
+			IDColumn:   "id",
+			VecColumn:  "vec",
+			KindColumn: "kind",
+			LangColumn: "lang",
+			Supports: semantic.SourceCaps{
+				Kind: true,
+				Lang: true,
+			},
+			ExpectModel: "multilingual-e5-large",
+		},
+	}
+	store := semantic.New(pool, emb, sources)
+
+	ctx := context.Background()
+	// Filter by kind=article → only the article row (id=10) should appear.
+	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{Kinds: []string{"article"}})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected article hits, got none")
+	}
+	for _, h := range hits {
+		if h.Kind != "article" {
+			t.Errorf("expected only kind=article, got kind=%q (id=%d)", h.Kind, h.ID)
+		}
+	}
+}
+
+// TestRelated_NotFound_NonNilSlice verifies that Related returns []Hit{} (not nil)
+// when the id is absent from the Source — matching Search's non-nil-slice contract.
+//
+// RED evidence: Related returns (nil, nil) on not-found.
+// GREEN: Related returns ([]Hit{}, nil) on not-found.
+func TestRelated_NotFound_NonNilSlice(t *testing.T) {
+	pool := openPool(t)
+	setupTables(t, pool)
+	// No rows inserted.
+
+	emb := newFakeEmbedder(1024)
+	store := semantic.New(pool, emb, defaultSources())
+
+	ctx := context.Background()
+	hits, err := store.Related(ctx, 9999, "content", semantic.Filters{}, 10)
+	if err != nil {
+		t.Fatalf("Related: %v", err)
+	}
+	if hits == nil {
+		t.Error("Related returned nil slice on not-found, want []Hit{} (non-nil empty slice)")
 	}
 }

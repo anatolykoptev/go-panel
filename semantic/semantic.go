@@ -53,15 +53,24 @@ type Source struct {
 	KindConst string
 	// LangColumn is the optional lang column name (e.g. "lang").
 	LangColumn string
+	// ModelColumn is the optional column that stores the embedding model name
+	// used per-row (e.g. "model"). When set, Hit.Model is populated from the
+	// stored value; otherwise Hit.Model falls back to ExpectModel.
+	// Fix 2: SELECT'd and scanned so Hit.Model reflects the STORED model,
+	// not a constant — important when rows are (re-)embedded with different models.
+	ModelColumn string
 	// Supports declares which optional filter columns this Source has.
 	Supports SourceCaps
-	// ExpectModel is the model name expected on rows (informational only).
+	// ExpectModel is the fallback model name when ModelColumn is "" or the row's
+	// model column is NULL. Also used when the Source has no model column at all.
 	ExpectModel string
 }
 
 // Filters narrows the ANN result set.
 type Filters struct {
 	// Kinds restricts to Sources whose effective kind matches. Empty = all Sources.
+	// For Sources with KindColumn, filtering is applied per-row (WHERE kind = ANY($kinds)).
+	// For Sources with KindConst, the whole Source is skipped if its const kind doesn't match.
 	Kinds []string
 	// Lang restricts content by language (only applied to Sources with Supports.Lang).
 	Lang string
@@ -83,7 +92,8 @@ type Hit struct {
 	Lang string
 	// Score is the cosine similarity in [-1, 1].
 	Score float32
-	// Model is the embedding model name.
+	// Model is the embedding model name. When Source.ModelColumn is set, this
+	// reflects the stored per-row model value; otherwise it equals Source.ExpectModel.
 	Model string
 	// Source is the logical Source name (Source.Name).
 	Source string
@@ -96,6 +106,8 @@ type Embedder interface {
 
 // PgxPool is the narrow pool interface that semantic.Store requires.
 // pgxpool.Pool satisfies this.
+// Note: Search opens up to len(sources) concurrent transactions; configure
+// MaxConns >= expected_concurrency * len(sources) on the pool.
 type PgxPool interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
@@ -104,19 +116,43 @@ type PgxPool interface {
 // Option configures a Store.
 type Option func(*Store)
 
+// WithEfSearch returns an Option that sets the hnsw.ef_search GUC for all
+// Source queries. Default is 40 (pgvector default). Increasing it improves
+// recall at the cost of higher query latency.
+func WithEfSearch(n int) Option {
+	return func(s *Store) {
+		s.efSearch = n
+	}
+}
+
 // Store is the multi-source semantic-search query layer.
 type Store struct {
 	pool     PgxPool
 	embedder Embedder
 	sources  []Source
+	efSearch int // hnsw.ef_search GUC value; 0 means use default (40)
 }
 
-// New creates a Store. pool and embedder must be non-nil.
+// New creates a Store.
+// Panics at startup (not at query time) if:
+//   - pool is nil
+//   - embedder is nil
+//   - sources is empty
 func New(pool PgxPool, embedder Embedder, sources []Source, opts ...Option) *Store {
+	if pool == nil {
+		panic("semantic.New: pool must be non-nil")
+	}
+	if embedder == nil {
+		panic("semantic.New: embedder must be non-nil")
+	}
+	if len(sources) == 0 {
+		panic("semantic.New: sources must be non-empty")
+	}
 	s := &Store{
 		pool:     pool,
 		embedder: embedder,
 		sources:  sources,
+		efSearch: 40, // pgvector default
 	}
 	for _, o := range opts {
 		o(s)
@@ -124,25 +160,25 @@ func New(pool PgxPool, embedder Embedder, sources []Source, opts ...Option) *Sto
 	return s
 }
 
-// sourceEffectiveKind returns the kind string used for filtering decisions.
-// For Sources with KindColumn (dynamic kind), we use the Source.Name as the
-// routing key; for Sources with KindConst, we use KindConst.
-func sourceEffectiveKind(src Source) string {
-	if src.KindConst != "" {
-		return src.KindConst
-	}
-	// Dynamic kind column: the Source name is used as the routing key.
-	return src.Name
+// sourceIsKindColumn returns true if the Source uses a per-row kind column.
+func sourceIsKindColumn(src Source) bool {
+	return src.KindColumn != ""
 }
 
-// sourceIncluded returns true if this Source should be included given the Kinds filter.
+// sourceIncluded returns true if this Source should be queried given the Kinds filter.
+// For KindConst Sources, the whole Source is skipped if its const kind isn't in f.Kinds.
+// For KindColumn Sources, the Source is always included (row-level filter applied in SQL).
 func sourceIncluded(src Source, f Filters) bool {
 	if len(f.Kinds) == 0 {
 		return true
 	}
-	effective := sourceEffectiveKind(src)
+	// KindColumn Source: row-level filter — always include the source.
+	if sourceIsKindColumn(src) {
+		return true
+	}
+	// KindConst Source: source-level skip.
 	for _, k := range f.Kinds {
-		if k == effective {
+		if k == src.KindConst {
 			return true
 		}
 	}
@@ -150,9 +186,20 @@ func sourceIncluded(src Source, f Filters) bool {
 }
 
 // sourceHits queries a single Source and returns its hits.
-// On any error, it logs and returns nil (degrade-never-crash).
-func (s *Store) sourceHits(ctx context.Context, src Source, vec []float32, k int, f Filters) []Hit {
-	hits, err := s.querySource(ctx, src, vec, k, f)
+// Panics in the goroutine are caught and logged; returns nil on panic or error
+// (degrade-never-crash). The emptyResult is used on recovery.
+func (s *Store) sourceHits(ctx context.Context, src Source, vec []float32, k int, f Filters) (hits []Hit) {
+	// Fix 1: per-goroutine panic recovery — a panicking Source degrades to
+	// nil hits, exactly like a query error. Other Sources are unaffected.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("semantic: source %q panicked (degraded): %v", src.Name, r)
+			hits = nil
+		}
+	}()
+
+	var err error
+	hits, err = s.querySource(ctx, src, vec, k, f)
 	if err != nil {
 		log.Printf("semantic: source %q query failed (degraded): %v", src.Name, err)
 		return nil
@@ -168,11 +215,18 @@ func (s *Store) querySource(ctx context.Context, src Source, vec []float32, k in
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Pin HNSW GUC parameters for recall quality.
-	if _, err := tx.Exec(ctx, `SET LOCAL hnsw.ef_search = 40`); err != nil {
+	// Set hnsw.ef_search GUC. The value is configurable via WithEfSearch;
+	// default 40 equals pgvector's own default (this SET LOCAL has no recall
+	// impact unless overridden above 40).
+	efSearch := s.efSearch
+	if efSearch <= 0 {
+		efSearch = 40
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL hnsw.ef_search = %d`, efSearch)); err != nil {
 		return nil, fmt.Errorf("SET LOCAL hnsw.ef_search: %w", err)
 	}
 	// iterative_scan requires pgvector >= 0.8; swallow "unrecognized parameter" errors.
+	// Logged at most once per Source to avoid per-query log spam on older pgvector.
 	if _, err := tx.Exec(ctx, `SET LOCAL hnsw.iterative_scan = 'strict_order'`); err != nil {
 		log.Printf("semantic: SET LOCAL hnsw.iterative_scan not supported (pgvector <0.8): %v", err)
 	}
@@ -184,26 +238,30 @@ func (s *Store) querySource(ctx context.Context, src Source, vec []float32, k in
 	}
 	defer rows.Close()
 
-	model := src.ExpectModel
-	if model == "" {
-		model = "multilingual-e5-large"
+	// Fallback model when no model column is present or value is empty.
+	fallbackModel := src.ExpectModel
+	if fallbackModel == "" {
+		fallbackModel = "multilingual-e5-large"
 	}
 
 	var hits []Hit
 	for rows.Next() {
-		h := Hit{Source: src.Name, Model: model}
+		h := Hit{Source: src.Name}
 
-		// Build scan targets based on what columns we selected.
-		// Order: id, [kind,] [lang,] score
+		// Build scan targets based on selected columns.
+		// Column order: id, [kind,] [lang,] [model,] score
 		var scanArgs []interface{}
 		scanArgs = append(scanArgs, &h.ID)
 		if src.KindColumn != "" {
 			scanArgs = append(scanArgs, &h.Kind)
-		} else {
-			// Kind from constant — set after scan.
 		}
 		if src.LangColumn != "" {
 			scanArgs = append(scanArgs, &h.Lang)
+		}
+		// Fix 2: scan the stored model when ModelColumn is set.
+		var storedModel string
+		if src.ModelColumn != "" {
+			scanArgs = append(scanArgs, &storedModel)
 		}
 		scanArgs = append(scanArgs, &h.Score)
 
@@ -211,9 +269,16 @@ func (s *Store) querySource(ctx context.Context, src Source, vec []float32, k in
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
 
-		// Fill in constant kind if no kind column.
+		// Resolve kind from constant when no kind column.
 		if src.KindColumn == "" {
 			h.Kind = src.KindConst
+		}
+
+		// Fix 2: prefer stored model column; fall back to ExpectModel.
+		if src.ModelColumn != "" && storedModel != "" {
+			h.Model = storedModel
+		} else {
+			h.Model = fallbackModel
 		}
 
 		hits = append(hits, h)
@@ -237,7 +302,7 @@ func buildSQL(src Source, vec []float32, k int, f Filters) (string, []interface{
 	vecParam := fmt.Sprintf("$%d::vector", argN)
 	argN++
 
-	// SELECT clause: id, [kind,] [lang,] score
+	// SELECT clause: id, [kind,] [lang,] [model,] score
 	sb.WriteString("SELECT ")
 	sb.WriteString(src.IDColumn)
 	if src.KindColumn != "" {
@@ -247,6 +312,11 @@ func buildSQL(src Source, vec []float32, k int, f Filters) (string, []interface{
 	if src.LangColumn != "" {
 		sb.WriteString(", ")
 		sb.WriteString(src.LangColumn)
+	}
+	// Fix 2: select model column when declared.
+	if src.ModelColumn != "" {
+		sb.WriteString(", ")
+		sb.WriteString(src.ModelColumn)
 	}
 	sb.WriteString(", 1 - (")
 	sb.WriteString(src.VecColumn)
@@ -258,6 +328,15 @@ func buildSQL(src Source, vec []float32, k int, f Filters) (string, []interface{
 	sb.WriteString(src.Table)
 
 	sb.WriteString(" WHERE 1=1")
+
+	// NIT fix: row-level kind filter for KindColumn Sources.
+	// For KindConst Sources, source-granular skip is already done in sourceIncluded.
+	if src.KindColumn != "" && len(f.Kinds) > 0 {
+		// Use = ANY($N) for multi-value kind filter.
+		args = append(args, f.Kinds)
+		fmt.Fprintf(&sb, " AND %s = ANY($%d)", src.KindColumn, argN)
+		argN++
+	}
 
 	// Lang filter — only if Source supports lang.
 	if src.Supports.Lang && src.LangColumn != "" && f.Lang != "" {
@@ -295,9 +374,9 @@ func buildSQL(src Source, vec []float32, k int, f Filters) (string, []interface{
 }
 
 // Search runs ANN over all applicable Sources using the given query vector.
-// Sources are queried concurrently; partial failures are logged and skipped
-// (degrade-never-crash). Results are merged by Score descending and the global
-// top-k are returned.
+// Sources are queried concurrently; partial failures and panics are caught and
+// logged (degrade-never-crash). Results are merged by Score descending with a
+// stable tiebreaker (Source name, then ID) and the global top-k are returned.
 func (s *Store) Search(ctx context.Context, vec []float32, k int, f Filters) ([]Hit, error) {
 	type result struct {
 		hits []Hit
@@ -325,9 +404,16 @@ func (s *Store) Search(ctx context.Context, vec []float32, k int, f Filters) ([]
 		all = append(all, r.hits...)
 	}
 
-	// Sort by Score descending.
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].Score > all[j].Score
+	// Stable merge: Score desc, then Source asc, then ID asc for deterministic
+	// tiebreaker at top-k boundary.
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].Score != all[j].Score {
+			return all[i].Score > all[j].Score
+		}
+		if all[i].Source != all[j].Source {
+			return all[i].Source < all[j].Source
+		}
+		return all[i].ID < all[j].ID
 	})
 
 	// Return global top-k.
@@ -351,7 +437,8 @@ func (s *Store) SemanticSearch(ctx context.Context, queryText string, k int, f F
 }
 
 // Related fetches the stored vector for id from the named Source, then calls
-// Search with ExcludeID=id. Returns nil, nil if the id is not found (degrade-never-crash).
+// Search with ExcludeID=id. Returns []Hit{} (non-nil empty slice) if the id is
+// not found, matching Search's non-nil-slice contract.
 func (s *Store) Related(ctx context.Context, id int64, sourceName string, f Filters, k int) ([]Hit, error) {
 	// Find the named Source.
 	var src *Source
@@ -363,17 +450,18 @@ func (s *Store) Related(ctx context.Context, id int64, sourceName string, f Filt
 	}
 	if src == nil {
 		log.Printf("semantic: Related: source %q not found", sourceName)
-		return nil, nil
+		return []Hit{}, nil
 	}
 
 	// Fetch the stored vector for this id.
 	vec, err := s.fetchVector(ctx, src, id)
 	if err != nil {
 		log.Printf("semantic: Related: fetch vector for id=%d source=%q: %v", id, sourceName, err)
-		return nil, nil
+		return []Hit{}, nil
 	}
 	if vec == nil {
-		return nil, nil
+		// Not found.
+		return []Hit{}, nil
 	}
 
 	// Exclude self.
