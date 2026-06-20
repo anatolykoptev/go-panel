@@ -45,9 +45,9 @@ func TestBuildSQL_ConfigurableFilterColumns(t *testing.T) {
 		vec[i] = 0.5
 	}
 
-	isPodborka := true
+	// NIT: inline ptrBool(true) directly instead of an isPodborka local used once.
 	f := Filters{
-		IsPodborka: ptrBool(isPodborka),
+		IsPodborka: ptrBool(true),
 		Segment:    "premium",
 	}
 
@@ -66,7 +66,10 @@ func TestBuildSQL_ConfigurableFilterColumns(t *testing.T) {
 		t.Errorf("sql contains hardcoded literal %q; should use src.PodborkaColumn=%q instead\nsql: %s",
 			"is_podborka", src.PodborkaColumn, sql)
 	}
-	if strings.Contains(sql, " segment ") || strings.Contains(sql, " segment =") || strings.Contains(sql, " AND segment") {
+	// NIT: symmetric single check, mirroring the is_podborka guard above.
+	// The configured SegmentColumn is "tier", so "segment" can only appear as
+	// a hardcoded literal -- no false positive.
+	if strings.Contains(sql, "segment") {
 		t.Errorf("sql contains hardcoded literal %q; should use src.SegmentColumn=%q instead\nsql: %s",
 			"segment", src.SegmentColumn, sql)
 	}

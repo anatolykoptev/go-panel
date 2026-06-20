@@ -19,6 +19,9 @@ func testDSN() string {
 	return os.Getenv("SEMANTIC_TEST_DSN")
 }
 
+// ptrBool returns a pointer to a bool literal; used in filter tests.
+func ptrBool(b bool) *bool { return &b }
+
 // fakeEmbedder captures Embed calls for inspection.
 type fakeEmbedder struct {
 	mu     sync.Mutex
@@ -616,5 +619,118 @@ func TestRelated_NotFound_NonNilSlice(t *testing.T) {
 	}
 	if hits == nil {
 		t.Error("Related returned nil slice on not-found, want []Hit{} (non-nil empty slice)")
+	}
+}
+
+// TestSearch_FilterPodborka verifies that Filters.IsPodborka drives live row
+// filtering through the real Store.Search code path.
+//
+// This is an end-to-end integration test: it exercises the SHIPPED Store.Search
+// function (not a hand-copied query string), confirms that the PodborkaColumn
+// configured in the Source actually filters rows in the real pgvector DB.
+//
+// RED sanity (falsification): point the content Source's PodborkaColumn at a
+// non-existent column ("_bad_col") -> Store.Search degrades (SQL error) and
+// returns no hits that match the filter, so the final assertion fails.
+// GREEN: restore PodborkaColumn="is_podborka" -> correct rows returned.
+func TestSearch_FilterPodborka(t *testing.T) {
+	pool := openPool(t)
+	setupTables(t, pool)
+
+	// Insert 3 podborka rows and 2 non-podborka rows.
+	insertContent(t, pool, 201, "collection", "ru", true, "")
+	insertContent(t, pool, 202, "collection", "ru", true, "")
+	insertContent(t, pool, 203, "collection", "ru", true, "")
+	insertContent(t, pool, 204, "collection", "ru", false, "")
+	insertContent(t, pool, 205, "collection", "ru", false, "")
+
+	emb := newFakeEmbedder(1024)
+	store := semantic.New(pool, emb, defaultSources())
+	ctx := context.Background()
+
+	// Filter: IsPodborka=true -> expect only rows 201, 202, 203.
+	trueHits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{
+		IsPodborka: ptrBool(true),
+		Kinds:      []string{"collection"},
+	})
+	if err != nil {
+		t.Fatalf("Search(IsPodborka=true): %v", err)
+	}
+	if len(trueHits) == 0 {
+		t.Fatal("Search(IsPodborka=true): expected hits, got none")
+	}
+	for _, h := range trueHits {
+		if h.Source != "content" {
+			continue // place source has no is_podborka column; skip those hits
+		}
+		if h.ID != 201 && h.ID != 202 && h.ID != 203 {
+			t.Errorf("Search(IsPodborka=true): unexpected hit id=%d (expected only 201/202/203)", h.ID)
+		}
+	}
+
+	// Filter: IsPodborka=false -> expect only rows 204, 205.
+	falseHits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{
+		IsPodborka: ptrBool(false),
+		Kinds:      []string{"collection"},
+	})
+	if err != nil {
+		t.Fatalf("Search(IsPodborka=false): %v", err)
+	}
+	if len(falseHits) == 0 {
+		t.Fatal("Search(IsPodborka=false): expected hits, got none")
+	}
+	for _, h := range falseHits {
+		if h.Source != "content" {
+			continue
+		}
+		if h.ID != 204 && h.ID != 205 {
+			t.Errorf("Search(IsPodborka=false): unexpected hit id=%d (expected only 204/205)", h.ID)
+		}
+	}
+}
+
+// TestSearch_FilterSegment verifies that Filters.Segment drives live row
+// filtering through the real Store.Search code path.
+//
+// This is an end-to-end integration test: it exercises the SHIPPED Store.Search
+// function (not a hand-copied query string), confirms that the SegmentColumn
+// configured in the Source actually filters rows in the real pgvector DB.
+//
+// RED sanity (falsification): point the content Source's SegmentColumn at a
+// non-existent column ("_bad_col") -> Store.Search degrades (SQL error) and
+// returns no hits, so the assertion on len(hits)==0 fires.
+// GREEN: restore SegmentColumn="segment" -> only segment-"a" rows returned.
+func TestSearch_FilterSegment(t *testing.T) {
+	pool := openPool(t)
+	setupTables(t, pool)
+
+	// Insert 3 rows with segment "a" and 2 with segment "b".
+	insertContent(t, pool, 301, "collection", "ru", false, "a")
+	insertContent(t, pool, 302, "collection", "ru", false, "a")
+	insertContent(t, pool, 303, "collection", "ru", false, "a")
+	insertContent(t, pool, 304, "collection", "ru", false, "b")
+	insertContent(t, pool, 305, "collection", "ru", false, "b")
+
+	emb := newFakeEmbedder(1024)
+	store := semantic.New(pool, emb, defaultSources())
+	ctx := context.Background()
+
+	hits, err := store.Search(ctx, unitVec(1024), 10, semantic.Filters{
+		Segment: "a",
+		Kinds:   []string{"collection"},
+	})
+	if err != nil {
+		t.Fatalf("Search(Segment=a): %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("Search(Segment=a): expected hits, got none")
+	}
+	for _, h := range hits {
+		if h.Source != "content" {
+			continue // place source has no segment column
+		}
+		if h.ID != 301 && h.ID != 302 && h.ID != 303 {
+			t.Errorf("Search(Segment=a): unexpected hit id=%d (expected only 301/302/303)", h.ID)
+		}
 	}
 }
