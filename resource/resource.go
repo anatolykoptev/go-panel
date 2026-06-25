@@ -50,6 +50,10 @@ const (
 	// minCSRFKeyLen is the minimum acceptable length for CSRFKey.
 	// Keys shorter than this are rejected at Register time (fail-closed).
 	minCSRFKeyLen = 32
+	// idNew is the reserved path segment used to represent a "create new record"
+	// request. It is rejected with 404 on detail/edit routes (which require an
+	// existing record) and treated as a create signal by the save handler.
+	idNew = "new"
 )
 
 // Cell is one table cell value.
@@ -63,6 +67,28 @@ type Row struct {
 	ID    string
 	Cells []Cell // ordered to match Sort.Columns
 	Href  string // optional detail link
+}
+
+// DetailItem is one label-value row inside a DetailSection.
+//
+// Value is plain text and HTML-escaped by go-panel before rendering.
+// Set HTML=true ONLY for values assembled from closed-enum constants by the
+// consumer (e.g. a chip returned by a band-chip helper) — never for raw DB
+// or user-supplied text, which must go through text escaping first.
+type DetailItem struct {
+	Label string
+	Value string
+	HTML  bool // when true, Value is rendered via templ.Raw — caller guarantees safety
+}
+
+// DetailSection is one logical card / group on the Detail page.
+// A section has an optional title and either a list of Items or a RawHTML block.
+// RawHTML is for consumer-supplied pre-rendered HTML panels (e.g. a two-column
+// fit-card); it must never contain raw DB/user text — escape before embedding.
+type DetailSection struct {
+	Title   string
+	Items   []DetailItem
+	RawHTML string // consumer-supplied HTML; must be safe (XSS-free) before use
 }
 
 // ListQuery is the safe, resolved query handed to the Lister closure.
@@ -111,6 +137,15 @@ type Resource struct {
 	// Lister fetches one page of rows. The kit hands it a safe ListQuery;
 	// the app owns the row type + scan. go-panel never assumes a schema.
 	Lister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
+
+	// Detailer enables a per-row Detail (Show) view at GET {basePath}/{name}/{id}.
+	// Nil = no detail page (default — preserves existing behaviour).
+	// When non-nil, Register mounts GET {basePath}/{name}/{id} and the template
+	// renders the returned sections inside the standard shell.Layout.
+	// id=="new" is rejected with 404 (symmetric with the edit route).
+	// The closure must be safe to call concurrently (standard Go handler rules).
+	// See DetailSection / DetailItem for the schema-agnostic shape.
+	Detailer func(ctx context.Context, id string) ([]DetailSection, error)
 
 	// Writer enables create/edit forms. Nil = read-only (Phase 1 behaviour, default).
 	// When non-nil, CSRFKey must be set in Config (panic at Register if missing or < 32 bytes — fail-closed).
@@ -239,6 +274,7 @@ func (p *Panel) NavItems() []shell.NavItem {
 //
 //	GET  {basePath}/{name}            — list page (full or htmx fragment)
 //	GET  {basePath}/{name}/rows       — htmx row fragment only (sort/filter swap target)
+//	GET  {basePath}/{name}/{id}       — detail/Show page (only when Detailer != nil; id=="new" → 404)
 //	GET  {basePath}/{name}/new        — empty create form (only when Writer != nil)
 //	GET  {basePath}/{name}/{id}/edit  — pre-populated edit form (only when Writer != nil; id=="new" → 404)
 //	POST {basePath}/{name}/{id}/save  — save (id=="new" means create) (only when Writer != nil)
@@ -294,6 +330,11 @@ func Register(p *Panel, r Resource) {
 		listHandler(w, req, nil, true)
 	}))
 
+	// Detailer route — only mounted when Detailer is configured.
+	if r.Detailer != nil {
+		mountDetailRoute(p, r)
+	}
+
 	// Writer routes — only mounted when Writer is configured.
 	if r.Writer != nil {
 		mountWriterRoutes(p, r)
@@ -314,6 +355,53 @@ func validateWriterConfig(p *Panel, r Resource) {
 	}
 	if err := r.Writer.Form.Valid(); err != nil {
 		panic(fmt.Sprintf("resource.Register %q: invalid Writer.Form: %v", r.Name, err))
+	}
+}
+
+// mountDetailRoute mounts the GET {basePath}/{name}/{id} handler for a Detailer-enabled resource.
+// Called only when r.Detailer != nil.
+func mountDetailRoute(p *Panel, r Resource) {
+	detailPath := p.basePath + "/" + r.Name + "/{id}"
+	p.mux.HandleFunc("GET "+detailPath, p.auth.Require(detailHandler(p, r)))
+}
+
+// detailHandler returns the handler for GET {basePath}/{name}/{id}.
+// id=="new" is rejected with 404 (symmetric with the edit route).
+// The Detailer closure is called to fetch the sections; go-panel renders the chrome.
+func detailHandler(p *Panel, r Resource) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		shell.SecurityHeaders(w)
+		id := req.PathValue("id")
+		if id == idNew {
+			http.NotFound(w, req)
+			return
+		}
+		// Reject path suffixes that belong to other routes ("/edit", "/save").
+		// The 1.22 mux will prefer exact-suffix patterns, but guard defensively.
+		if strings.HasSuffix(id, "/edit") || strings.HasSuffix(id, "/save") {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		sections, err := r.Detailer(req.Context(), id)
+		if err != nil {
+			slog.Error("resource: detailer failed", "resource", r.Name, "id", id, "err", err)
+			http.Error(w, "detail failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		nav := p.activeNav(r.Name)
+		d := detailPageData{
+			Resource: r,
+			ID:       id,
+			Sections: sections,
+			BasePath: p.basePath,
+		}
+		content := detailPageContent(d)
+		layoutComp := shell.Layout(p.title, nav, content)
+		if err := layoutComp.Render(req.Context(), w); err != nil {
+			slog.Error("resource: render detail page", "resource", r.Name, "id", id, "err", err)
+			http.Error(w, "render failed", http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -399,7 +487,7 @@ func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		shell.SecurityHeaders(w)
 		id := req.PathValue("id")
-		if id == "new" {
+		if id == idNew {
 			http.NotFound(w, req)
 			return
 		}
@@ -461,7 +549,7 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		}
 
 		id := req.PathValue("id")
-		creating := id == "new"
+		creating := id == idNew
 		if creating {
 			id = ""
 		}
