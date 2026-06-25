@@ -264,6 +264,29 @@ func (p *Panel) NavItems() []shell.NavItem {
 	return result
 }
 
+// AddNav appends item to the panel's sidebar navigation. It must be called
+// at setup time (not concurrently with other Panel mutations) and after
+// the relevant Register calls if the caller wants the item to appear after
+// resource entries. To place an item under a named group that isn't already
+// present, emit a group-header NavItem{Group: "X"} before the link item(s) —
+// the same convention Register uses.
+func (p *Panel) AddNav(item shell.NavItem) {
+	p.nav = append(p.nav, item)
+}
+
+// NavItemsActive returns a snapshot of the panel's nav items with the item
+// matching activeID marked Active. It is safe to call concurrently (returns
+// a copy). Consumers rendering bespoke pages should use this instead of
+// NavItems to get the active highlight.
+func (p *Panel) NavItemsActive(activeID string) []shell.NavItem {
+	items := make([]shell.NavItem, len(p.nav))
+	copy(items, p.nav)
+	for i := range items {
+		items[i].Active = items[i].ID == activeID
+	}
+	return items
+}
+
 // Register mounts the resource's list handler and adds it to the sidebar nav.
 // Panics at startup if Sort or Filter are misconfigured (fail-fast, not at runtime).
 // When the resource has a Writer, also panics if:
@@ -660,13 +683,9 @@ func (p *Panel) sessionValue(r *http.Request) string {
 }
 
 // activeNav returns a copy of the nav with the given resource ID marked active.
+// It delegates to NavItemsActive to avoid duplication.
 func (p *Panel) activeNav(activeID string) []shell.NavItem {
-	nav := make([]shell.NavItem, len(p.nav))
-	copy(nav, p.nav)
-	for i := range nav {
-		nav[i].Active = nav[i].ID == activeID
-	}
-	return nav
+	return p.NavItemsActive(activeID)
 }
 
 // makeListHandler builds the handler func for a resource's list page.
@@ -791,4 +810,3 @@ func max(a, b int) int {
 	}
 	return b
 }
-
