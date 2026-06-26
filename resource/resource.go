@@ -30,13 +30,13 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/a-h/templ"
 
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/csrf"
@@ -147,15 +147,8 @@ type Resource struct {
 	// id=="new" is rejected with 404 (symmetric with the edit route).
 	// The closure must be safe to call concurrently (standard Go handler rules).
 	// See DetailSection / DetailItem for the schema-agnostic shape.
-	Detailer func(ctx context.Context, id string) ([]DetailSection, error)
+	Detailer func(ctx context.Context, r *http.Request, id string) ([]DetailSection, error)
 
-	// Detail, when non-nil, mounts GET {basePath}/{name}/{id} - a per-record
-	// detail page rendered in the panel shell with this resource nav active and
-	// a back-link to the list. The hook receives the request + the {id} path value
-	// and returns the page title + content. Return ErrDetailNotFound for a 404.
-	// id=="new" is rejected with 404 (symmetric with the edit route).
-	// Mutually exclusive with Detailer: panic at Register time if both are non-nil.
-	Detail func(ctx context.Context, r *http.Request, id string) (title string, content templ.Component, err error)
 
 	// Writer enables create/edit forms. Nil = read-only (Phase 1 behaviour, default).
 	// When non-nil, CSRFKey must be set in Config (panic at Register if missing or < 32 bytes — fail-closed).
@@ -307,7 +300,7 @@ func (p *Panel) NavItemsActive(activeID string) []shell.NavItem {
 //
 //	GET  {basePath}/{name}            — list page (full or htmx fragment)
 //	GET  {basePath}/{name}/rows       — htmx row fragment only (sort/filter swap target)
-//	GET  {basePath}/{name}/{id}       — detail/Show page (only when Detailer != nil or Detail != nil; id=="new" → 404)
+//	GET  {basePath}/{name}/{id}       — detail/Show page (only when Detailer != nil; id=="new" → 404)
 //	GET  {basePath}/{name}/new        — empty create form (only when Writer != nil)
 //	GET  {basePath}/{name}/{id}/edit  — pre-populated edit form (only when Writer != nil; id=="new" → 404)
 //	POST {basePath}/{name}/{id}/save  — save (id=="new" means create) (only when Writer != nil)
@@ -368,13 +361,6 @@ func Register(p *Panel, r Resource) {
 		mountDetailRoute(p, r)
 	}
 
-	// Detail hook route — mutually exclusive with Detailer.
-	if r.Detail != nil {
-		if r.Detailer != nil {
-			panic(fmt.Sprintf("resource.Register %q: both Detail and Detailer are set; they mount the same route -- use exactly one", r.Name))
-		}
-		mountDetailHookRoute(p, r)
-	}
 
 	// Writer routes — only mounted when Writer is configured.
 	if r.Writer != nil {
@@ -398,6 +384,9 @@ func validateWriterConfig(p *Panel, r Resource) {
 		panic(fmt.Sprintf("resource.Register %q: invalid Writer.Form: %v", r.Name, err))
 	}
 }
+
+// ErrDetailNotFound may be returned by Detailer to signal a 404.
+var ErrDetailNotFound = errors.New("resource: detail not found")
 
 // mountDetailRoute mounts the GET {basePath}/{name}/{id} handler for a Detailer-enabled resource.
 // Called only when r.Detailer != nil.
@@ -424,10 +413,14 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		sections, err := r.Detailer(req.Context(), id)
+		sections, err := r.Detailer(req.Context(), req, id)
 		if err != nil {
-			slog.Error("resource: detailer failed", "resource", r.Name, "id", id, "err", err)
-			http.Error(w, "detail failed: "+err.Error(), http.StatusInternalServerError)
+			if errors.Is(err, ErrDetailNotFound) {
+				http.NotFound(w, req)
+				return
+			}
+			slog.ErrorContext(req.Context(), "detailer error", "err", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		nav := p.activeNav(r.Name)
