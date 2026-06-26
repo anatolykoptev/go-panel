@@ -130,3 +130,51 @@ func TestRenderPageHTML_ContentPassthrough(t *testing.T) {
 		t.Errorf("expected Content-Type text/html; charset=utf-8, got %q", ct)
 	}
 }
+
+// TestRenderPage_SetsSecurityHeaders verifies that RenderPage sets the standard
+// admin security headers (CSP non-empty + X-Frame-Options: DENY) before writing
+// the body. Bespoke pages must have the same security posture as resource pages.
+// Falsification: remove the shell.SecurityHeaders(w) call → both assertions fail.
+func TestRenderPage_SetsSecurityHeaders(t *testing.T) {
+	p := newTestPanel()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/admin/bespoke", nil)
+
+	if err := p.RenderPage(w, r, "Admin", "", templ.Raw("<p>content</p>")); err != nil {
+		t.Fatalf("RenderPage returned error: %v", err)
+	}
+
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Error("RenderPage: Content-Security-Policy header is absent; shell.SecurityHeaders must be called")
+	}
+	xfo := w.Header().Get("X-Frame-Options")
+	if xfo != "DENY" {
+		t.Errorf("RenderPage: expected X-Frame-Options: DENY, got %q", xfo)
+	}
+}
+
+// TestRenderPageHTML_SetsSecurityHeaders verifies that RenderPageHTML (which
+// delegates to RenderPage) also inherits the security headers.
+// Falsification: remove the shell.SecurityHeaders(w) call from RenderPage ->
+// both assertions fail for RenderPageHTML too.
+func TestRenderPageHTML_SetsSecurityHeaders(t *testing.T) {
+	p := newTestPanel()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/admin/bespoke-html", nil)
+
+	if err := p.RenderPageHTML(w, r, "Admin", "", "<p>safe html</p>"); err != nil {
+		t.Fatalf("RenderPageHTML returned error: %v", err)
+	}
+
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Error("RenderPageHTML: Content-Security-Policy header is absent; RenderPage must call shell.SecurityHeaders")
+	}
+	xfo := w.Header().Get("X-Frame-Options")
+	if xfo != "DENY" {
+		t.Errorf("RenderPageHTML: expected X-Frame-Options: DENY, got %q", xfo)
+	}
+}
