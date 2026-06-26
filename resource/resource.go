@@ -37,7 +37,6 @@ import (
 	"strconv"
 	"strings"
 
-
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/locale"
@@ -148,7 +147,6 @@ type Resource struct {
 	// The closure must be safe to call concurrently (standard Go handler rules).
 	// See DetailSection / DetailItem for the schema-agnostic shape.
 	Detailer func(ctx context.Context, r *http.Request, id string) ([]DetailSection, error)
-
 
 	// Writer enables create/edit forms. Nil = read-only (Phase 1 behaviour, default).
 	// When non-nil, CSRFKey must be set in Config (panic at Register if missing or < 32 bytes — fail-closed).
@@ -360,7 +358,6 @@ func Register(p *Panel, r Resource) {
 	if r.Detailer != nil {
 		mountDetailRoute(p, r)
 	}
-
 
 	// Writer routes — only mounted when Writer is configured.
 	if r.Writer != nil {
