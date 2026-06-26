@@ -264,3 +264,49 @@ func extractCookieValue(setCookie, name string) string {
 	}
 	return rest[:end]
 }
+
+// TestLoginHandler_DefaultRendersPm7Page verifies that with no LoginTempl override,
+// GET /admin/login renders the pm7 design-system login page (shell.LoginPage), not
+// the old inline-CSS fallback. This is the framework default wired in renderLogin.
+func TestLoginHandler_DefaultRendersPm7Page(t *testing.T) {
+	a := newTestAuth()
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/login", nil)
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+
+	body := w.Body.String()
+	for _, want := range []string{"pm7-card", "pm7-input", "pm7-button", `name="username"`, `name="password"`, `action="/admin/login"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("login page missing %q; pm7 default not rendered", want)
+		}
+	}
+	// The old inline-CSS fallback used this exact background; it must be gone.
+	if strings.Contains(body, "background:#0f172a") {
+		t.Error("login page still contains the inline-CSS fallback marker background:#0f172a")
+	}
+}
+
+// TestLoginHandler_LoginTemplOverride verifies the LoginTempl override seam still
+// takes precedence over the pm7 default.
+func TestLoginHandler_LoginTemplOverride(t *testing.T) {
+	const sentinel = "CUSTOM-LOGIN-PAGE-SENTINEL"
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username:   "admin",
+		Password:   "secret",
+		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:   "/admin",
+		SessionTTL: time.Hour,
+		LoginTempl: func(string) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(sentinel))
+			})
+		},
+	})
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/login", nil)
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+
+	if !strings.Contains(w.Body.String(), sentinel) {
+		t.Errorf("LoginTempl override not used; body=%q", w.Body.String())
+	}
+}
