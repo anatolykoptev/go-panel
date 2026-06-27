@@ -178,3 +178,39 @@ func TestRenderPageHTML_SetsSecurityHeaders(t *testing.T) {
 		t.Errorf("RenderPageHTML: expected X-Frame-Options: DENY, got %q", xfo)
 	}
 }
+
+// TestRenderPage_CollapsedFromCookie verifies that RenderPage SSR-renders the
+// sidebar with class="sidebar collapsed" when the request carries cookie sb-c=1.
+// This kills the FOUC that occurs with localStorage-based collapse.
+// Falsification: remove the ContextWithSidebar call in render.go →
+// the aside stays class="sidebar" regardless of the cookie.
+func TestRenderPage_CollapsedFromCookie(t *testing.T) {
+	p := newTestPanel()
+	req := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	req.AddCookie(&http.Cookie{Name: shell.SidebarCookie, Value: "1"})
+	rec := httptest.NewRecorder()
+	if err := p.RenderPage(rec, req, "T", "", templ.Raw("")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rec.Body.String(), `class="sidebar collapsed"`) {
+		t.Fatal("collapsed cookie did not SSR-render collapsed sidebar (FOUC not killed)")
+	}
+}
+
+// TestRenderPage_ExpandedWithoutCookie verifies that without the sb-c cookie
+// the aside renders as class="sidebar" (not collapsed) — baseline preserved.
+func TestRenderPage_ExpandedWithoutCookie(t *testing.T) {
+	p := newTestPanel()
+	req := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	rec := httptest.NewRecorder()
+	if err := p.RenderPage(rec, req, "T", "", templ.Raw("")); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, `class="sidebar collapsed"`) {
+		t.Fatal("no cookie should yield expanded sidebar, not collapsed")
+	}
+	if !strings.Contains(body, `class="sidebar"`) {
+		t.Fatal("expanded sidebar missing expected class=\"sidebar\"")
+	}
+}
