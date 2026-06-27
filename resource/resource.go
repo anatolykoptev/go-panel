@@ -437,7 +437,7 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 		}
 		content := detailPageContent(d)
 		layoutComp := shell.Layout(p.title, nav, content)
-		renderCtx := shell.ContextWithSidebar(req.Context(), sidebarStateFrom(req))
+		renderCtx := shell.ContextWithChrome(req.Context(), chromeStateFrom(req))
 		if err := layoutComp.Render(renderCtx, w); err != nil {
 			slog.Error("resource: render detail page", "resource", r.Name, "id", id, "err", err)
 			http.Error(w, "render failed", http.StatusInternalServerError)
@@ -514,7 +514,7 @@ func newFormHandler(p *Panel, r Resource) http.HandlerFunc {
 			ActiveLocale: p.locales.Default,
 		}
 		layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-		if err := layoutComp.Render(shell.ContextWithSidebar(ctx, sidebarStateFrom(req)), w); err != nil {
+		if err := layoutComp.Render(shell.ContextWithChrome(ctx, chromeStateFrom(req)), w); err != nil {
 			slog.Error("resource: render new form", "resource", r.Name, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
@@ -562,7 +562,7 @@ func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
 			ActiveLocale: loc,
 		}
 		layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-		if err := layoutComp.Render(shell.ContextWithSidebar(ctx, sidebarStateFrom(req)), w); err != nil {
+		if err := layoutComp.Render(shell.ContextWithChrome(ctx, chromeStateFrom(req)), w); err != nil {
 			slog.Error("resource: render edit form", "resource", r.Name, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
@@ -681,7 +681,7 @@ func renderValidationErrors(w http.ResponseWriter, req *http.Request, p *Panel, 
 		ActiveLocale: loc,
 	}
 	layoutComp := shell.Layout(p.title, nav, formPageContent(d))
-	if err := layoutComp.Render(shell.ContextWithSidebar(req.Context(), sidebarStateFrom(req)), w); err != nil {
+	if err := layoutComp.Render(shell.ContextWithChrome(req.Context(), chromeStateFrom(req)), w); err != nil {
 		slog.Error("resource: render validation errors", "resource", r.Name, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
@@ -777,7 +777,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 
 		content := listPageContent(data)
 		layoutComp := shell.Layout(p.title, nav, content)
-		if err := layoutComp.Render(shell.ContextWithSidebar(ctx, sidebarStateFrom(req)), w); err != nil {
+		if err := layoutComp.Render(shell.ContextWithChrome(ctx, chromeStateFrom(req)), w); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}

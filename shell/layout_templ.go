@@ -39,7 +39,7 @@ type NavItem struct {
 // For htmx requests, render the content component directly (fragment swap).
 //
 // New state (sidebar collapse) is threaded via context.Context so this
-// signature stays frozen: use shell.ContextWithSidebar before calling Render.
+// signature stays frozen: use shell.ContextWithChrome before calling Render.
 func Layout(title string, nav []NavItem, content templ.Component) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -86,7 +86,7 @@ func Layout(title string, nav []NavItem, content templ.Component) templ.Componen
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var3 = []any{"sidebar", templ.KV("collapsed", SidebarFromContext(ctx).Collapsed)}
+		var templ_7745c5c3_Var3 = []any{"sidebar", templ.KV("collapsed", ChromeFromContext(ctx).Collapsed)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var3...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

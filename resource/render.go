@@ -16,18 +16,20 @@ import (
 func (p *Panel) RenderPage(w http.ResponseWriter, r *http.Request, title, activeID string, content templ.Component) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	shell.SecurityHeaders(w)
-	ctx := shell.ContextWithSidebar(r.Context(), sidebarStateFrom(r))
+	ctx := shell.ContextWithChrome(r.Context(), chromeStateFrom(r))
 	return shell.Layout(title, p.NavItemsActive(activeID), content).Render(ctx, w)
 }
 
-// sidebarStateFrom reads the collapse cookie from the request.
-// Cookie "sb-c"="1" → Collapsed=true; absent or any other value → Collapsed=false.
+// chromeStateFrom reads the collapse cookie from the request and returns a
+// ChromeState.  Cookie "sb-c"="1" → Collapsed=true; absent or any other
+// value → Collapsed=false.  CollapsedGroups and Profile are zero in Phase 2.
+//
 // Lives in the resource layer (not shell) so shell stays net/http-free.
-func sidebarStateFrom(r *http.Request) shell.SidebarState {
+func chromeStateFrom(r *http.Request) shell.ChromeState {
 	if c, err := r.Cookie(shell.SidebarCookie); err == nil && c.Value == "1" {
-		return shell.SidebarState{Collapsed: true}
+		return shell.ChromeState{Collapsed: true}
 	}
-	return shell.SidebarState{}
+	return shell.ChromeState{}
 }
 
 // RenderPageHTML is RenderPage for callers holding already-rendered,
