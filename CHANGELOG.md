@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/anatolykoptev/go-panel/compare/v0.9.0...v0.10.0) (2026-06-27)
+
+
+### Features
+
+* **shell:** working icon-rail collapse (cookie-SSR, no flash) + live nav badges ([#39](https://github.com/anatolykoptev/go-panel/issues/39)) ([d44aa63](https://github.com/anatolykoptev/go-panel/commit/d44aa6374fce919a47387555c654dfb796418685))
+
 ## [0.9.0](https://github.com/anatolykoptev/go-panel/compare/v0.8.0...v0.9.0) (2026-06-27)
 
 
