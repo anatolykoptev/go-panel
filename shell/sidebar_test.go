@@ -171,6 +171,75 @@ func TestCachedBadgeDeduplicates(t *testing.T) {
 	}
 }
 
+// ── Tooltip tests (Task 2.2) ──────────────────────────────────────────────
+
+// TestTooltipAriaLabelAlways confirms that every sidebar link carries
+// aria-label set to tooltipOf(item) (Tooltip when set, Label as fallback),
+// regardless of collapsed/expanded state.
+// Falsification: remove aria-label emission from layout.templ → FAIL.
+func TestTooltipAriaLabelAlways(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "Items", Icon: "🗂", URL: "/admin/x",
+		Tooltip: "Items overview"}}
+	for _, collapsed := range []bool{false, true} {
+		ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: collapsed})
+		html := renderLayout(t, ctx, nav)
+		if !strings.Contains(html, `aria-label="Items overview"`) {
+			t.Fatalf("collapsed=%v: sidebar link must carry aria-label=Tooltip value", collapsed)
+		}
+	}
+}
+
+// TestTooltipFallbackToLabel confirms that when NavItem.Tooltip is empty,
+// aria-label falls back to Label.
+// Falsification: hard-code aria-label="" → FAIL; remove fallback → FAIL.
+func TestTooltipFallbackToLabel(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "Items", Icon: "🗂", URL: "/admin/x"}}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: true})
+	html := renderLayout(t, ctx, nav)
+	if !strings.Contains(html, `aria-label="Items"`) {
+		t.Fatal("empty Tooltip must fall back to Label for aria-label")
+	}
+}
+
+// TestTooltipSpanPresent confirms every sidebar link always carries a
+// span.sidebar-tooltip element containing tooltipOf(item); CSS controls
+// visibility (hidden in expanded, shown on hover in collapsed).
+// Falsification: remove the span.sidebar-tooltip from layout.templ → FAIL.
+func TestTooltipSpanPresent(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "Items", Icon: "🗂", URL: "/admin/x",
+		Tooltip: "Items overview"}}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: true})
+	html := renderLayout(t, ctx, nav)
+	if !strings.Contains(html, `class="sidebar-tooltip"`) {
+		t.Fatal("sidebar link must carry span.sidebar-tooltip")
+	}
+	if !strings.Contains(html, ">Items overview<") {
+		t.Fatal("span.sidebar-tooltip must contain the tooltip text")
+	}
+}
+
+// TestTooltipCSSHiddenByDefault confirms the rendered CSS hides .sidebar-tooltip
+// by default (expanded mode — tooltip invisible when sidebar is open).
+// Falsification: remove .sidebar-tooltip{display:none} from styles.templ → FAIL.
+func TestTooltipCSSHiddenByDefault(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar-tooltip{display:none}") {
+		t.Fatal("CSS must hide .sidebar-tooltip by default (expanded mode wayfinding off)")
+	}
+}
+
+// TestTooltipCSSShowOnCollapsedHover confirms the CSS reveals .sidebar-tooltip
+// on hover in collapsed mode — pure CSS, CSP-clean, no JS required.
+// Falsification: remove the hover rule from styles.templ → FAIL.
+func TestTooltipCSSShowOnCollapsedHover(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar.collapsed .sidebar-item:hover .sidebar-tooltip") {
+		t.Fatal("CSS must reveal .sidebar-tooltip on hover when sidebar is collapsed")
+	}
+}
+
+// ── End tooltip tests ─────────────────────────────────────────────────────
+
 // TestChrome_ZeroFields_GoldenStable locks the HTML output produced when
 // Layout receives a zero ChromeState (Collapsed=false, CollapsedGroups=nil,
 // Profile=zero).  This is the baseline every subsequent Phase must not break.
