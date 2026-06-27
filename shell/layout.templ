@@ -76,6 +76,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 									class={ "sidebar-item pm7-sidebar-item", templ.KV("active pm7-sidebar-item--active", item.Active) }
 									href={ templ.SafeURL(item.URL) }
 									aria-label={ tooltipOf(item) }
+									style={ "anchor-name: --nav-" + item.ID }
 									if item.Active {
 										aria-current="page"
 									}
@@ -89,15 +90,16 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 											<span class="sidebar-count">{ b }</span>
 										}
 									}
-									<span class="sidebar-tooltip">{ tooltipOf(item) }</span>
+									<span class="sidebar-tooltip" style={ "position-anchor: --nav-" + item.ID }>{ tooltipOf(item) }</span>
 								</a>
 							}
 						}
 					</nav>
 					<div class="sidebar-bottom">
-						<a class="sidebar-item" href="/admin/logout">
+						<a class="sidebar-item" href="/admin/logout" aria-label="Logout" style="anchor-name: --nav-logout">
 							<span class="sidebar-icon">&#x2192;</span>
 							<span class="sidebar-label">Logout</span>
+							<span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span>
 						</a>
 					</div>
 				</aside>
