@@ -10,6 +10,7 @@ import (
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/resource"
+	"github.com/anatolykoptev/go-panel/shell"
 	"github.com/anatolykoptev/go-panel/tenant"
 )
 
@@ -282,6 +283,56 @@ func TestPaginationPreservesFilterParams(t *testing.T) {
 	if !strings.Contains(html, "page=2") {
 		t.Errorf("expected page=2 in pagination link, not found.\nRendered HTML:\n%s",
 			html[:min(len(html), 2000)])
+	}
+}
+
+// TestResourceBadgeWiredToNavItem verifies that Register wires Resource.Badge
+// onto the corresponding NavItem.Badge so the template can call it at render time.
+// Falsification: remove `Badge: r.Badge` from the nav append in Register →
+// badgeItem.Badge is nil and the test fails.
+func TestResourceBadgeWiredToNavItem(t *testing.T) {
+	p := newTestPanel()
+	var callCount int
+	res := resource.Resource{
+		Name:  "badgetest",
+		Title: "Badge Test",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "id", Sortable: true, SQLExpr: "t.id"}},
+			DefaultKey: "id",
+			DefaultDir: admintable.Asc,
+		},
+		Filter: admintable.FilterSpec{},
+		Perms:  resource.ReadAny,
+		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
+			return nil, 0, nil
+		},
+		Badge: func(_ context.Context) string {
+			callCount++
+			return "7"
+		},
+	}
+	resource.Register(p, res)
+
+	nav := p.NavItems()
+	var found *shell.NavItem
+	for i := range nav {
+		if nav[i].ID == "badgetest" {
+			found = &nav[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("nav item for badgetest not registered")
+	}
+	if found.Badge == nil {
+		t.Fatal("Resource.Badge was not wired to NavItem.Badge by Register")
+	}
+	val := found.Badge(context.Background())
+	if val != "7" {
+		t.Fatalf("Badge closure returned %q, want \"7\"", val)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected Badge called once, got %d", callCount)
 	}
 }
 

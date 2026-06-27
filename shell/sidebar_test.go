@@ -1,0 +1,167 @@
+package shell_test
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/a-h/templ"
+	"github.com/anatolykoptev/go-panel/shell"
+)
+
+// renderLayout is a test helper that renders Layout with the given context and
+// nav slice, returning the full HTML string. Used by all sidebar tests.
+func renderLayout(t *testing.T, ctx context.Context, nav []shell.NavItem) string {
+	t.Helper()
+	var b bytes.Buffer
+	empty := templ.ComponentFunc(func(_ context.Context, _ io.Writer) error { return nil })
+	if err := shell.Layout("T", nav, empty).Render(ctx, &b); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	return b.String()
+}
+
+// TestCollapsedCSSExists confirms the .sidebar.collapsed CSS rule is present
+// in the rendered layout.
+// Falsification: remove the .sidebar.collapsed block from styles.templ →
+// this test fails with "no .sidebar.collapsed CSS rule rendered".
+func TestCollapsedCSSExists(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar.collapsed") {
+		t.Fatal("inert-collapse bug: no .sidebar.collapsed CSS rule rendered")
+	}
+}
+
+// TestCollapsedClassSSR confirms the SSR-rendered aside carries class="sidebar collapsed"
+// when SidebarFromContext reports Collapsed=true.
+// Falsification: remove the templ.KV call in layout.templ → class stays "sidebar".
+func TestCollapsedClassSSR(t *testing.T) {
+	ctx := shell.ContextWithSidebar(context.Background(), shell.SidebarState{Collapsed: true})
+	html := renderLayout(t, ctx, nil)
+	if !strings.Contains(html, `class="sidebar collapsed"`) {
+		t.Fatal("collapsed sidebar state not SSR-rendered as class (FOUC not killed)")
+	}
+}
+
+// TestExpandedClassSSR confirms that with Collapsed=false, the aside does NOT
+// get the collapsed class (baseline behavior is preserved).
+func TestExpandedClassSSR(t *testing.T) {
+	ctx := shell.ContextWithSidebar(context.Background(), shell.SidebarState{Collapsed: false})
+	html := renderLayout(t, ctx, nil)
+	if strings.Contains(html, `class="sidebar collapsed"`) {
+		t.Fatal("expanded sidebar must not carry .collapsed class")
+	}
+	if !strings.Contains(html, `class="sidebar"`) {
+		t.Fatal("expanded aside missing expected class=\"sidebar\"")
+	}
+}
+
+// TestActiveItemAriaCurrent confirms the active nav anchor carries aria-current="page".
+// Falsification: remove `if item.Active { aria-current="page" }` from layout.templ →
+// this test fails.
+func TestActiveItemAriaCurrent(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x", Active: true}}
+	html := renderLayout(t, context.Background(), nav)
+	if !strings.Contains(html, `aria-current="page"`) {
+		t.Fatal("active nav item missing aria-current")
+	}
+}
+
+// TestInactiveItemNoAriaCurrent confirms an inactive nav item does NOT get
+// aria-current (backward-compat).
+func TestInactiveItemNoAriaCurrent(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x", Active: false}}
+	html := renderLayout(t, context.Background(), nav)
+	if strings.Contains(html, `aria-current`) {
+		t.Fatal("inactive nav item must not have aria-current")
+	}
+}
+
+// TestBadgeRenders confirms a non-nil Badge closure produces a .sidebar-count pill element.
+// Falsification: remove the badge render block from layout.templ →
+// the span element with sidebar-count is absent.
+func TestBadgeRenders(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x",
+		Badge: func(context.Context) string { return "12" }}}
+	html := renderLayout(t, context.Background(), nav)
+	if !strings.Contains(html, `<span class="sidebar-count">`) || !strings.Contains(html, ">12<") {
+		t.Fatal("badge closure not rendered as .sidebar-count pill element")
+	}
+}
+
+// TestBadgeEmptyStringNoPill confirms a Badge closure returning "" produces no pill element.
+// Note: "sidebar-count" appears in the CSS rule; the element check uses the HTML span tag.
+func TestBadgeEmptyStringNoPill(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x",
+		Badge: func(context.Context) string { return "" }}}
+	html := renderLayout(t, context.Background(), nav)
+	if strings.Contains(html, `<span class="sidebar-count"`) {
+		t.Fatal("empty Badge string must render no pill element")
+	}
+}
+
+// TestBadgeNilNoPill confirms a nil Badge (zero value) produces no .sidebar-count element.
+// This is the primary backward-compat test: existing callers with no Badge field set
+// must see identical render output.
+// Falsification: call item.Badge(ctx) unconditionally (nil dereference panic, or
+// panic-recover turns it into empty string → still no pill, but test catches the panic).
+func TestBadgeNilNoPill(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x"}}
+	if strings.Contains(renderLayout(t, context.Background(), nav), `<span class="sidebar-count"`) {
+		t.Fatal("nil Badge must render no pill (backward-compat)")
+	}
+}
+
+// TestNoDataPm7SidebarOnAside is a fitness check: the shell <aside> must NOT
+// carry data-pm7-sidebar, which would auto-instantiate PM7Sidebar and create
+// dual state-machine authority over the sidebar (Decision 1, plan §Decision1).
+// Falsification: add data-pm7-sidebar to the <aside> in layout.templ → FAIL.
+func TestNoDataPm7SidebarOnAside(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if strings.Contains(html, "data-pm7-sidebar") {
+		t.Fatal("fitness violation: aside carries data-pm7-sidebar (PM7Sidebar dual-authority, Decision 1)")
+	}
+}
+
+// TestZeroValueNavItemBackwardCompat confirms that a NavItem with only the
+// required ID/Label/URL fields (Badge=nil, Active=false, Group="", Icon="")
+// renders identically to pre-Badge behavior: label present, no pill, no aria-current.
+// Falsification: make Badge run even when nil → panic or spurious pill.
+func TestZeroValueNavItemBackwardCompat(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x"}}
+	html := renderLayout(t, context.Background(), nav)
+	if !strings.Contains(html, ">X<") {
+		t.Fatal("nav item label missing (backward-compat regression)")
+	}
+	if strings.Contains(html, `<span class="sidebar-count"`) {
+		t.Fatal("zero-value Badge produced a pill element (backward-compat regression)")
+	}
+	if strings.Contains(html, "aria-current") {
+		t.Fatal("inactive zero-value item has aria-current (backward-compat regression)")
+	}
+}
+
+// TestCachedBadgeDeduplicates confirms CachedBadge calls the underlying fn only
+// once within the TTL window regardless of how many renders occur.
+// Falsification: remove the expires check in CachedBadge → count > 1.
+func TestCachedBadgeDeduplicates(t *testing.T) {
+	var count int
+	fn := shell.CachedBadge(5*time.Second, func(_ context.Context) string {
+		count++
+		return "42"
+	})
+
+	// Call three times within the TTL.
+	for i := 0; i < 3; i++ {
+		result := fn(context.Background())
+		if result != "42" {
+			t.Fatalf("call %d: expected '42', got %q", i+1, result)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected fn called once within TTL, got %d calls", count)
+	}
+}
