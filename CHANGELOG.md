@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.0](https://github.com/anatolykoptev/go-panel/compare/v0.8.0...v0.9.0) (2026-06-27)
+
+
+### Features
+
+* **admin:** delegated drag-and-drop + keyboard reorder for .gd-sortable lists ([#36](https://github.com/anatolykoptev/go-panel/issues/36)) ([4a14423](https://github.com/anatolykoptev/go-panel/commit/4a144232c505af3679aa4955c7e0412d2e20be04))
+* **auth:** account store for multi-user auth (PgxAccountStore + bcrypt) ([#34](https://github.com/anatolykoptev/go-panel/issues/34)) ([67718c2](https://github.com/anatolykoptev/go-panel/commit/67718c279751c18d7f62006562a45f379e012baf))
+* **auth:** BcryptTOTPAuth — multi-user bcrypt login + roles + live revocation ([#35](https://github.com/anatolykoptev/go-panel/issues/35)) ([bb752d8](https://github.com/anatolykoptev/go-panel/commit/bb752d819d8ee76530a365f935bed413637c0556))
+* **resource:** Panel.AddNav for non-resource sidebar entries ([#28](https://github.com/anatolykoptev/go-panel/issues/28)) ([7e2bd3f](https://github.com/anatolykoptev/go-panel/commit/7e2bd3fba182bf1cf2ed42dca2973e29329af2a6))
+* **resource:** Panel.RenderPage/RenderPageHTML for bespoke pages in the shell ([#29](https://github.com/anatolykoptev/go-panel/issues/29)) ([2d3cda0](https://github.com/anatolykoptev/go-panel/commit/2d3cda0273be1661087a5bddd595cda8ee763f5d))
+* **resource:** Resource.Detail — auto-mounted per-record detail pages ([#31](https://github.com/anatolykoptev/go-panel/issues/31)) ([1ba6aae](https://github.com/anatolykoptev/go-panel/commit/1ba6aae47d9c831f7391ce0ee000d7acb48d4bb1))
+* **resource:** reusable Detailer Show-view + status-chip CSS + Width/Align wiring ([#27](https://github.com/anatolykoptev/go-panel/issues/27)) ([8374fd8](https://github.com/anatolykoptev/go-panel/commit/8374fd8feb60383e2c7b16336e1dfc034cb01691))
+* **semantic:** new package — reusable multi-table pgvector semantic search ([#25](https://github.com/anatolykoptev/go-panel/issues/25)) ([9256db9](https://github.com/anatolykoptev/go-panel/commit/9256db954e7e972ee845d577d7de7fad2fc86ddd))
+
+
+### Bug Fixes
+
+* **auth:** render pm7 login page by default + finish password toggle ([#32](https://github.com/anatolykoptev/go-panel/issues/32)) ([e4cfdb4](https://github.com/anatolykoptev/go-panel/commit/e4cfdb436679788aaa3029b6aec501f0dc9cb3bf))
+* **resource:** preserve filter query params in pagination links ([#37](https://github.com/anatolykoptev/go-panel/issues/37)) ([c7f3b1e](https://github.com/anatolykoptev/go-panel/commit/c7f3b1e347b234d7277f22b45cb7b820a5bf4ea8))
+* **resource:** RenderPage sets admin security headers (CSP) like resource pages ([#30](https://github.com/anatolykoptev/go-panel/issues/30)) ([0d978fc](https://github.com/anatolykoptev/go-panel/commit/0d978fcf8201fffffbe3892c8e1cc20c1f5c8d24))
+* **shell:** hide inactive password-toggle icon ([#33](https://github.com/anatolykoptev/go-panel/issues/33)) ([363288a](https://github.com/anatolykoptev/go-panel/commit/363288ad6ba26d63a8cf2dd5c634b9cbc1dde018))
+
 ## [0.8.0](https://github.com/anatolykoptev/go-panel/compare/v0.7.0...v0.8.0) (2026-06-17)
 
 
