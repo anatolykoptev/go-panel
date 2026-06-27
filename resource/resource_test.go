@@ -211,6 +211,80 @@ func TestListPage_TenantScopeApplied(t *testing.T) {
 	}
 }
 
+// TestPaginationPreservesFilterParams verifies that the prev/next pagination
+// links rendered on a filtered list page keep all filter query params.
+//
+// Regression guard: before the fix, pageURL() built the link from scratch,
+// dropping every param except page + sort/dir. Clicking Next on a filtered
+// list silently reset the filter. The test goes red when that behavior is
+// present.
+func TestPaginationPreservesFilterParams(t *testing.T) {
+	// Resource with a status filter that the handler will parse and the
+	// rendered HTML's page links must carry forward.
+	p := newTestPanel()
+	res := resource.Resource{
+		Name:  "orders",
+		Title: "Orders",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "name", Sortable: true, SQLExpr: "o.name"}},
+			DefaultKey: "name",
+			DefaultDir: admintable.Asc,
+		},
+		Filter: admintable.FilterSpec{Filters: []admintable.Filter{
+			{Key: "status", SQLExpr: "o.status", Match: admintable.Eq, Allowed: []string{"active", "inactive"}},
+		}},
+		Scope: tenant.Scope{},
+		Perms: resource.ReadAny,
+		// Lister returns 2 pages worth of rows (total=100, default pageSize=50)
+		// so that the pagination widget renders a Next link.
+		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
+			return []resource.Row{{ID: "1", Cells: []resource.Cell{{Value: "X"}}}}, 100, nil
+		},
+	}
+	resource.Register(p, res)
+
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath: "/admin",
+		Secure:   false,
+	})
+	body := strings.NewReader("username=admin&password=secret")
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/login", body)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginW := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(loginW, loginReq)
+	cookieVal := extractCookieValue(loginW.Header().Get("Set-Cookie"), "panel_admin")
+
+	// Request page 1 with a status filter applied.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/admin/orders/rows?status=active&page=1", nil)
+	req.Header.Set("HX-Request", "true") // get the fragment (rows + pagination)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+
+	html := w.Body.String()
+
+	// The "Next" pagination link must carry status=active forward.
+	// Before the fix: the link would be /rows?page=2 (filter dropped).
+	// After the fix:  the link contains status=active AND page=2.
+	if !strings.Contains(html, "status=active") {
+		t.Errorf("pagination link dropped the filter param: status=active not found in rendered HTML.\n"+
+			"This is the regression: pageURL() did not preserve filter query params.\n"+
+			"Rendered HTML (truncated):\n%s", html[:min(len(html), 2000)])
+	}
+	if !strings.Contains(html, "page=2") {
+		t.Errorf("expected page=2 in pagination link, not found.\nRendered HTML:\n%s",
+			html[:min(len(html), 2000)])
+	}
+}
+
 func extractCookieValue(setCookie, name string) string {
 	prefix := name + "="
 	idx := strings.Index(setCookie, prefix)
