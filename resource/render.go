@@ -29,6 +29,13 @@ func (p *Panel) RenderPage(w http.ResponseWriter, r *http.Request, title, active
 //   - Cookie "sb-g"=<url-encoded comma-separated names> → CollapsedGroups map;
 //     absent or empty → nil map (no groups collapsed).
 //
+// Encoding contract: the whole sb-g value is URL-encoded (encodeURIComponent on
+// the joined string), so the server URL-unescapes the value before splitting on ','.
+// Consequence: group names must not contain literal commas — a comma in a name
+// would become an unescaped delimiter after decode, splitting one name into two
+// phantom entries. Group labels are developer-defined; commas are forbidden by
+// convention. See matching note in admin.js readGroups/writeGroups.
+//
 // Lives in the resource layer (not shell) so shell stays net/http-free.
 func chromeStateFrom(r *http.Request) shell.ChromeState {
 	var state shell.ChromeState

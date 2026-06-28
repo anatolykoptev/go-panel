@@ -414,6 +414,13 @@ func TestCollapsedGroupButtonAriaExpanded(t *testing.T) {
 // item is never rendered collapsed even when present in CollapsedGroups.
 // Falsification: remove the "if item.Active { out[last].Collapsed = false }" guard
 // in toNavGroups → collapsed=true survives → active wayfinding hidden → FAIL.
+//
+// JS contract: groupsApply() in admin.js mirrors this server guard by checking
+// group.querySelector('.sidebar-item.active') before applying data-collapsed from
+// the sb-g cookie. Both sides MUST stay in lockstep — if only one enforces the
+// invariant, a page reload or htmx:afterSwap can collapse the active group and
+// hide the current-page link (this test catches the server half; smoke-test the
+// JS half manually by loading a page with sb-g set to the active group's name).
 func TestActiveGroupForcedExpanded(t *testing.T) {
 	nav := []shell.NavItem{
 		{Group: "Content"},
