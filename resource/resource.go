@@ -135,6 +135,18 @@ type Resource struct {
 	Scope  tenant.Scope // city_slug scope; empty = global
 	Perms  Perms
 
+	// RequiredRole gates every route of this resource behind the named role:
+	// only a session whose role equals RequiredRole (or the "owner" super-role)
+	// may reach the list, detail, and form routes; everyone else gets 403.
+	// Empty (default) = no role gate: any authenticated operator may access,
+	// preserving the foundational behaviour.
+	//
+	// A non-empty RequiredRole requires the configured authenticator to
+	// implement RoleAuthenticator; Register panics at startup otherwise
+	// (fail-closed). The same role drives nav-hiding via HasRole so the sidebar
+	// does not surface a resource the operator cannot open.
+	RequiredRole string
+
 	// Lister fetches one page of rows. The kit hands it a safe ListQuery;
 	// the app owns the row type + scan. go-panel never assumes a schema.
 	Lister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
@@ -182,6 +194,25 @@ type Panel struct {
 // expose their session cookie name, used for CSRF double-submit binding.
 type sessionCookier interface {
 	SessionCookieName() string
+}
+
+// RoleAuthenticator is the optional capability an Authenticator implements to
+// back role-gated resources. It is the security AUTHORITY for role checks:
+//
+//   - RequireRole is the route gate. It wraps a handler so only a session whose
+//     role matches role (or the "owner" super-role) proceeds; everyone else
+//     receives 403. This is the enforcement boundary — a route's access is
+//     decided here, never derived from HasRole.
+//   - HasRole is a read-only derivation used for nav-hiding (don't render a link
+//     the operator cannot use). It must never be the only check guarding a
+//     protected route; that is RequireRole's job.
+//
+// An authenticator that does not implement this interface cannot back a Resource
+// with a non-empty RequiredRole: Register panics at startup (fail-closed) rather
+// than mount the resource ungated.
+type RoleAuthenticator interface {
+	RequireRole(role string, next http.HandlerFunc) http.HandlerFunc
+	HasRole(ctx context.Context, role string) bool
 }
 
 // Config holds Panel configuration.
@@ -319,6 +350,7 @@ func Register(p *Panel, r Resource) {
 	if r.Writer != nil {
 		validateWriterConfig(p, r)
 	}
+	validateRoleConfig(p, r)
 
 	// Add nav entry.
 	if r.Group != "" {
@@ -350,13 +382,13 @@ func Register(p *Panel, r Resource) {
 	rowsPath := p.basePath + "/" + r.Name + "/rows"
 
 	listHandler := p.makeListHandler(r)
-	p.mux.HandleFunc("GET "+listPath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
+	p.mux.HandleFunc("GET "+listPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
 		nav := p.activeNav(r.Name)
 		shell.SecurityHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		listHandler(w, req, nav, false)
 	}))
-	p.mux.HandleFunc("GET "+rowsPath, p.auth.Require(func(w http.ResponseWriter, req *http.Request) {
+	p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
 		shell.SecurityHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		listHandler(w, req, nil, true)
@@ -390,6 +422,39 @@ func validateWriterConfig(p *Panel, r Resource) {
 	}
 }
 
+// validateRoleConfig panics at Register time if the resource declares a
+// non-empty RequiredRole but the authenticator cannot enforce it (does not
+// implement RoleAuthenticator). Fail-closed: a role-gated resource must never
+// mount against an authenticator that would serve it ungated.
+func validateRoleConfig(p *Panel, r Resource) {
+	if r.RequiredRole == "" {
+		return
+	}
+	if _, ok := p.auth.(RoleAuthenticator); !ok {
+		panic(fmt.Sprintf("resource.Register %q: RequiredRole %q is set but the authenticator does not implement RoleAuthenticator — role gating cannot be enforced (fail-closed)", r.Name, r.RequiredRole))
+	}
+}
+
+// guard wraps h with the panel's authentication and, when requiredRole is
+// non-empty, additionally enforces the role via the RoleAuthenticator
+// capability. For an empty role it is exactly p.auth.Require — no behaviour
+// change for resources that declare no RequiredRole.
+//
+// A non-empty role requires p.auth to implement RoleAuthenticator. That is
+// guaranteed at Register time by validateRoleConfig, so the assertion here is
+// defence-in-depth: a failure means the guarantee was bypassed, and we fail
+// closed (panic at mount) rather than fail open.
+func (p *Panel) guard(requiredRole string, h http.HandlerFunc) http.HandlerFunc {
+	if requiredRole == "" {
+		return p.auth.Require(h)
+	}
+	ra, ok := p.auth.(RoleAuthenticator)
+	if !ok {
+		panic(fmt.Sprintf("resource: guard called with role %q but the authenticator does not implement RoleAuthenticator (validateRoleConfig bypassed — fail-closed)", requiredRole))
+	}
+	return ra.RequireRole(requiredRole, h)
+}
+
 // ErrDetailNotFound may be returned by Detailer to signal a 404.
 var ErrDetailNotFound = errors.New("resource: detail not found")
 
@@ -397,7 +462,7 @@ var ErrDetailNotFound = errors.New("resource: detail not found")
 // Called only when r.Detailer != nil.
 func mountDetailRoute(p *Panel, r Resource) {
 	detailPath := p.basePath + "/" + r.Name + "/{id}"
-	p.mux.HandleFunc("GET "+detailPath, p.auth.Require(detailHandler(p, r)))
+	p.mux.HandleFunc("GET "+detailPath, p.guard(r.RequiredRole, detailHandler(p, r)))
 }
 
 // detailHandler returns the handler for GET {basePath}/{name}/{id}.
@@ -452,9 +517,9 @@ func mountWriterRoutes(p *Panel, r Resource) {
 	editPath := p.basePath + "/" + r.Name + "/{id}/edit"
 	savePath := p.basePath + "/" + r.Name + "/{id}/save"
 
-	p.mux.HandleFunc("GET "+newPath, p.auth.Require(newFormHandler(p, r)))
-	p.mux.HandleFunc("GET "+editPath, p.auth.Require(editFormHandler(p, r)))
-	p.mux.HandleFunc("POST "+savePath, p.auth.Require(saveHandler(p, r)))
+	p.mux.HandleFunc("GET "+newPath, p.guard(r.RequiredRole, newFormHandler(p, r)))
+	p.mux.HandleFunc("GET "+editPath, p.guard(r.RequiredRole, editFormHandler(p, r)))
+	p.mux.HandleFunc("POST "+savePath, p.guard(r.RequiredRole, saveHandler(p, r)))
 }
 
 // withResolvedForm returns a shallow copy of r whose Writer.Form has all
