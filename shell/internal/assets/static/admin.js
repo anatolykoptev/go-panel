@@ -267,3 +267,95 @@
   gdSortableInit();
   document.addEventListener('htmx:afterSwap',gdSortableInit);
 })();
+
+;(function(){
+  // ---------------------------------------------------------------------------
+  // sidebar-group-label collapse — delegated click toggle for collapsible nav
+  // groups. Persists the collapsed set in cookie sb-g (URL-encoded, comma-
+  // separated group names, collapsed-only to keep the value small).
+  // ADDITIVE ONLY: early-returns when e.target is not a .sidebar-group-label
+  // button, so pages without the group markup are completely unaffected.
+  // Re-init on htmx:afterSwap applies the current cookie state to new content.
+  // ---------------------------------------------------------------------------
+
+  var GRP_COOKIE='sb-g';
+
+  // Read the sb-g cookie and return a Set of collapsed group names.
+  // Format: comma-delimited list; commas are the delimiter so group names
+  // must not contain literal commas (developer-defined labels; enforced by convention).
+  function readGroups(){
+    var m=document.cookie.match(/(?:^|;\s*)sb-g=([^;]*)/);
+    if(!m||!m[1]) return new Set();
+    var raw;
+    try{raw=decodeURIComponent(m[1]);}catch(ex){raw=m[1];}
+    return new Set(raw.split(',').map(function(s){return s.trim();}).filter(Boolean));
+  }
+
+  // Persist the Set back to sb-g (URL-encoded whole value, 7-day, SameSite=Lax).
+  // Group names must not contain literal commas — a comma would be encoded in the
+  // value but decoded as a delimiter when read back. Server-side (resource/render.go
+  // chromeStateFrom) applies the same decode-then-split logic.
+  function writeGroups(set){
+    var val=encodeURIComponent(Array.from(set).join(','));
+    document.cookie=GRP_COOKIE+'='+val+';path=/;max-age=604800;samesite=Lax';
+  }
+
+  // Apply current cookie state to DOM (idempotent; safe on htmx:afterSwap).
+  // SSR already emits data-collapsed="true" for known-collapsed groups;
+  // this handles any group swapped in after initial load and reconciles
+  // cross-tab cookie drift when called at IIFE end.
+  //
+  // SSR/JS invariant: a group containing the active item is ALWAYS expanded.
+  // This mirrors the server-side guard in toNavGroups (shell/layout.templ):
+  //   "if item.Active { out[last].Collapsed = false }"
+  // Both sides MUST stay in lockstep — forcing collapse here would hide the
+  // current-page wayfinding indicator after JS runs (a reverse flash + a11y bug).
+  function groupsApply(){
+    var collapsed=readGroups();
+    document.querySelectorAll('button.sidebar-group-label[data-group]').forEach(function(btn){
+      var name=btn.getAttribute('data-group');
+      var group=btn.closest('.sidebar-group');
+      if(!group) return;
+      // Mirror the SSR guard: always expand a group that contains the active item,
+      // regardless of the cookie. Collapsing it hides the active wayfinding link.
+      if(group.querySelector('.sidebar-item.active')){
+        group.removeAttribute('data-collapsed');
+        btn.setAttribute('aria-expanded','true');
+        return;
+      }
+      if(collapsed.has(name)){
+        group.setAttribute('data-collapsed','true');
+        btn.setAttribute('aria-expanded','false');
+      } else {
+        group.removeAttribute('data-collapsed');
+        btn.setAttribute('aria-expanded','true');
+      }
+    });
+  }
+
+  // Delegated click: toggle data-collapsed and rewrite cookie.
+  document.addEventListener('click',function(e){
+    var btn=e.target.closest('button.sidebar-group-label[data-group]');
+    if(!btn) return;
+    var group=btn.closest('.sidebar-group');
+    if(!group) return;
+    var name=btn.getAttribute('data-group');
+    var collapsed=readGroups();
+    if(group.hasAttribute('data-collapsed')){
+      group.removeAttribute('data-collapsed');
+      btn.setAttribute('aria-expanded','true');
+      collapsed.delete(name);
+    } else {
+      group.setAttribute('data-collapsed','true');
+      btn.setAttribute('aria-expanded','false');
+      collapsed.add(name);
+    }
+    writeGroups(collapsed);
+  });
+
+  // Re-apply after HTMX swaps (mirrors gdSortableInit pattern above).
+  document.addEventListener('htmx:afterSwap',groupsApply);
+  // Reconcile cross-tab cookie drift on initial load (SSR already covers the
+  // normal single-tab flow; this catches cookies mutated in another tab).
+  groupsApply();
+})();

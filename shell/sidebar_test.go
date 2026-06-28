@@ -306,6 +306,199 @@ func TestLogoutTooltipWayfinding(t *testing.T) {
 
 // ── End tooltip tests ─────────────────────────────────────────────────────
 
+// ── Collapsible group tests (Phase 4) ────────────────────────────────────
+
+// TestCollapsedGroupSSR confirms that a group whose name appears in
+// ChromeState.CollapsedGroups renders with data-collapsed="true" on the
+// sidebar-group div (server-side, kills the flash-of-expanded-group).
+// Falsification: remove the `data-collapsed="true"` emission from layout.templ
+// OR stop reading CollapsedGroups in toNavGroups → attribute absent → FAIL.
+//
+// Note: CSS selectors also contain [data-collapsed="true"]; we check for the
+// HTML-attribute form " data-collapsed=" (space-prefixed, no bracket) to
+// distinguish element attribute from CSS selector text.
+func TestCollapsedGroupSSR(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Content"},
+		{ID: "posts", Label: "Posts", URL: "/admin/posts"},
+	}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: map[string]bool{"Content": true},
+	})
+	html := renderLayout(t, ctx, nav)
+	// " data-collapsed=" = HTML attribute; "[data-collapsed=" = CSS selector
+	if !strings.Contains(html, ` data-collapsed="true"`) {
+		t.Fatal("collapsed group must render data-collapsed=\"true\" server-side (no flash)")
+	}
+}
+
+// TestNonCollapsedGroupNoAttribute confirms that a group NOT in CollapsedGroups
+// does NOT render data-collapsed (baseline preserved; prevents false-collapsed state).
+// Falsification: always emit data-collapsed on every group → FAIL.
+func TestNonCollapsedGroupNoAttribute(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Content"},
+		{ID: "posts", Label: "Posts", URL: "/admin/posts"},
+	}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: nil, // no groups collapsed
+	})
+	html := renderLayout(t, ctx, nav)
+	// " data-collapsed=" = HTML attribute (CSS selector form has no leading space)
+	if strings.Contains(html, ` data-collapsed=`) {
+		t.Fatal("non-collapsed group must not carry data-collapsed attribute")
+	}
+}
+
+// TestGroupLabelIsButton confirms the group label renders as a <button> element
+// with a data-group attribute and aria-expanded for accessibility.
+// Checks are split: expanded-group → aria-expanded="true"; no tight string match
+// so attribute ordering doesn't fragment the test.
+// Falsification: revert group label to <div> → no <button> → FAIL.
+//
+// Note: aria-expanded="true" is expected here because the group is not in CollapsedGroups.
+func TestGroupLabelIsButton(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Settings"},
+		{ID: "cfg", Label: "Config", URL: "/admin/cfg"},
+	}
+	html := renderLayout(t, context.Background(), nav)
+	if !strings.Contains(html, `<button type="button"`) {
+		t.Fatal("group header must be a <button> element")
+	}
+	if !strings.Contains(html, `class="sidebar-group-label"`) {
+		t.Fatal("group button must carry sidebar-group-label class")
+	}
+	if !strings.Contains(html, `data-group="Settings"`) {
+		t.Fatal("group button must carry data-group attribute with the group name")
+	}
+	if !strings.Contains(html, `aria-expanded="true"`) {
+		t.Fatal("expanded group button must carry aria-expanded=\"true\" for accessibility")
+	}
+}
+
+// TestCollapsedGroupButtonAriaExpanded confirms that a SSR-collapsed group button
+// carries aria-expanded="false" and an expanded group carries aria-expanded="true".
+// Falsification: remove the aria-expanded attribute from layout.templ → FAIL.
+func TestCollapsedGroupButtonAriaExpanded(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Content"},
+		{ID: "posts", Label: "Posts", URL: "/admin/posts"},
+	}
+	// collapsed → aria-expanded="false"
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: map[string]bool{"Content": true},
+	})
+	html := renderLayout(t, ctx, nav)
+	if !strings.Contains(html, `aria-expanded="false"`) {
+		t.Fatal("SSR-collapsed group button must carry aria-expanded=\"false\"")
+	}
+	if strings.Contains(html, `aria-expanded="true"`) {
+		t.Fatal("collapsed group must not carry aria-expanded=\"true\"")
+	}
+
+	// expanded (not in CollapsedGroups) → aria-expanded="true"
+	ctx2 := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: nil,
+	})
+	html2 := renderLayout(t, ctx2, nav)
+	if !strings.Contains(html2, `aria-expanded="true"`) {
+		t.Fatal("expanded group button must carry aria-expanded=\"true\"")
+	}
+	if strings.Contains(html2, `aria-expanded="false"`) {
+		t.Fatal("expanded group must not carry aria-expanded=\"false\"")
+	}
+}
+
+// TestActiveGroupForcedExpanded confirms that a group containing the active nav
+// item is never rendered collapsed even when present in CollapsedGroups.
+// Falsification: remove the "if item.Active { out[last].Collapsed = false }" guard
+// in toNavGroups → collapsed=true survives → active wayfinding hidden → FAIL.
+//
+// JS contract: groupsApply() in admin.js mirrors this server guard by checking
+// group.querySelector('.sidebar-item.active') before applying data-collapsed from
+// the sb-g cookie. Both sides MUST stay in lockstep — if only one enforces the
+// invariant, a page reload or htmx:afterSwap can collapse the active group and
+// hide the current-page link (this test catches the server half; smoke-test the
+// JS half manually by loading a page with sb-g set to the active group's name).
+func TestActiveGroupForcedExpanded(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Content"},
+		{ID: "posts", Label: "Posts", URL: "/admin/posts", Active: true},
+	}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: map[string]bool{"Content": true},
+	})
+	html := renderLayout(t, ctx, nav)
+	// Group contains active item → must NOT have data-collapsed attribute
+	if strings.Contains(html, ` data-collapsed=`) {
+		t.Fatal("group with active item must be forced expanded even when in CollapsedGroups (active wayfinding must not be hidden)")
+	}
+	// aria-expanded must be "true" (expanded)
+	if strings.Contains(html, `aria-expanded="false"`) {
+		t.Fatal("group button containing active item must carry aria-expanded=\"true\"")
+	}
+}
+
+// TestGroupItemsNested confirms that nav items belonging to a group are rendered
+// inside a .sidebar-group-items container (required for CSS max-height transition).
+// Falsification: remove the sidebar-group-items wrapper div from layout.templ → FAIL.
+func TestGroupItemsNested(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Content"},
+		{ID: "posts", Label: "Posts", URL: "/admin/posts"},
+		{ID: "pages", Label: "Pages", URL: "/admin/pages"},
+	}
+	html := renderLayout(t, context.Background(), nav)
+	if !strings.Contains(html, `class="sidebar-group-items"`) {
+		t.Fatal("group items must be wrapped in a .sidebar-group-items container for CSS transitions")
+	}
+}
+
+// TestGroupCollapseCSSExists confirms the CSS rules for collapsed groups are
+// rendered (max-height transition borrowed from pm7).
+// Falsification: remove the group collapse CSS from styles.templ → FAIL.
+func TestGroupCollapseCSSExists(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar-group[data-collapsed") {
+		t.Fatal("group collapse CSS rule must be present (pm7-borrowed max-height transition)")
+	}
+	if !strings.Contains(html, ".sidebar-group-items") {
+		t.Fatal("sidebar-group-items CSS rule must be present for transition container")
+	}
+}
+
+// TestOnlyCollapsedGroupGetsAttribute confirms that when multiple groups exist
+// and only one is in CollapsedGroups, only that group carries data-collapsed.
+// Falsification: apply data-collapsed to all groups → second group fails → FAIL.
+func TestOnlyCollapsedGroupGetsAttribute(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Alpha"},
+		{ID: "a1", Label: "A1", URL: "/admin/a1"},
+		{Group: "Beta"},
+		{ID: "b1", Label: "B1", URL: "/admin/b1"},
+	}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: map[string]bool{"Alpha": true},
+	})
+	html := renderLayout(t, ctx, nav)
+	// Alpha → collapsed
+	if !strings.Contains(html, `data-group="Alpha"`) {
+		t.Fatal("Alpha group button must be present")
+	}
+	// Check HTML-attribute form (space-prefixed), not CSS-selector form (bracket-prefixed)
+	if !strings.Contains(html, ` data-collapsed="true"`) {
+		t.Fatal("Alpha group must have data-collapsed HTML attribute")
+	}
+	// Beta → not collapsed; count HTML attribute occurrences only
+	occurrences := strings.Count(html, ` data-collapsed="true"`)
+	if occurrences != 1 {
+		t.Fatalf("expected exactly one data-collapsed=\"true\" HTML attribute, got %d", occurrences)
+	}
+}
+
+// ── End collapsible group tests ───────────────────────────────────────────
+
 // TestChrome_ZeroFields_GoldenStable locks the HTML output produced when
 // Layout receives a zero ChromeState (Collapsed=false, CollapsedGroups=nil,
 // Profile=zero).  This is the baseline every subsequent Phase must not break.

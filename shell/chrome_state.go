@@ -2,6 +2,15 @@ package shell
 
 import "context"
 
+// GroupsCookie is the cookie persisting which nav groups are collapsed.
+// Value is URL-encoded (encodeURIComponent in JS), comma-separated group names.
+// Only collapsed group names are stored (non-default); absent = no groups collapsed.
+// Server-readable so Layout emits data-collapsed=true at SSR time — no flash.
+// Co-located with SidebarCookie because both are chrome-state cookies read by
+// chromeStateFrom; chrome_state.go is the canonical home for all cookie names the
+// chrome layer owns.
+const GroupsCookie = "sb-g"
+
 // ChromeState carries per-request shell (chrome) configuration threaded into
 // Layout via context.  It is the single context seam for all per-request
 // state the layout renders, replacing the narrower SidebarState.
