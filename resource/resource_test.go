@@ -349,3 +349,70 @@ func extractCookieValue(setCookie, name string) string {
 	}
 	return rest[:end]
 }
+
+// roleCapableAuth is a stub authenticator that implements resource.RoleAuthenticator.
+// RequireRole records each role it is asked to gate (and forwards to next) so a test
+// can assert that p.guard routes a role-gated resource's routes through RequireRole.
+type roleCapableAuth struct{ gated []string }
+
+func (a *roleCapableAuth) Require(h http.HandlerFunc) http.HandlerFunc { return h }
+func (a *roleCapableAuth) LoginHandler() http.Handler {
+	return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+}
+func (a *roleCapableAuth) LogoutHandler() http.Handler {
+	return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+}
+func (a *roleCapableAuth) RequireRole(role string, next http.HandlerFunc) http.HandlerFunc {
+	a.gated = append(a.gated, role)
+	return next
+}
+func (a *roleCapableAuth) HasRole(context.Context, string) bool { return true }
+
+// TestGuard_FailsClosed_WhenAuthLacksCapability verifies that Register panics when a
+// resource declares a non-empty RequiredRole but the configured authenticator does not
+// implement resource.RoleAuthenticator — the fail-closed role-gating guarantee. Mirrors
+// the Writer/CSRF Register-time panic tests.
+func TestGuard_FailsClosed_WhenAuthLacksCapability(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when RequiredRole is set but auth lacks RoleAuthenticator capability")
+		}
+	}()
+	// noSessionNameAuth (writer_test.go) implements only Require/LoginHandler/
+	// LogoutHandler — NOT RoleAuthenticator — so a role-gated resource must not mount.
+	p := resource.New(resource.Config{
+		Title:    "Test Panel",
+		BasePath: "/admin",
+		Auth:     noSessionNameAuth{},
+	})
+	r := testResource
+	r.RequiredRole = "admin"
+	resource.Register(p, r)
+}
+
+// TestGuard_RoleGatedResource_RoutesThroughRequireRole verifies that, when the
+// authenticator implements RoleAuthenticator, p.guard routes a role-gated resource's
+// routes through RequireRole(role) (the enforcement authority) rather than the bare
+// Require. Goes RED if the route mounts bypass guard or call Require directly.
+func TestGuard_RoleGatedResource_RoutesThroughRequireRole(t *testing.T) {
+	ra := &roleCapableAuth{}
+	p := resource.New(resource.Config{
+		Title:    "Test Panel",
+		BasePath: "/admin",
+		Auth:     ra,
+	})
+	r := testResource
+	r.RequiredRole = "admin"
+	resource.Register(p, r) // must NOT panic: auth implements RoleAuthenticator
+
+	gated := 0
+	for _, role := range ra.gated {
+		if role == "admin" {
+			gated++
+		}
+	}
+	// testResource mounts list + rows (no Detailer, no Writer) -> 2 RequireRole calls.
+	if gated < 2 {
+		t.Fatalf("expected the list+rows routes gated via RequireRole(%q), got %d gated calls: %v", "admin", gated, ra.gated)
+	}
+}

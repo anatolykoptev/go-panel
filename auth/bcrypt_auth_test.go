@@ -217,3 +217,53 @@ func TestBcrypt_RequireRole(t *testing.T) {
 		t.Fatalf("editor on editor route must be 200, got %d", w2.Code)
 	}
 }
+
+// TestBcrypt_HasRole verifies the nav-hide derivation: an exact role match and the
+// "owner" super-role return true, any other role returns false, and a context with no
+// session returns false (never panics).
+func TestBcrypt_HasRole(t *testing.T) {
+	store := newFakeStore()
+	seedAccount(t, store, "u1", "ed@example.com", "s3cret", "editor", true)
+	seedAccount(t, store, "u2", "boss@example.com", "s3cret", "owner", true)
+	a := newBcryptAuth(t, store)
+
+	// editor session — exact role true, other role false. The session is injected
+	// into ctx by the real Require path (HasRole reads it via SessionFrom).
+	ce := sessionCookie(loginPOST(a, "ed@example.com", "s3cret"))
+	if ce == nil {
+		t.Fatal("no editor session cookie")
+	}
+	re := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	re.AddCookie(ce)
+	a.Require(func(w http.ResponseWriter, r *http.Request) {
+		if !a.HasRole(r.Context(), "editor") {
+			t.Error(`editor session must satisfy HasRole("editor")`)
+		}
+		if a.HasRole(r.Context(), "admin") {
+			t.Error(`editor session must NOT satisfy HasRole("admin")`)
+		}
+		w.WriteHeader(http.StatusOK)
+	})(httptest.NewRecorder(), re)
+
+	// owner session — the super-role satisfies HasRole for every role.
+	co := sessionCookie(loginPOST(a, "boss@example.com", "s3cret"))
+	if co == nil {
+		t.Fatal("no owner session cookie")
+	}
+	ro := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	ro.AddCookie(co)
+	a.Require(func(w http.ResponseWriter, r *http.Request) {
+		if !a.HasRole(r.Context(), "admin") {
+			t.Error(`owner session must satisfy HasRole("admin")`)
+		}
+		if !a.HasRole(r.Context(), "editor") {
+			t.Error(`owner session must satisfy HasRole("editor")`)
+		}
+		w.WriteHeader(http.StatusOK)
+	})(httptest.NewRecorder(), ro)
+
+	// no session on ctx — false, never panics.
+	if a.HasRole(context.Background(), "editor") {
+		t.Error("HasRole with no session must return false")
+	}
+}
