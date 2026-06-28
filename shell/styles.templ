@@ -139,6 +139,20 @@ templ layoutStyles() {
 		.filter-chip.active{color:#fff;background:var(--accent);border-color:var(--accent)}
 		.pagination{display:flex;gap:.5rem;justify-content:center;margin-top:1.25rem}
 		.sidebar .pm7-sidebar-item--active{border-left-color:var(--accent);background:var(--accent-glow)}
+		/* ── Nav parent-item submenu (Phase 5, one level) ─────────────────────
+		   Caret mirrors Phase 4 group collapse pattern (re-namespaced).
+		   .sidebar-parent wraps parent navLink + .sidebar-children; default expanded.
+		   JS (sb-s cookie) controls collapse; active-child guard blocks collapse.
+		   Parent link click in JS toggles submenu (preventDefault navigation). */
+		.sidebar-parent > .sidebar-item::after{content:"▾";font-size:.625rem;color:var(--text-muted);transition:transform .3s ease-in-out;margin-left:auto;flex-shrink:0}
+		.sidebar-parent[data-collapsed="true"] > .sidebar-item::after{transform:rotate(-90deg)}
+		.sidebar-children{overflow:hidden;transition:max-height .3s ease-in-out,visibility 0s;max-height:1000px;visibility:visible}
+		.sidebar-parent[data-collapsed="true"] .sidebar-children{max-height:0;visibility:hidden;transition:max-height .3s ease-in-out,visibility 0s .3s}
+		.sidebar-children .sidebar-item{padding-left:2.5rem}
+		/* hide caret in icon-rail mode (sidebar collapsed) */
+		.sidebar.collapsed .sidebar-parent > .sidebar-item::after{display:none}
+		/* in icon-rail mode force all submenus expanded (mirrors Phase 4 group behaviour) */
+		.sidebar.collapsed .sidebar-children{max-height:none;visibility:visible}
 		/* ── Fit axis chips ───────────────────────────────────────────────── */
 		/* Namespaced fit-* to avoid collision with .badge-* (which carry semantic
 		   green/red for system success/error — orthogonal to job-fit). */

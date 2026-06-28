@@ -499,6 +499,129 @@ func TestOnlyCollapsedGroupGetsAttribute(t *testing.T) {
 
 // ── End collapsible group tests ───────────────────────────────────────────
 
+// ── Nested submenu tests (Phase 5) ────────────────────────────────────────
+
+// TestChildrenRendersSidebarChildrenBlock confirms that a NavItem with two
+// Children emits a .sidebar-children div containing both child labels.
+// RED: production guard is `len(item.Children) > 0`; removing it renders the
+// parent as a plain leaf with no .sidebar-children at all → FAIL.
+func TestChildrenRendersSidebarChildrenBlock(t *testing.T) {
+	nav := []shell.NavItem{{
+		ID:    "tenants",
+		Label: "Tenants",
+		URL:   "/admin/tenants",
+		Children: []shell.NavItem{
+			{ID: "t1", Label: "Alpha", URL: "/admin/tenants/alpha"},
+			{ID: "t2", Label: "Beta", URL: "/admin/tenants/beta"},
+		},
+	}}
+	html := renderLayout(t, context.Background(), nav)
+	if !strings.Contains(html, `class="sidebar-children"`) {
+		t.Fatal("parent with Children must emit a .sidebar-children block")
+	}
+	if !strings.Contains(html, ">Alpha<") {
+		t.Fatal("first child label 'Alpha' missing from .sidebar-children")
+	}
+	if !strings.Contains(html, ">Beta<") {
+		t.Fatal("second child label 'Beta' missing from .sidebar-children")
+	}
+}
+
+// TestLeafHasNoSidebarChildren confirms a NavItem with nil Children renders no
+// .sidebar-children element (backward-compat: existing callers with no Children
+// must see flat leaf output identical to pre-Phase-5 behaviour).
+// RED: emitting .sidebar-children unconditionally → this test fails.
+func TestLeafHasNoSidebarChildren(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x"}}
+	html := renderLayout(t, context.Background(), nav)
+	if strings.Contains(html, `class="sidebar-children"`) {
+		t.Fatal("leaf item (nil Children) must not emit a .sidebar-children block (backward-compat)")
+	}
+}
+
+// TestParentActiveChildAutoExpands confirms that when any child is active the
+// server-side rendering carries data-has-active-child on the .sidebar-parent
+// wrapper, signalling JS to keep the parent expanded regardless of the sb-s
+// cookie. The parent must NOT carry data-collapsed="true" (it is always expanded).
+// RED: removing the hasActiveChild server guard → data-has-active-child absent,
+// JS may collapse the active-wayfinding link → FAIL.
+func TestParentActiveChildAutoExpands(t *testing.T) {
+	nav := []shell.NavItem{{
+		ID:    "tenants",
+		Label: "Tenants",
+		URL:   "/admin/tenants",
+		Children: []shell.NavItem{
+			{ID: "t1", Label: "Alpha", URL: "/admin/tenants/alpha"},
+			{ID: "t2", Label: "Beta", URL: "/admin/tenants/beta", Active: true},
+		},
+	}}
+	html := renderLayout(t, context.Background(), nav)
+	// " data-has-active-child=" = HTML attribute (space-prefix distinguishes from CSS comment text).
+	if !strings.Contains(html, ` data-has-active-child="true"`) {
+		t.Fatal("parent with an active child must carry data-has-active-child=\"true\" (JS guard)")
+	}
+	// Must NOT be collapsed server-side when a child is active.
+	if strings.Contains(html, ` data-collapsed="true"`) {
+		t.Fatal("parent with an active child must not be server-side collapsed")
+	}
+}
+
+// TestParentWithNoActiveChildHasNoActiveChildAttr confirms that a parent whose
+// children are all inactive does NOT carry data-has-active-child (baseline).
+// Falsification: always emit data-has-active-child → this test fails.
+func TestParentWithNoActiveChildHasNoActiveChildAttr(t *testing.T) {
+	nav := []shell.NavItem{{
+		ID:    "tenants",
+		Label: "Tenants",
+		URL:   "/admin/tenants",
+		Children: []shell.NavItem{
+			{ID: "t1", Label: "Alpha", URL: "/admin/tenants/alpha"},
+		},
+	}}
+	html := renderLayout(t, context.Background(), nav)
+	// " data-has-active-child" = HTML attribute (space-prefix distinguishes from CSS comment text).
+	if strings.Contains(html, ` data-has-active-child`) {
+		t.Fatal("parent with no active children must not carry data-has-active-child")
+	}
+}
+
+// TestChildrenUseSameNavLinkMarkup confirms children carry the .sidebar-item
+// class and href attributes — they render via the same navLink templ as leaves.
+// RED: rendering children without navLink (e.g. bare text) → no .sidebar-item
+// on children → FAIL.
+func TestChildrenUseSameNavLinkMarkup(t *testing.T) {
+	nav := []shell.NavItem{{
+		ID:    "tenants",
+		Label: "Tenants",
+		URL:   "/admin/tenants",
+		Children: []shell.NavItem{
+			{ID: "sub", Label: "Sub", URL: "/admin/tenants/sub"},
+		},
+	}}
+	html := renderLayout(t, context.Background(), nav)
+	if strings.Count(html, `class="sidebar-item pm7-sidebar-item"`) < 2 {
+		t.Fatal("child must render via navLink producing a .sidebar-item anchor (same as leaf)")
+	}
+	if !strings.Contains(html, `href="/admin/tenants/sub"`) {
+		t.Fatal("child anchor must carry its href")
+	}
+}
+
+// TestSubmenuCSSExists confirms the Phase 5 submenu CSS rules are present in
+// the rendered layout (caret, children block, collapsed transition).
+// RED: removing the Phase 5 block from styles.templ → FAIL.
+func TestSubmenuCSSExists(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar-children") {
+		t.Fatal("Phase 5 CSS: .sidebar-children rule must be present")
+	}
+	if !strings.Contains(html, ".sidebar-parent") {
+		t.Fatal("Phase 5 CSS: .sidebar-parent rule must be present")
+	}
+}
+
+// ── End nested submenu tests ──────────────────────────────────────────────
+
 // TestChrome_ZeroFields_GoldenStable locks the HTML output produced when
 // Layout receives a zero ChromeState (Collapsed=false, CollapsedGroups=nil,
 // Profile=zero).  This is the baseline every subsequent Phase must not break.
