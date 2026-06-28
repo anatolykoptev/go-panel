@@ -133,6 +133,40 @@ func TestSparkline_NoInjectionInPoints(t *testing.T) {
 	}
 }
 
+// TestSparkline_SingleNonZero asserts that Sparkline([42]) emits a visible
+// flat polyline (≥2 coordinate pairs) rather than an invisible single-point one.
+//
+// Falsification: remove the n==1 guard in Sparkline → the main loop emits one
+// point ("2.0,2.0"), the ≥2-pairs check below fails.
+func TestSparkline_SingleNonZero(t *testing.T) {
+	var buf bytes.Buffer
+	if err := components.Sparkline([]int{42}).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	html := buf.String()
+
+	// Must use sparkline-line, NOT the zero-baseline path.
+	if !strings.Contains(html, `class="sparkline-line"`) {
+		t.Errorf("single non-zero: expected sparkline-line class; got:\n%s", html)
+	}
+
+	// Extract points="..." and confirm ≥2 coordinate pairs (visible segment).
+	idx := strings.Index(html, `points="`)
+	if idx == -1 {
+		t.Fatalf("no points attribute; got:\n%s", html)
+	}
+	start := idx + len(`points="`)
+	rest := html[start:]
+	end := strings.Index(rest, `"`)
+	if end == -1 {
+		t.Fatalf("unclosed points attribute; got:\n%s", html)
+	}
+	pairs := strings.Fields(rest[:end])
+	if len(pairs) < 2 {
+		t.Errorf("single non-zero: want ≥2 coordinate pairs for visible line, got %d in %q", len(pairs), rest[:end])
+	}
+}
+
 // TestSparkline_AriaHidden asserts that every code path emits aria-hidden="true".
 //
 // Falsification: remove aria-hidden from any branch → one of the three cases
