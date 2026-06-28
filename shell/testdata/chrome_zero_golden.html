@@ -63,10 +63,13 @@
 		   Collapse transition (max-height:0→1000px) ported from pm7.css:4849-4856, re-namespaced. */
 		.sidebar-group-label::after{content:"▾";font-size:.625rem;color:var(--text-muted);transition:transform .3s ease-in-out;flex-shrink:0}
 		.sidebar-group[data-collapsed="true"] .sidebar-group-label::after{transform:rotate(-90deg)}
-		.sidebar-group-items{overflow:hidden;transition:max-height .3s ease-in-out;max-height:1000px}
-		.sidebar-group[data-collapsed="true"] .sidebar-group-items{max-height:0}
+		.sidebar-group-items{overflow:hidden;transition:max-height .3s ease-in-out,visibility 0s;max-height:1000px;visibility:visible}
+		/* delay visibility:hidden until after max-height animation so links leave tab order only once fully hidden */
+		.sidebar-group[data-collapsed="true"] .sidebar-group-items{max-height:0;visibility:hidden;transition:max-height .3s ease-in-out,visibility 0s .3s}
 		/* hide caret in icon-rail mode (sidebar collapsed) */
 		.sidebar.collapsed .sidebar-group-label::after{display:none}
+		/* in icon-rail mode group-collapse is meaningless (labels hidden, pointer-events:none); force all groups expanded */
+		.sidebar.collapsed .sidebar-group-items{max-height:none;visibility:visible}
 		.sidebar-item{display:flex;align-items:center;gap:.625rem;padding:.4375rem 1.25rem;color:var(--text-secondary);text-decoration:none;font-size:.8125rem;font-weight:500;border-left:2px solid transparent;transition:color .15s,background-color .15s,border-color .15s;white-space:nowrap;cursor:pointer}
 		.sidebar-item:hover{color:var(--text-primary);background:var(--accent-glow)}
 		.sidebar-item.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-glow)}

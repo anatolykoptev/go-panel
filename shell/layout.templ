@@ -54,6 +54,9 @@ type navGrouped struct {
 // Items appearing before any group header go into an anonymous entry (Label="")
 // that is not collapsible — preserves backward compat with navs that skip groups.
 // collapsedGroups is ChromeState.CollapsedGroups; nil map is safe (treated as empty).
+//
+// A group that contains the current active item is always expanded regardless of
+// the sb-g cookie: hiding the active wayfinding indicator is disorienting.
 func toNavGroups(nav []NavItem, collapsedGroups map[string]bool) []navGrouped {
 	var out []navGrouped
 	for _, item := range nav {
@@ -67,6 +70,11 @@ func toNavGroups(nav []NavItem, collapsedGroups map[string]bool) []navGrouped {
 				out = append(out, navGrouped{}) // anonymous pre-group bucket
 			}
 			out[len(out)-1].Items = append(out[len(out)-1].Items, item)
+			// Active item forces its group expanded: collapsed active item hides
+			// the current-page wayfinding indicator, which is disorienting.
+			if item.Active {
+				out[len(out)-1].Collapsed = false
+			}
 		}
 	}
 	return out
@@ -104,7 +112,13 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 										data-collapsed="true"
 									}
 								>
-									<button type="button" class="sidebar-group-label" data-group={ group.Label }>{ group.Label }</button>
+									<button type="button" class="sidebar-group-label" data-group={ group.Label }
+										if group.Collapsed {
+											aria-expanded="false"
+										} else {
+											aria-expanded="true"
+										}
+									>{ group.Label }</button>
 									<div class="sidebar-group-items">
 										for _, item := range group.Items {
 											@sidebarItem(item)

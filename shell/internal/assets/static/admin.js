@@ -297,7 +297,8 @@
 
   // Apply current cookie state to DOM (idempotent; safe on htmx:afterSwap).
   // SSR already emits data-collapsed="true" for known-collapsed groups;
-  // this handles any group swapped in after initial load.
+  // this handles any group swapped in after initial load and reconciles
+  // cross-tab cookie drift when called at IIFE end.
   function groupsApply(){
     var collapsed=readGroups();
     document.querySelectorAll('button.sidebar-group-label[data-group]').forEach(function(btn){
@@ -306,8 +307,10 @@
       if(!group) return;
       if(collapsed.has(name)){
         group.setAttribute('data-collapsed','true');
+        btn.setAttribute('aria-expanded','false');
       } else {
         group.removeAttribute('data-collapsed');
+        btn.setAttribute('aria-expanded','true');
       }
     });
   }
@@ -322,9 +325,11 @@
     var collapsed=readGroups();
     if(group.hasAttribute('data-collapsed')){
       group.removeAttribute('data-collapsed');
+      btn.setAttribute('aria-expanded','true');
       collapsed.delete(name);
     } else {
       group.setAttribute('data-collapsed','true');
+      btn.setAttribute('aria-expanded','false');
       collapsed.add(name);
     }
     writeGroups(collapsed);
@@ -332,4 +337,7 @@
 
   // Re-apply after HTMX swaps (mirrors gdSortableInit pattern above).
   document.addEventListener('htmx:afterSwap',groupsApply);
+  // Reconcile cross-tab cookie drift on initial load (SSR already covers the
+  // normal single-tab flow; this catches cookies mutated in another tab).
+  groupsApply();
 })();

@@ -351,16 +351,85 @@ func TestNonCollapsedGroupNoAttribute(t *testing.T) {
 }
 
 // TestGroupLabelIsButton confirms the group label renders as a <button> element
-// with a data-group attribute containing the group name.
-// Falsification: revert group label to <div> in layout.templ → no button → FAIL.
+// with a data-group attribute and aria-expanded for accessibility.
+// Checks are split: expanded-group → aria-expanded="true"; no tight string match
+// so attribute ordering doesn't fragment the test.
+// Falsification: revert group label to <div> → no <button> → FAIL.
+//
+// Note: aria-expanded="true" is expected here because the group is not in CollapsedGroups.
 func TestGroupLabelIsButton(t *testing.T) {
 	nav := []shell.NavItem{
 		{Group: "Settings"},
 		{ID: "cfg", Label: "Config", URL: "/admin/cfg"},
 	}
 	html := renderLayout(t, context.Background(), nav)
-	if !strings.Contains(html, `<button type="button" class="sidebar-group-label" data-group="Settings">`) {
-		t.Fatal("group header must be a <button> with data-group attribute and sidebar-group-label class")
+	if !strings.Contains(html, `<button type="button"`) {
+		t.Fatal("group header must be a <button> element")
+	}
+	if !strings.Contains(html, `class="sidebar-group-label"`) {
+		t.Fatal("group button must carry sidebar-group-label class")
+	}
+	if !strings.Contains(html, `data-group="Settings"`) {
+		t.Fatal("group button must carry data-group attribute with the group name")
+	}
+	if !strings.Contains(html, `aria-expanded="true"`) {
+		t.Fatal("expanded group button must carry aria-expanded=\"true\" for accessibility")
+	}
+}
+
+// TestCollapsedGroupButtonAriaExpanded confirms that a SSR-collapsed group button
+// carries aria-expanded="false" and an expanded group carries aria-expanded="true".
+// Falsification: remove the aria-expanded attribute from layout.templ → FAIL.
+func TestCollapsedGroupButtonAriaExpanded(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Content"},
+		{ID: "posts", Label: "Posts", URL: "/admin/posts"},
+	}
+	// collapsed → aria-expanded="false"
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: map[string]bool{"Content": true},
+	})
+	html := renderLayout(t, ctx, nav)
+	if !strings.Contains(html, `aria-expanded="false"`) {
+		t.Fatal("SSR-collapsed group button must carry aria-expanded=\"false\"")
+	}
+	if strings.Contains(html, `aria-expanded="true"`) {
+		t.Fatal("collapsed group must not carry aria-expanded=\"true\"")
+	}
+
+	// expanded (not in CollapsedGroups) → aria-expanded="true"
+	ctx2 := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: nil,
+	})
+	html2 := renderLayout(t, ctx2, nav)
+	if !strings.Contains(html2, `aria-expanded="true"`) {
+		t.Fatal("expanded group button must carry aria-expanded=\"true\"")
+	}
+	if strings.Contains(html2, `aria-expanded="false"`) {
+		t.Fatal("expanded group must not carry aria-expanded=\"false\"")
+	}
+}
+
+// TestActiveGroupForcedExpanded confirms that a group containing the active nav
+// item is never rendered collapsed even when present in CollapsedGroups.
+// Falsification: remove the "if item.Active { out[last].Collapsed = false }" guard
+// in toNavGroups → collapsed=true survives → active wayfinding hidden → FAIL.
+func TestActiveGroupForcedExpanded(t *testing.T) {
+	nav := []shell.NavItem{
+		{Group: "Content"},
+		{ID: "posts", Label: "Posts", URL: "/admin/posts", Active: true},
+	}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{
+		CollapsedGroups: map[string]bool{"Content": true},
+	})
+	html := renderLayout(t, ctx, nav)
+	// Group contains active item → must NOT have data-collapsed attribute
+	if strings.Contains(html, ` data-collapsed=`) {
+		t.Fatal("group with active item must be forced expanded even when in CollapsedGroups (active wayfinding must not be hidden)")
+	}
+	// aria-expanded must be "true" (expanded)
+	if strings.Contains(html, `aria-expanded="false"`) {
+		t.Fatal("group button containing active item must carry aria-expanded=\"true\"")
 	}
 }
 

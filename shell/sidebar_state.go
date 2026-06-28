@@ -7,10 +7,5 @@ package shell
 //
 // The type carrying this state is ChromeState (shell/chrome_state.go);
 // parsing lives in the resource layer (resource.chromeStateFrom).
+// GroupsCookie (sb-g) for nav-group collapse lives in chrome_state.go alongside the type.
 const SidebarCookie = "sb-c"
-
-// GroupsCookie is the cookie persisting which nav groups are collapsed.
-// Value is URL-encoded (encodeURIComponent in JS), comma-separated group names.
-// Only collapsed group names are stored (non-default); absent = no groups collapsed.
-// Server-readable so Layout emits data-collapsed=true at SSR time — no flash.
-const GroupsCookie = "sb-g"
