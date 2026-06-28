@@ -63,7 +63,17 @@ templ layoutStyles() {
 		.sidebar-toggle:hover{color:var(--text-primary)}
 		.sidebar-nav{flex:1;padding:.25rem 0;overflow-y:auto}
 		.sidebar-group{margin-top:.75rem}
-		.sidebar-group-label{padding:.5rem 1.25rem .25rem;font-family:var(--font-mono);font-size:.5625rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em}
+		/* button reset + existing visual styles; cursor:pointer for toggle affordance */
+		.sidebar-group-label{padding:.5rem 1.25rem .25rem;font-family:var(--font-mono);font-size:.5625rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;text-align:left;cursor:pointer}
+		/* ── Nav group collapse (click-to-collapse groups, pm7-borrowed transition) ──
+		   Caret rotate ported from pm7.css:4845-4848, re-namespaced.
+		   Collapse transition (max-height:0→1000px) ported from pm7.css:4849-4856, re-namespaced. */
+		.sidebar-group-label::after{content:"▾";font-size:.625rem;color:var(--text-muted);transition:transform .3s ease-in-out;flex-shrink:0}
+		.sidebar-group[data-collapsed="true"] .sidebar-group-label::after{transform:rotate(-90deg)}
+		.sidebar-group-items{overflow:hidden;transition:max-height .3s ease-in-out;max-height:1000px}
+		.sidebar-group[data-collapsed="true"] .sidebar-group-items{max-height:0}
+		/* hide caret in icon-rail mode (sidebar collapsed) */
+		.sidebar.collapsed .sidebar-group-label::after{display:none}
 		.sidebar-item{display:flex;align-items:center;gap:.625rem;padding:.4375rem 1.25rem;color:var(--text-secondary);text-decoration:none;font-size:.8125rem;font-weight:500;border-left:2px solid transparent;transition:color .15s,background-color .15s,border-color .15s;white-space:nowrap;cursor:pointer}
 		.sidebar-item:hover{color:var(--text-primary);background:var(--accent-glow)}
 		.sidebar-item.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-glow)}

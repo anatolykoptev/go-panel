@@ -41,6 +41,37 @@ func tooltipOf(item NavItem) string {
 	return item.Label
 }
 
+// navGrouped pairs a nav group header with the items that follow it.
+// An empty Label ("") represents items that appear before any group header.
+type navGrouped struct {
+	Label     string
+	Collapsed bool
+	Items     []NavItem
+}
+
+// toNavGroups converts a flat []NavItem (group-header NavItem followed by its
+// member NavItems) into a []navGrouped for nested sidebar-group rendering.
+// Items appearing before any group header go into an anonymous entry (Label="")
+// that is not collapsible — preserves backward compat with navs that skip groups.
+// collapsedGroups is ChromeState.CollapsedGroups; nil map is safe (treated as empty).
+func toNavGroups(nav []NavItem, collapsedGroups map[string]bool) []navGrouped {
+	var out []navGrouped
+	for _, item := range nav {
+		if item.Group != "" {
+			out = append(out, navGrouped{
+				Label:     item.Group,
+				Collapsed: collapsedGroups[item.Group],
+			})
+		} else {
+			if len(out) == 0 {
+				out = append(out, navGrouped{}) // anonymous pre-group bucket
+			}
+			out[len(out)-1].Items = append(out[len(out)-1].Items, item)
+		}
+	}
+	return out
+}
+
 // Layout renders the full admin page chrome: html head, pm7 CSS, sidebar nav,
 // and a content slot. Used for non-htmx (full-page) requests.
 // For htmx requests, render the content component directly (fragment swap).
@@ -66,32 +97,24 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 						<button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button>
 					</div>
 					<nav class="sidebar-nav">
-						for _, item := range nav {
-							if item.Group != "" {
-								<div class="sidebar-group">
-									<div class="sidebar-group-label">{ item.Group }</div>
-								</div>
-							} else {
-								<a
-									class={ "sidebar-item pm7-sidebar-item", templ.KV("active pm7-sidebar-item--active", item.Active) }
-									href={ templ.SafeURL(item.URL) }
-									aria-label={ tooltipOf(item) }
-									style={ "anchor-name: --nav-" + item.ID }
-									if item.Active {
-										aria-current="page"
+						for _, group := range toNavGroups(nav, ChromeFromContext(ctx).CollapsedGroups) {
+							if group.Label != "" {
+								<div class="sidebar-group"
+									if group.Collapsed {
+										data-collapsed="true"
 									}
 								>
-									if item.Icon != "" {
-										<span class="sidebar-icon">{ item.Icon }</span>
-									}
-									<span class="sidebar-label">{ item.Label }</span>
-									if item.Badge != nil {
-										if b := item.Badge(ctx); b != "" {
-											<span class="sidebar-count">{ b }</span>
+									<button type="button" class="sidebar-group-label" data-group={ group.Label }>{ group.Label }</button>
+									<div class="sidebar-group-items">
+										for _, item := range group.Items {
+											@sidebarItem(item)
 										}
-									}
-									<span class="sidebar-tooltip" style={ "position-anchor: --nav-" + item.ID }>{ tooltipOf(item) }</span>
-								</a>
+									</div>
+								</div>
+							} else {
+								for _, item := range group.Items {
+									@sidebarItem(item)
+								}
 							}
 						}
 					</nav>
@@ -114,6 +137,31 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 			<script src="/admin/static/admin.js" defer></script>
 		</body>
 	</html>
+}
+
+// sidebarItem renders a single nav link.  Extracted from Layout's nav loop so
+// it can be reused in both grouped and pre-group contexts.
+templ sidebarItem(item NavItem) {
+	<a
+		class={ "sidebar-item pm7-sidebar-item", templ.KV("active pm7-sidebar-item--active", item.Active) }
+		href={ templ.SafeURL(item.URL) }
+		aria-label={ tooltipOf(item) }
+		style={ "anchor-name: --nav-" + item.ID }
+		if item.Active {
+			aria-current="page"
+		}
+	>
+		if item.Icon != "" {
+			<span class="sidebar-icon">{ item.Icon }</span>
+		}
+		<span class="sidebar-label">{ item.Label }</span>
+		if item.Badge != nil {
+			if b := item.Badge(ctx); b != "" {
+				<span class="sidebar-count">{ b }</span>
+			}
+		}
+		<span class="sidebar-tooltip" style={ "position-anchor: --nav-" + item.ID }>{ tooltipOf(item) }</span>
+	</a>
 }
 
 // LoginIdentifier describes the login form's identity field, letting one
