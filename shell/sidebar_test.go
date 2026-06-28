@@ -3,7 +3,10 @@ package shell_test
 import (
 	"bytes"
 	"context"
+	"flag"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +14,8 @@ import (
 	"github.com/a-h/templ"
 	"github.com/anatolykoptev/go-panel/shell"
 )
+
+var update = flag.Bool("update", false, "update golden test files")
 
 // renderLayout is a test helper that renders Layout with the given context and
 // nav slice, returning the full HTML string. Used by all sidebar tests.
@@ -36,20 +41,20 @@ func TestCollapsedCSSExists(t *testing.T) {
 }
 
 // TestCollapsedClassSSR confirms the SSR-rendered aside carries class="sidebar collapsed"
-// when SidebarFromContext reports Collapsed=true.
+// when ChromeFromContext reports Collapsed=true.
 // Falsification: remove the templ.KV call in layout.templ → class stays "sidebar".
 func TestCollapsedClassSSR(t *testing.T) {
-	ctx := shell.ContextWithSidebar(context.Background(), shell.SidebarState{Collapsed: true})
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: true})
 	html := renderLayout(t, ctx, nil)
 	if !strings.Contains(html, `class="sidebar collapsed"`) {
-		t.Fatal("collapsed sidebar state not SSR-rendered as class (FOUC not killed)")
+		t.Fatal("collapsed chrome state not SSR-rendered as class (FOUC not killed)")
 	}
 }
 
 // TestExpandedClassSSR confirms that with Collapsed=false, the aside does NOT
 // get the collapsed class (baseline behavior is preserved).
 func TestExpandedClassSSR(t *testing.T) {
-	ctx := shell.ContextWithSidebar(context.Background(), shell.SidebarState{Collapsed: false})
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: false})
 	html := renderLayout(t, ctx, nil)
 	if strings.Contains(html, `class="sidebar collapsed"`) {
 		t.Fatal("expanded sidebar must not carry .collapsed class")
@@ -163,5 +168,40 @@ func TestCachedBadgeDeduplicates(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected fn called once within TTL, got %d calls", count)
+	}
+}
+
+// TestChrome_ZeroFields_GoldenStable locks the HTML output produced when
+// Layout receives a zero ChromeState (Collapsed=false, CollapsedGroups=nil,
+// Profile=zero).  This is the baseline every subsequent Phase must not break.
+//
+// Run with -update to regenerate the golden file after an intentional change.
+//
+// Falsification: revert ChromeFromContext(ctx).Collapsed back to
+// SidebarFromContext(ctx).Collapsed in layout_templ.go → compile error (symbol
+// gone) → test fails to build.  Alternatively, removing the chromeCtxKey lookup
+// so ChromeFromContext always returns zero means the Collapsed=true test above
+// also fails (see TestCollapsedClassSSR).
+func TestChrome_ZeroFields_GoldenStable(t *testing.T) {
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{})
+	got := renderLayout(t, ctx, nil)
+
+	goldenPath := filepath.Join("testdata", "chrome_zero_golden.html")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatalf("mkdir testdata: %v", err)
+		}
+		if err := os.WriteFile(goldenPath, []byte(got), 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		return
+	}
+
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("golden file missing; regenerate with: go test ./shell/ -update\n%v", err)
+	}
+	if string(want) != got {
+		t.Fatalf("rendered HTML differs from golden %s\nRefresh with: go test ./shell/ -update", goldenPath)
 	}
 }

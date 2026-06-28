@@ -31,7 +31,7 @@ type NavItem struct {
 // For htmx requests, render the content component directly (fragment swap).
 //
 // New state (sidebar collapse) is threaded via context.Context so this
-// signature stays frozen: use shell.ContextWithSidebar before calling Render.
+// signature stays frozen: use shell.ContextWithChrome before calling Render.
 templ Layout(title string, nav []NavItem, content templ.Component) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark">
@@ -45,7 +45,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 		</head>
 		<body>
 			<div class="app">
-				<aside class={ "sidebar", templ.KV("collapsed", SidebarFromContext(ctx).Collapsed) } id="sidebar">
+				<aside class={ "sidebar", templ.KV("collapsed", ChromeFromContext(ctx).Collapsed) } id="sidebar">
 					<div class="sidebar-header">
 						<h1>{ title }</h1>
 						<button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button>
