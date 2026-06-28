@@ -82,6 +82,16 @@ templ layoutStyles() {
 		.sidebar-item.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-glow)}
 		.sidebar-icon{font-size:.9375rem;width:1.25rem;text-align:center;flex-shrink:0}
 		.sidebar-bottom{margin-top:auto;padding:.5rem 0;border-top:1px solid var(--border-subtle)}
+		/* ── Profile block (Phase 7) — sticky-bottom identity (BcryptTOTPAuth) ──
+		   Renders above Logout when ChromeState.Profile.Name is non-empty.
+		   Collapsed (icon-rail) mode hides name/role via label opacity rule above.
+		   Avatar circle: fixed 28px, accent blue, mono initial. */
+		.sidebar-profile{display:flex;align-items:center;gap:.625rem;padding:.5rem 1.25rem .25rem;min-width:0}
+		.sidebar-profile-avatar{flex-shrink:0;width:1.75rem;height:1.75rem;border-radius:50%;background:var(--accent-dim);color:#93c5fd;font-family:var(--font-mono);font-size:.6875rem;font-weight:700;display:flex;align-items:center;justify-content:center;text-transform:uppercase;line-height:1}
+		.sidebar-profile-info{min-width:0;flex:1}
+		.sidebar-profile-name{font-size:.8125rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+		.sidebar-profile-role{font-size:.6875rem;font-family:var(--font-mono);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.0625rem}
+		.sidebar.collapsed .sidebar-profile-info,.sidebar.collapsed .sidebar-profile{overflow:hidden;opacity:0;height:0;padding:0}
 		/* ── Sidebar collapse (icon-rail 220→56px) ────────────────────────────
 		   CSS ported from go-nerv internal/admin/templates/layout.html:67-86.
 		   cubic-bezier(.4,0,.2,1) = standard material ease-in-out. */

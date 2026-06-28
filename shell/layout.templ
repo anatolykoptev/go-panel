@@ -8,8 +8,8 @@ import (
 
 // NavItem is a sidebar navigation entry registered by a Resource.
 //
-// NavItem contains a func field (Badge) and is therefore NOT comparable —
-// do not use == on NavItem values or as map keys. (F5)
+// NavItem contains func fields (Badge, Visible) and is therefore NOT comparable
+// — do not use == on NavItem values or as map keys. (F5)
 type NavItem struct {
 	ID     string
 	Label  string
@@ -31,10 +31,25 @@ type NavItem struct {
 	// The returned string is HTML-escaped by templ; do NOT pass templ.Raw.
 	Badge func(ctx context.Context) string
 
+	// Visible is a cosmetic predicate evaluated in the RESOURCE layer
+	// (navItemsFor) before the nav list reaches Layout. nil = always visible.
+	// The shell template renders a pre-filtered list and NEVER calls Visible.
+	//
+	// SECURITY: Visible is NEVER a route gate. An item hidden by Visible is
+	// still reachable by direct URL. Use Resource.RequiredRole to enforce
+	// access on the route itself.
+	Visible func(ctx context.Context) bool
+
+	// RequiredRole is metadata copied from Resource.RequiredRole at Register
+	// time. Used by navItemsFor (resource layer) to derive nav-hiding from the
+	// same role used by the route gate — NEVER evaluated by the shell template.
+	// Zero value = no role gate (backward-compat).
+	RequiredRole string
+
 	// Children is an optional list of one-level child navigation items.
 	// nil or empty means the item is a leaf — current behaviour, backward-compat.
 	// Children-of-children are ignored: one level only (rule-of-three YAGNI).
-	// NavItem contains a func field (Badge) and is therefore NOT comparable;
+	// NavItem contains func fields and is therefore NOT comparable;
 	// do not use == on NavItem values or slice elements for identity. (F5)
 	Children []NavItem
 }
@@ -46,6 +61,23 @@ func tooltipOf(item NavItem) string {
 		return item.Tooltip
 	}
 	return item.Label
+}
+
+// avatarInitial returns the first rune of name as a string, or "?" when empty.
+// Used to render the avatar circle in the profile block. Safe for UTF-8 names.
+func avatarInitial(name string) string {
+	for _, r := range name {
+		return string(r)
+	}
+	return "?"
+}
+
+// profileLogoutURL returns p.LogoutURL if set, otherwise the conventional default.
+func profileLogoutURL(p ProfileConfig) string {
+	if p.LogoutURL != "" {
+		return p.LogoutURL
+	}
+	return "/admin/logout"
 }
 
 // hasActiveChild reports whether any direct child of item is active.
@@ -153,11 +185,38 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 						}
 					</nav>
 					<div class="sidebar-bottom">
-						<a class="sidebar-item" href="/admin/logout" aria-label="Logout" style="anchor-name: --nav-logout">
-							<span class="sidebar-icon">&#x2192;</span>
-							<span class="sidebar-label">Logout</span>
-							<span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span>
-						</a>
+						if prof := ChromeFromContext(ctx).Profile; prof.Name != "" {
+							// Profile block — multi-user consumers (BcryptTOTPAuth).
+							<div class="sidebar-profile">
+								<div class="sidebar-profile-avatar" aria-hidden="true">{ avatarInitial(prof.Name) }</div>
+								<div class="sidebar-profile-info">
+									<div class="sidebar-profile-name">{ prof.Name }</div>
+									if prof.Role != "" {
+										<div class="sidebar-profile-role">{ prof.Role }</div>
+									}
+								</div>
+							</div>
+							if prof.SettingsURL != "" {
+								<a class="sidebar-item" href={ templ.SafeURL(prof.SettingsURL) } aria-label="Settings">
+									<span class="sidebar-icon">&#x2699;</span>
+									<span class="sidebar-label">Settings</span>
+									<span class="sidebar-tooltip">Settings</span>
+								</a>
+							}
+							<a class="sidebar-item sidebar-item--logout" href={ templ.SafeURL(profileLogoutURL(prof)) } aria-label="Logout">
+								<span class="sidebar-icon">&#x2192;</span>
+								<span class="sidebar-label">Logout</span>
+								<span class="sidebar-tooltip">Logout</span>
+							</a>
+						} else {
+							// Bare Logout — backward-compat for single-user consumers (HMACAuth)
+							// or when Profile.Name is empty.
+							<a class="sidebar-item" href="/admin/logout" aria-label="Logout" style="anchor-name: --nav-logout">
+								<span class="sidebar-icon">&#x2192;</span>
+								<span class="sidebar-label">Logout</span>
+								<span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span>
+							</a>
+						}
 					</div>
 				</aside>
 				<div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>

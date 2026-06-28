@@ -26,9 +26,34 @@ type ChromeState struct {
 	Profile         ProfileConfig
 }
 
-// ProfileConfig is a placeholder for Phase 7 profile state.
-// Zero value is safe.
-type ProfileConfig struct{}
+// ProfileConfig carries the per-operator identity shown in the sticky-bottom
+// profile block (avatar initial, name, role, settings/logout links).
+//
+// Zero value is safe: when Name is empty, Layout renders only the bare Logout
+// link (backward-compatible with single-user HMACAuth consumers that have no
+// named session).
+//
+// Consumers call Panel.SetProfile to supply static defaults (SettingsURL,
+// LogoutURL); the resource layer overlays Name/Role per-request from the live
+// session so a multi-user deployment always shows the current operator's
+// identity without per-request SetProfile calls.
+type ProfileConfig struct {
+	// Name is the operator's display name shown in the profile block.
+	// Populated per-request from Session.UserID for BcryptTOTPAuth consumers.
+	// Empty → bare Logout rendered (zero-value safe, backward-compat).
+	Name string
+
+	// Role is the role label shown muted below the name (e.g. "admin", "owner").
+	// Populated per-request from Session.Role.
+	Role string
+
+	// SettingsURL is the optional settings page URL. When non-empty, a
+	// Settings link is rendered above Logout in the profile block.
+	SettingsURL string
+
+	// LogoutURL is the logout endpoint. When empty, defaults to /admin/logout.
+	LogoutURL string
+}
 
 type chromeCtxKey struct{}
 
