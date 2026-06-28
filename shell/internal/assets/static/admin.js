@@ -359,3 +359,95 @@
   // normal single-tab flow; this catches cookies mutated in another tab).
   groupsApply();
 })();
+
+;(function(){
+  // ---------------------------------------------------------------------------
+  // sidebar-parent expand/collapse — delegated click toggle for nav items with
+  // Children (one-level submenus). Persists collapsed state in cookie sb-s
+  // (URL-encoded, comma-separated item IDs, collapsed-only to keep the value small).
+  // ADDITIVE ONLY: early-returns when e.target is not inside .sidebar-parent,
+  // so pages without submenu markup are completely unaffected.
+  // Re-init on htmx:afterSwap applies current cookie state to new content.
+  //
+  // SSR/JS invariant: a parent carrying data-has-active-child is ALWAYS expanded,
+  // mirroring the server-side hasActiveChild guard in layout.templ.
+  // Both sides MUST stay in lockstep — collapsing an active-child parent hides
+  // the current-page wayfinding link (a11y + UX regression).
+  // ---------------------------------------------------------------------------
+
+  var SUB_COOKIE='sb-s';
+
+  // Extract the nav-id from a sidebar-item's inline anchor-name style.
+  // Returns '' when the style attribute is absent or has no --nav-<id>.
+  function navIdOf(link){
+    var style=link&&link.getAttribute('style');
+    if(!style) return '';
+    var m=style.match(/anchor-name:\s*--nav-([^;"\s]+)/);
+    return m?m[1]:'';
+  }
+
+  // Read the sb-s cookie and return a Set of collapsed item IDs.
+  function readSubs(){
+    var m=document.cookie.match(/(?:^|;\s*)sb-s=([^;]*)/);
+    if(!m||!m[1]) return new Set();
+    var raw;
+    try{raw=decodeURIComponent(m[1]);}catch(ex){raw=m[1];}
+    return new Set(raw.split(',').map(function(s){return s.trim();}).filter(Boolean));
+  }
+
+  // Persist the Set back to sb-s (URL-encoded, 7-day, SameSite=Lax).
+  function writeSubs(set){
+    var val=encodeURIComponent(Array.from(set).join(','));
+    document.cookie=SUB_COOKIE+'='+val+';path=/;max-age=604800;samesite=Lax';
+  }
+
+  // Apply current cookie state to DOM. Idempotent; safe on htmx:afterSwap.
+  // SSR always renders expanded; this function collapses based on cookie.
+  // Active-child parents are always kept expanded (data-has-active-child guard).
+  function subsApply(){
+    var collapsed=readSubs();
+    document.querySelectorAll('.sidebar-parent').forEach(function(parent){
+      // Mirror server guard: always expand parents with an active child.
+      if(parent.hasAttribute('data-has-active-child')||parent.querySelector('.sidebar-item.active')){
+        parent.removeAttribute('data-collapsed');
+        return;
+      }
+      var link=parent.querySelector(':scope > .sidebar-item');
+      if(!link) return;
+      var id=navIdOf(link);
+      if(!id) return;
+      if(collapsed.has(id)){
+        parent.setAttribute('data-collapsed','true');
+      }else{
+        parent.removeAttribute('data-collapsed');
+      }
+    });
+  }
+
+  // Delegated click: clicking a parent navLink toggles its submenu.
+  // e.preventDefault() stops navigation to parent.URL; users needing the
+  // parent page can right-click or keyboard-navigate.
+  // Active-child parents are exempt: they stay expanded and navigate normally.
+  document.addEventListener('click',function(e){
+    var link=e.target.closest('.sidebar-parent > .sidebar-item');
+    if(!link) return;
+    var parent=link.closest('.sidebar-parent');
+    if(!parent) return;
+    // Always expand (and navigate) when a child is active.
+    if(parent.hasAttribute('data-has-active-child')||parent.querySelector('.sidebar-item.active')) return;
+    e.preventDefault();
+    var id=navIdOf(link);
+    var collapsed=readSubs();
+    if(parent.hasAttribute('data-collapsed')){
+      parent.removeAttribute('data-collapsed');
+      if(id) collapsed.delete(id);
+    }else{
+      parent.setAttribute('data-collapsed','true');
+      if(id) collapsed.add(id);
+    }
+    writeSubs(collapsed);
+  });
+
+  document.addEventListener('htmx:afterSwap',subsApply);
+  subsApply();
+})();

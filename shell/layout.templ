@@ -9,7 +9,7 @@ import (
 // NavItem is a sidebar navigation entry registered by a Resource.
 //
 // NavItem contains a func field (Badge) and is therefore NOT comparable —
-// do not use == on NavItem values or as map keys.
+// do not use == on NavItem values or as map keys. (F5)
 type NavItem struct {
 	ID     string
 	Label  string
@@ -30,6 +30,13 @@ type NavItem struct {
 	// nil = no badge (zero-value safe; existing callers are unaffected).
 	// The returned string is HTML-escaped by templ; do NOT pass templ.Raw.
 	Badge func(ctx context.Context) string
+
+	// Children is an optional list of one-level child navigation items.
+	// nil or empty means the item is a leaf — current behaviour, backward-compat.
+	// Children-of-children are ignored: one level only (rule-of-three YAGNI).
+	// NavItem contains a func field (Badge) and is therefore NOT comparable;
+	// do not use == on NavItem values or slice elements for identity. (F5)
+	Children []NavItem
 }
 
 // tooltipOf returns item.Tooltip when non-empty, otherwise item.Label.
@@ -39,6 +46,19 @@ func tooltipOf(item NavItem) string {
 		return item.Tooltip
 	}
 	return item.Label
+}
+
+// hasActiveChild reports whether any direct child of item is active.
+// Used server-side to emit data-has-active-child on parent submenu wrappers,
+// so JS always keeps parents of the current-page item expanded regardless of
+// the sb-s cookie — mirrors the group-level guard in toNavGroups.
+func hasActiveChild(item NavItem) bool {
+	for _, child := range item.Children {
+		if child.Active {
+			return true
+		}
+	}
+	return false
 }
 
 // navGrouped pairs a nav group header with the items that follow it.
@@ -153,9 +173,11 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 	</html>
 }
 
-// sidebarItem renders a single nav link.  Extracted from Layout's nav loop so
-// it can be reused in both grouped and pre-group contexts.
-templ sidebarItem(item NavItem) {
+// navLink renders the raw <a> element for a single nav item.
+// Extracted so both sidebarItem (leaf) and sidebarItem (parent) can call it
+// without duplicating markup, and child items in .sidebar-children reuse the
+// same template rather than a hand-rolled copy.
+templ navLink(item NavItem) {
 	<a
 		class={ "sidebar-item pm7-sidebar-item", templ.KV("active pm7-sidebar-item--active", item.Active) }
 		href={ templ.SafeURL(item.URL) }
@@ -176,6 +198,34 @@ templ sidebarItem(item NavItem) {
 		}
 		<span class="sidebar-tooltip" style={ "position-anchor: --nav-" + item.ID }>{ tooltipOf(item) }</span>
 	</a>
+}
+
+// sidebarItem renders a leaf nav link or a one-level submenu parent.
+// Leaf (no Children): delegates directly to navLink.
+// Parent (len(Children)>0): wraps navLink in a .sidebar-parent div,
+// emits data-has-active-child when any child is active (JS mirrors this guard
+// to force the parent expanded regardless of the sb-s collapse cookie), and
+// appends a .sidebar-children block that loops direct children via navLink.
+// Children-of-children are ignored — one level only (YAGNI).
+// Server-side always renders expanded; JS (sb-s cookie) controls collapse.
+templ sidebarItem(item NavItem) {
+	if len(item.Children) > 0 {
+		<div
+			class="sidebar-parent"
+			if hasActiveChild(item) {
+				data-has-active-child="true"
+			}
+		>
+			@navLink(item)
+			<div class="sidebar-children">
+				for _, child := range item.Children {
+					@navLink(child)
+				}
+			</div>
+		</div>
+	} else {
+		@navLink(item)
+	}
 }
 
 // LoginIdentifier describes the login form's identity field, letting one
