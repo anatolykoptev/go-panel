@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/shell"
 )
 
@@ -15,29 +16,34 @@ import (
 // handlers). For consumers mounting bespoke routes alongside the resource
 // framework. activeID matches a nav item's ID (use AddNav to register the entry);
 // pass "" for no active highlight.
+//
+// The sidebar is context-filtered (navItemsFor): role-gated and Visible-hidden
+// items are excluded for the current session.
 func (p *Panel) RenderPage(w http.ResponseWriter, r *http.Request, title, activeID string, content templ.Component) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	shell.SecurityHeaders(w)
-	ctx := shell.ContextWithChrome(r.Context(), chromeStateFrom(r))
-	return shell.Layout(title, p.NavItemsActive(activeID), content).Render(ctx, w)
+	ctx := shell.ContextWithChrome(r.Context(), p.chromeStateFrom(r))
+	return shell.Layout(title, p.navItemsFor(r.Context(), activeID), content).Render(ctx, w)
 }
 
-// chromeStateFrom reads the collapse cookies from the request and returns a
-// ChromeState.
+// chromeStateFrom reads per-request chrome state from cookies and the session,
+// returning a ChromeState ready to thread into Layout via ContextWithChrome.
 //
-//   - Cookie "sb-c"="1" → Collapsed=true; absent or other value → false.
-//   - Cookie "sb-g"=<url-encoded comma-separated names> → CollapsedGroups map;
-//     absent or empty → nil map (no groups collapsed).
+// Cookie contracts:
+//   - "sb-c"="1"  → Collapsed=true
+//   - "sb-g"=<url-encoded comma-separated names> → CollapsedGroups map
 //
-// Encoding contract: the whole sb-g value is URL-encoded (encodeURIComponent on
-// the joined string), so the server URL-unescapes the value before splitting on ','.
-// Consequence: group names must not contain literal commas — a comma in a name
-// would become an unescaped delimiter after decode, splitting one name into two
-// phantom entries. Group labels are developer-defined; commas are forbidden by
-// convention. See matching note in admin.js readGroups/writeGroups.
+// Encoding: the whole sb-g value is URL-encoded (encodeURIComponent on the
+// joined string); the server URL-unescapes before splitting on ','. Group names
+// must not contain literal commas — see matching note in admin.js readGroups.
+//
+// Profile: populated from p.profileCfg (static defaults set by SetProfile) with
+// Name and Role overlaid per-request from auth.SessionFrom when they are blank.
+// For HMACAuth consumers, SessionFrom returns false → Profile stays zero →
+// Layout renders the bare Logout footer (backward-compat).
 //
 // Lives in the resource layer (not shell) so shell stays net/http-free.
-func chromeStateFrom(r *http.Request) shell.ChromeState {
+func (p *Panel) chromeStateFrom(r *http.Request) shell.ChromeState {
 	var state shell.ChromeState
 	if c, err := r.Cookie(shell.SidebarCookie); err == nil && c.Value == "1" {
 		state.Collapsed = true
@@ -56,6 +62,17 @@ func chromeStateFrom(r *http.Request) shell.ChromeState {
 				state.CollapsedGroups = make(map[string]bool)
 			}
 			state.CollapsedGroups[name] = true
+		}
+	}
+
+	// Profile: start from static defaults; overlay live session fields.
+	state.Profile = p.profileCfg
+	if s, ok := auth.SessionFrom(r.Context()); ok {
+		if state.Profile.Name == "" {
+			state.Profile.Name = s.UserID
+		}
+		if state.Profile.Role == "" {
+			state.Profile.Role = s.Role
 		}
 	}
 	return state
