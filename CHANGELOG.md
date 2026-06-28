@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/anatolykoptev/go-panel/compare/v0.12.0...v0.13.0) (2026-06-28)
+
+
+### Features
+
+* **resource,shell:** nav-filter via HasRole + profile block (P3.3 + P7) ([798508d](https://github.com/anatolykoptev/go-panel/commit/798508d0906e625fc217f0d0d6c617aceb58939e))
+* **resource,shell:** nav-filter via HasRole + profile block (P3.3 + P7) ([#51](https://github.com/anatolykoptev/go-panel/issues/51)) ([798508d](https://github.com/anatolykoptev/go-panel/commit/798508d0906e625fc217f0d0d6c617aceb58939e))
+
 ## [0.12.0](https://github.com/anatolykoptev/go-panel/compare/v0.11.0...v0.12.0) (2026-06-28)
 
 
