@@ -84,6 +84,19 @@ templ layoutStyles() {
 		   mono .625rem pill, border-radius 9999px, border+bg-elevated surface. */
 		.sidebar-count{margin-left:auto;font-family:var(--font-mono);font-size:.625rem;font-weight:600;padding:.0625rem .375rem;border-radius:9999px;border:1px solid var(--border);color:var(--text-secondary);background:var(--bg-elevated)}
 		.sidebar.collapsed .sidebar-count{display:none}
+		/* ── Collapsed-mode tooltips (.sidebar-tooltip) ───────────────────────
+		   Pure CSS, CSP-clean: no JS required. The span is always in the DOM
+		   but hidden by default; only revealed on hover when the sidebar is
+		   collapsed (icon-rail mode).
+		   position:fixed escapes .sidebar{overflow:hidden} — position:absolute
+		   is clipped at the 56px collapsed boundary and never renders on screen.
+		   CSS anchor positioning (anchor(right)/anchor(top)) positions each fixed
+		   tooltip relative to its sidebar-item anchor so it appears flush to the
+		   icon's right edge (Chrome 125+/Firefox 133+/Safari 18+).
+		   Each <a> carries inline anchor-name:--nav-<id>; each .sidebar-tooltip
+		   <span> carries position-anchor:--nav-<id> referencing it. */
+		.sidebar-tooltip{display:none}
+		.sidebar.collapsed .sidebar-item:hover .sidebar-tooltip{display:block;position:fixed;left:anchor(right);top:anchor(top);padding:.25rem .625rem;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:.75rem;font-weight:500;white-space:nowrap;pointer-events:none;z-index:100}
 		#content{padding:1.5rem 2rem 2rem}
 		.htmx-indicator{display:none}
 		.htmx-request .htmx-indicator{display:inline-block}

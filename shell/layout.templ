@@ -18,12 +18,27 @@ type NavItem struct {
 	Active bool
 	Group  string // non-empty = this item is a group header, not a link
 
+	// Tooltip is the text shown as a popover when the sidebar is in collapsed
+	// (icon-rail) mode. Empty string falls back to Label — zero-value safe,
+	// existing callers are unaffected.
+	// Also emitted as aria-label on the anchor for screen-reader wayfinding.
+	Tooltip string
+
 	// Badge is an optional closure returning a short label/count pill shown
 	// next to the nav item (e.g. "12", "new"). Called once per page render —
 	// wrap with shell.CachedBadge to avoid a per-render DB query.
 	// nil = no badge (zero-value safe; existing callers are unaffected).
 	// The returned string is HTML-escaped by templ; do NOT pass templ.Raw.
 	Badge func(ctx context.Context) string
+}
+
+// tooltipOf returns item.Tooltip when non-empty, otherwise item.Label.
+// Used for aria-label and the collapsed-mode .sidebar-tooltip span.
+func tooltipOf(item NavItem) string {
+	if item.Tooltip != "" {
+		return item.Tooltip
+	}
+	return item.Label
 }
 
 // Layout renders the full admin page chrome: html head, pm7 CSS, sidebar nav,
@@ -60,6 +75,8 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 								<a
 									class={ "sidebar-item pm7-sidebar-item", templ.KV("active pm7-sidebar-item--active", item.Active) }
 									href={ templ.SafeURL(item.URL) }
+									aria-label={ tooltipOf(item) }
+									style={ "anchor-name: --nav-" + item.ID }
 									if item.Active {
 										aria-current="page"
 									}
@@ -73,14 +90,16 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 											<span class="sidebar-count">{ b }</span>
 										}
 									}
+									<span class="sidebar-tooltip" style={ "position-anchor: --nav-" + item.ID }>{ tooltipOf(item) }</span>
 								</a>
 							}
 						}
 					</nav>
 					<div class="sidebar-bottom">
-						<a class="sidebar-item" href="/admin/logout">
+						<a class="sidebar-item" href="/admin/logout" aria-label="Logout" style="anchor-name: --nav-logout">
 							<span class="sidebar-icon">&#x2192;</span>
 							<span class="sidebar-label">Logout</span>
+							<span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span>
 						</a>
 					</div>
 				</aside>

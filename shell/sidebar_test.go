@@ -171,6 +171,141 @@ func TestCachedBadgeDeduplicates(t *testing.T) {
 	}
 }
 
+// ── Tooltip tests (Task 2.2) ──────────────────────────────────────────────
+
+// TestTooltipAriaLabelAlways confirms that every sidebar link carries
+// aria-label set to tooltipOf(item) (Tooltip when set, Label as fallback),
+// regardless of collapsed/expanded state.
+// Falsification: remove aria-label emission from layout.templ → FAIL.
+func TestTooltipAriaLabelAlways(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "Items", Icon: "🗂", URL: "/admin/x",
+		Tooltip: "Items overview"}}
+	for _, collapsed := range []bool{false, true} {
+		ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: collapsed})
+		html := renderLayout(t, ctx, nav)
+		if !strings.Contains(html, `aria-label="Items overview"`) {
+			t.Fatalf("collapsed=%v: sidebar link must carry aria-label=Tooltip value", collapsed)
+		}
+	}
+}
+
+// TestTooltipFallbackToLabel confirms that when NavItem.Tooltip is empty,
+// aria-label falls back to Label.
+// Falsification: hard-code aria-label="" → FAIL; remove fallback → FAIL.
+func TestTooltipFallbackToLabel(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "Items", Icon: "🗂", URL: "/admin/x"}}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: true})
+	html := renderLayout(t, ctx, nav)
+	if !strings.Contains(html, `aria-label="Items"`) {
+		t.Fatal("empty Tooltip must fall back to Label for aria-label")
+	}
+}
+
+// TestTooltipSpanPresent confirms every sidebar link always carries a
+// span.sidebar-tooltip element containing tooltipOf(item); CSS controls
+// visibility (hidden in expanded, shown on hover in collapsed).
+// Falsification: remove the span.sidebar-tooltip from layout.templ → FAIL.
+func TestTooltipSpanPresent(t *testing.T) {
+	nav := []shell.NavItem{{ID: "x", Label: "Items", Icon: "🗂", URL: "/admin/x",
+		Tooltip: "Items overview"}}
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Collapsed: true})
+	html := renderLayout(t, ctx, nav)
+	if !strings.Contains(html, `class="sidebar-tooltip"`) {
+		t.Fatal("sidebar link must carry span.sidebar-tooltip")
+	}
+	if !strings.Contains(html, ">Items overview<") {
+		t.Fatal("span.sidebar-tooltip must contain the tooltip text")
+	}
+}
+
+// TestTooltipCSSHiddenByDefault confirms the rendered CSS hides .sidebar-tooltip
+// by default (expanded mode — tooltip invisible when sidebar is open).
+// Falsification: remove .sidebar-tooltip{display:none} from styles.templ → FAIL.
+func TestTooltipCSSHiddenByDefault(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar-tooltip{display:none}") {
+		t.Fatal("CSS must hide .sidebar-tooltip by default (expanded mode wayfinding off)")
+	}
+}
+
+// TestTooltipCSSShowOnCollapsedHover confirms the CSS reveals .sidebar-tooltip
+// on hover in collapsed mode — pure CSS, CSP-clean, no JS required.
+// Falsification: remove the hover rule from styles.templ → FAIL.
+func TestTooltipCSSShowOnCollapsedHover(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar.collapsed .sidebar-item:hover .sidebar-tooltip") {
+		t.Fatal("CSS must reveal .sidebar-tooltip on hover when sidebar is collapsed")
+	}
+}
+
+// TestTooltipCSSFixedPositioning confirms the tooltip CSS uses position:fixed
+// (not position:absolute) to escape the .sidebar{overflow:hidden} clip context.
+// position:absolute is confined to the containing block and clipped by every
+// overflow:hidden ancestor; position:fixed is clipped only by ancestors that
+// establish a fixed-position containing block (transform/filter/perspective),
+// none of which exist on .sidebar.
+// Falsification: revert to position:absolute in styles.templ → FAIL.
+func TestTooltipCSSFixedPositioning(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, "position:fixed") {
+		t.Fatal("tooltip CSS must use position:fixed to escape .sidebar{overflow:hidden} clip; position:absolute is always clipped")
+	}
+}
+
+// TestTooltipCSSAnchorPositioning confirms the tooltip CSS uses CSS anchor
+// positioning (anchor(right), anchor(top)) so each tooltip appears adjacent
+// to its hovered sidebar item even though position:fixed positions relative
+// to the viewport rather than the item.
+// Without anchor(), all tooltips would stack at left:56px;top:0 (wrong).
+// Falsification: remove anchor(right) from styles.templ → FAIL.
+func TestTooltipCSSAnchorPositioning(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, "anchor(right)") {
+		t.Fatal("tooltip CSS must use CSS anchor positioning anchor(right) for horizontal placement adjacent to the hovered item")
+	}
+	if !strings.Contains(html, "anchor(top)") {
+		t.Fatal("tooltip CSS must use CSS anchor positioning anchor(top) for vertical alignment with the hovered item")
+	}
+}
+
+// TestTooltipAnchorNameOnNavItem confirms every sidebar nav link carries a CSS
+// anchor-name inline style (anchor-name: --nav-<id>) enabling the tooltip to
+// reference it via position-anchor, and that the .sidebar-tooltip span carries
+// the matching position-anchor value.
+// Falsification: remove the inline style from the <a> or <span> in layout.templ → FAIL.
+func TestTooltipAnchorNameOnNavItem(t *testing.T) {
+	nav := []shell.NavItem{{ID: "dash", Label: "Dashboard", URL: "/admin/dash"}}
+	html := renderLayout(t, context.Background(), nav)
+	if !strings.Contains(html, "anchor-name: --nav-dash") {
+		t.Fatal("nav item <a> must carry style=\"anchor-name: --nav-<id>\" for CSS anchor positioning")
+	}
+	if !strings.Contains(html, "position-anchor: --nav-dash") {
+		t.Fatal("tooltip <span> must carry style=\"position-anchor: --nav-<id>\" referencing the item anchor")
+	}
+}
+
+// TestLogoutTooltipWayfinding confirms the hardcoded Logout link carries both
+// aria-label and a .sidebar-tooltip span with a CSS anchor-name, consistent
+// with nav items.  Without this the Logout bare-arrow glyph has no collapsed-
+// mode wayfinding — a gap singled out by the code-quality reviewer.
+// Falsification: remove aria-label or the sidebar-tooltip span from the Logout
+// link in layout.templ → FAIL.
+func TestLogoutTooltipWayfinding(t *testing.T) {
+	// Render with no nav so the only content is the fixed Logout link.
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, `aria-label="Logout"`) {
+		t.Fatal("Logout link must carry aria-label=\"Logout\" for collapsed-mode screen-reader wayfinding")
+	}
+	if !strings.Contains(html, "anchor-name: --nav-logout") {
+		t.Fatal("Logout link must carry style=\"anchor-name: --nav-logout\" for CSS anchor positioning")
+	}
+	if !strings.Contains(html, `class="sidebar-tooltip"`) {
+		t.Fatal("Logout link must carry span.sidebar-tooltip for collapsed-mode visual wayfinding")
+	}
+}
+
+// ── End tooltip tests ─────────────────────────────────────────────────────
+
 // TestChrome_ZeroFields_GoldenStable locks the HTML output produced when
 // Layout receives a zero ChromeState (Collapsed=false, CollapsedGroups=nil,
 // Profile=zero).  This is the baseline every subsequent Phase must not break.
