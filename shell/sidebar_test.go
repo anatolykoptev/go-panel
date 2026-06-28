@@ -622,6 +622,65 @@ func TestSubmenuCSSExists(t *testing.T) {
 
 // ── End nested submenu tests ──────────────────────────────────────────────
 
+// ── Mobile off-canvas drawer tests (Phase 6) ─────────────────────────────
+
+// TestMobileDrawerMarkupPresent is an SSR test confirming the mobile off-canvas
+// drawer markup is present in the rendered chrome:
+//  1. A hamburger button (class="sidebar-mobile-toggle") for opening the drawer.
+//  2. A div.sidebar-overlay backdrop for closing the drawer via click.
+//
+// Falsification: remove either element from layout.templ → the corresponding
+// Contains check fails → FAIL.
+func TestMobileDrawerMarkupPresent(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, `class="sidebar-mobile-toggle"`) {
+		t.Fatal("mobile drawer: hamburger button with class sidebar-mobile-toggle must be present in SSR output")
+	}
+	if !strings.Contains(html, `class="sidebar-overlay"`) {
+		t.Fatal("mobile drawer: div.sidebar-overlay backdrop must be present in SSR output")
+	}
+}
+
+// TestMobileDrawerHamburgerAriaLabel confirms the hamburger button carries
+// an aria-label for screen-reader accessibility in collapsed mobile view.
+// Falsification: remove aria-label from the button in layout.templ → FAIL.
+func TestMobileDrawerHamburgerAriaLabel(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, `aria-label="Open navigation"`) {
+		t.Fatal("mobile hamburger must carry aria-label=\"Open navigation\" for screen-reader accessibility")
+	}
+}
+
+// TestMobileDrawerCSSPresent confirms the mobile overlay and media-query CSS
+// rules are rendered (pm7-borrowed, re-namespaced).
+// Falsification: remove the Phase 6 CSS block from styles.templ → FAIL.
+func TestMobileDrawerCSSPresent(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, ".sidebar-overlay{") {
+		t.Fatal("mobile drawer CSS: .sidebar-overlay rule must be present")
+	}
+	if !strings.Contains(html, "@media(max-width:767px)") {
+		t.Fatal("mobile drawer CSS: @media(max-width:767px) responsive rule must be present")
+	}
+	if !strings.Contains(html, ".sidebar--open{") {
+		t.Fatal("mobile drawer CSS: .sidebar--open rule must be present")
+	}
+}
+
+// TestMobileDrawerNoDataPm7Sidebar is a fitness check confirming the mobile
+// drawer does NOT use data-pm7-sidebar (would create dual state-machine authority
+// per Decision 1; the existing fitness test covers the <aside>, this covers
+// the overlay and toggle too).
+// Falsification: add data-pm7-sidebar anywhere in the mobile drawer markup → FAIL.
+func TestMobileDrawerNoDataPm7Sidebar(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if strings.Contains(html, "data-pm7-sidebar") {
+		t.Fatal("fitness: mobile drawer markup must not introduce data-pm7-sidebar (PM7Sidebar dual-authority, Decision 1)")
+	}
+}
+
+// ── End mobile off-canvas drawer tests ───────────────────────────────────
+
 // TestChrome_ZeroFields_GoldenStable locks the HTML output produced when
 // Layout receives a zero ChromeState (Collapsed=false, CollapsedGroups=nil,
 // Profile=zero).  This is the baseline every subsequent Phase must not break.

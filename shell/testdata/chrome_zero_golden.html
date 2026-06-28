@@ -200,4 +200,18 @@
 		.job-detail-meta{font-family:var(--font-mono);font-size:.6875rem;color:var(--text-muted);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 		.job-detail-meta a{color:var(--accent);text-decoration:none}
 		.job-detail-meta a:hover{opacity:.8}
-	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1>T</h1><button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom"><a class="sidebar-item" href="/admin/logout" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></a></div></aside><main class="main"><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>
+		/* ── Mobile off-canvas drawer (Phase 6, pm7-borrowed overlay) ─────────
+		   Overlay backdrop: pm7.css:4668-4681 (.pm7-sidebar-overlay), re-namespaced.
+		   Responsive transform: pm7.css:4731-4748 (.pm7-sidebar--static), inverted to
+		   max-width:767px and re-namespaced to .sidebar / .sidebar-overlay.
+		   Desktop (≥768px) unchanged — sidebar retains normal flow positioning. */
+		.sidebar-overlay{position:fixed;inset:0;background-color:rgba(0,0,0,.5);opacity:0;visibility:hidden;transition:opacity .3s ease-in-out;z-index:999}
+		.sidebar-overlay--visible{opacity:1;visibility:visible}
+		.sidebar-mobile-toggle{display:none;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.25rem;padding:.5rem .75rem;line-height:1;transition:color .15s}
+		.sidebar-mobile-toggle:hover{color:var(--text-primary)}
+		@media(max-width:767px){
+			.sidebar{position:fixed;top:0;left:0;height:100%;z-index:1000;transform:translateX(-100%);transition:transform .3s ease-in-out}
+			.sidebar--open{transform:translateX(0)}
+			.sidebar-mobile-toggle{display:block}
+		}
+	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1>T</h1><button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom"><a class="sidebar-item" href="/admin/logout" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></a></div></aside><div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div><main class="main"><button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>

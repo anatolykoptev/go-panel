@@ -451,3 +451,54 @@
   document.addEventListener('htmx:afterSwap',subsApply);
   subsApply();
 })();
+
+;(function(){
+  // ---------------------------------------------------------------------------
+  // Mobile off-canvas drawer — hamburger open / backdrop-click or Esc close.
+  // Keyboard pattern borrowed from pm7 setupKeyboardNavigation, re-namespaced.
+  // ADDITIVE ONLY: all listeners guard on element presence and .sidebar--open
+  // state so desktop layout (≥768px) and pages without the markup are unaffected.
+  // CSP-clean: delegated document listeners, no inline handlers.
+  // ---------------------------------------------------------------------------
+  var sb=document.getElementById('sidebar');
+  var overlay=document.getElementById('sidebar-overlay');
+  var toggle=document.getElementById('sidebar-mobile-toggle');
+
+  // Set initial aria-expanded state (not emitted by SSR to avoid clashing with
+  // server-rendered aria-expanded on group buttons; JS owns this attribute).
+  if(toggle) toggle.setAttribute('aria-expanded','false');
+
+  function openDrawer(){
+    if(!sb) return;
+    sb.classList.add('sidebar--open');
+    if(overlay){overlay.classList.add('sidebar-overlay--visible');overlay.removeAttribute('aria-hidden');}
+    if(toggle) toggle.setAttribute('aria-expanded','true');
+  }
+
+  function closeDrawer(){
+    if(!sb) return;
+    sb.classList.remove('sidebar--open');
+    if(overlay){overlay.classList.remove('sidebar-overlay--visible');overlay.setAttribute('aria-hidden','true');}
+    if(toggle) toggle.setAttribute('aria-expanded','false');
+  }
+
+  // Delegated hamburger click — toggle open/close.
+  document.addEventListener('click',function(e){
+    if(!toggle||!e.target.closest('#sidebar-mobile-toggle')) return;
+    if(sb&&sb.classList.contains('sidebar--open')){closeDrawer();}else{openDrawer();}
+  });
+
+  // Delegated backdrop click — close.
+  document.addEventListener('click',function(e){
+    if(!overlay||!e.target.closest('#sidebar-overlay')) return;
+    closeDrawer();
+  });
+
+  // Esc — close drawer and return focus to hamburger.
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='Escape') return;
+    if(!sb||!sb.classList.contains('sidebar--open')) return;
+    closeDrawer();
+    if(toggle) toggle.focus();
+  });
+})();
