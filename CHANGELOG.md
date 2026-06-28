@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/anatolykoptev/go-panel/compare/v0.13.1...v0.13.2) (2026-06-28)
+
+
+### Bug Fixes
+
+* **shell:** raise sidebar group-label contrast to WCAG 3:1 ([#58](https://github.com/anatolykoptev/go-panel/issues/58)) ([1f3a8aa](https://github.com/anatolykoptev/go-panel/commit/1f3a8aad2e895cf9bb2ad263e2bb2e282d69867b))
+
 ## [0.13.1](https://github.com/anatolykoptev/go-panel/compare/v0.13.0...v0.13.1) (2026-06-28)
 
 
