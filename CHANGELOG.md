@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.1](https://github.com/anatolykoptev/go-panel/compare/v0.13.0...v0.13.1) (2026-06-28)
+
+
+### Bug Fixes
+
+* **shell:** pin sidebar to viewport height (sticky, 100vh) ([#55](https://github.com/anatolykoptev/go-panel/issues/55)) ([333cc5b](https://github.com/anatolykoptev/go-panel/commit/333cc5bddf1726326c781382f0c0226a33f79930))
+* **shell:** regenerate styles_templ.go with sticky sidebar (close [#55](https://github.com/anatolykoptev/go-panel/issues/55) gap) ([#56](https://github.com/anatolykoptev/go-panel/issues/56)) ([1c1e1e6](https://github.com/anatolykoptev/go-panel/commit/1c1e1e635cb6ea6f69e69f0bae2987df3e339a75))
+
 ## [0.13.0](https://github.com/anatolykoptev/go-panel/compare/v0.12.0...v0.13.0) (2026-06-28)
 
 
