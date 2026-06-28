@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.0](https://github.com/anatolykoptev/go-panel/compare/v0.10.0...v0.11.0) (2026-06-28)
+
+
+### Features
+
+* **shell:** collapsible nav groups with cookie persistence ([#44](https://github.com/anatolykoptev/go-panel/issues/44)) ([675770b](https://github.com/anatolykoptev/go-panel/commit/675770b449beb5f05aaed10ebaed2dc843f70fd1))
+* **shell:** mobile off-canvas drawer (pm7-borrowed overlay) ([#46](https://github.com/anatolykoptev/go-panel/issues/46)) ([7d48a9f](https://github.com/anatolykoptev/go-panel/commit/7d48a9fbd53b7271538008a154bf467feabd246b))
+* **shell:** one-level nested submenus via NavItem.Children ([#45](https://github.com/anatolykoptev/go-panel/issues/45)) ([56c8f58](https://github.com/anatolykoptev/go-panel/commit/56c8f58ed8345e78af4477d53439d1860157a2ce))
+
 ## [0.10.0](https://github.com/anatolykoptev/go-panel/compare/v0.9.0...v0.10.0) (2026-06-27)
 
 
