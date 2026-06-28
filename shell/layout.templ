@@ -160,7 +160,9 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 						</a>
 					</div>
 				</aside>
+				<div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
 				<main class="main">
+					<button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button>
 					<div id="content">
 						@content
 					</div>
