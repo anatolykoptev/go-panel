@@ -9,6 +9,7 @@
 			--text-primary:#e8edf5;
 			--text-secondary:#7b8ba8;
 			--text-muted:#4a5b78;
+			--text-label:#5d6f90;
 			--accent:#3b82f6;
 			--accent-glow:rgba(59,130,246,.15);
 			--accent-dim:#1e3a6e;
@@ -49,7 +50,7 @@
 		a:hover{opacity:.85}
 		.app{display:flex;min-height:100vh}
 		.main{flex:1;overflow-x:auto;background:var(--bg-base)}
-		.sidebar{width:220px;background:var(--bg-deep);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+		.sidebar{width:220px;background:var(--bg-deep);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;position:sticky;top:0;height:100vh;align-self:flex-start}
 		.sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;min-height:56px}
 		.sidebar-header h1{font-family:var(--font-mono);font-size:.8125rem;font-weight:600;color:var(--accent);letter-spacing:.02em;white-space:nowrap;overflow:hidden}
 		.sidebar-toggle{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.125rem;padding:.25rem;line-height:1;flex-shrink:0;transition:color .15s}
@@ -57,7 +58,7 @@
 		.sidebar-nav{flex:1;padding:.25rem 0;overflow-y:auto}
 		.sidebar-group{margin-top:.75rem}
 		/* button reset + existing visual styles; cursor:pointer for toggle affordance */
-		.sidebar-group-label{padding:.5rem 1.25rem .25rem;font-family:var(--font-mono);font-size:.5625rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;text-align:left;cursor:pointer}
+		.sidebar-group-label{padding:.5rem 1.25rem .25rem;font-family:var(--font-mono);font-size:.5625rem;font-weight:600;color:var(--text-label);text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;text-align:left;cursor:pointer}
 		/* ── Nav group collapse (click-to-collapse groups, pm7-borrowed transition) ──
 		   Caret rotate ported from pm7.css:4845-4848, re-namespaced.
 		   Collapse transition (max-height:0→1000px) ported from pm7.css:4849-4856, re-namespaced. */
@@ -224,4 +225,22 @@
 			.sidebar--open{transform:translateX(0)}
 			.sidebar-mobile-toggle{display:block}
 		}
+		/* ── Stat cards (StatCardView) ─────────────────────────────────────────
+		   Ported VERBATIM from oxpulse-admin internal/admin/templates/layout.html:58-62.
+		   .stat-grid is a layout helper; individual .stat-card tiles are rendered
+		   by components.StatCardView. */
+		.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem}
+		.stat-card{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem;transition:border-color .15s}
+		.stat-card:hover{border-color:var(--accent)}
+		.stat-label{font-family:var(--font-mono);font-size:.6875rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.375rem}
+		.stat-value{font-size:1.75rem;font-weight:700;color:var(--accent);font-family:var(--font-mono)}
+		/* ── Delta badges (GA4-style period-over-period) ───────────────────────
+		   Ported from oxpulse-admin layout.html:81-86; remapped to go-panel tokens.
+		   .delta-down uses var(--red-dim) instead of rgba(239,68,68,.15) so it
+		   tracks the existing --red-dim:#7f1d1d token rather than a hardcoded value. */
+		.delta{display:inline-block;margin-left:.4rem;font-family:var(--font-mono);font-size:.625rem;font-weight:600;padding:.125rem .4rem;border-radius:999px;vertical-align:middle}
+		.delta-up{color:var(--green);background:var(--green-dim)}
+		.delta-down{color:var(--red);background:var(--red-dim)}
+		.delta-new{color:var(--accent);background:var(--accent-glow)}
+		.delta-flat{color:var(--text-muted);background:var(--border-subtle)}
 	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1>T</h1><button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom">  <a class="sidebar-item" href="/admin/logout" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></a></div></aside><div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div><main class="main"><button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>
