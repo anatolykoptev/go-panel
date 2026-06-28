@@ -1,6 +1,6 @@
 # go-panel — developer quality gate. `make check` is the pre-merge contract.
 .RECIPEPREFIX = >
-.PHONY: check build vet test race lint vuln
+.PHONY: check build vet test race lint vuln gen
 
 # GOWORK=off — this repo must build standalone (krolik has a stray ~/go.work).
 export GOWORK = off
@@ -24,3 +24,8 @@ lint:
 
 vuln:
 > go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+# gen: regenerate all _templ.go files from their .templ sources.
+# Requires: go tool templ (tool directive in go.mod, resolved via go mod tidy).
+gen:
+> go tool templ generate ./...
