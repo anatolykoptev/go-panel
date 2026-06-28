@@ -55,10 +55,11 @@ type StatCard struct {
 //	    { c.Value }
 //	    <span class="delta delta-{trend}">{ c.Delta }</span>  ← only when Trend != TrendNone
 //	  </div>
+//	  @Sparkline(c.Spark)  ← only when len(c.Spark) > 0
 //	</div>
 //
-// CSS classes .stat-card / .stat-label / .stat-value / .delta / .delta-* are
-// defined in shell/styles.templ (ported from oxpulse-admin layout.html:58-86).
+// CSS classes .stat-card / .stat-label / .stat-value / .delta / .delta-* /
+// .sparkline / .sparkline-line / .sparkline-zero are defined in shell/styles.templ.
 templ StatCardView(c StatCard) {
 	<div class="stat-card">
 		<div class="stat-label">{ c.Label }</div>
@@ -68,5 +69,8 @@ templ StatCardView(c StatCard) {
 				<span class={ "delta", trendClass(c.Trend) }>{ c.Delta }</span>
 			}
 		</div>
+		if len(c.Spark) > 0 {
+			@Sparkline(c.Spark)
+		}
 	</div>
 }

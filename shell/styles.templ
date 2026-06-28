@@ -250,5 +250,12 @@ templ layoutStyles() {
 		.delta-down{color:var(--red);background:var(--red-dim)}
 		.delta-new{color:var(--accent);background:var(--accent-glow)}
 		.delta-flat{color:var(--text-muted);background:var(--border-subtle)}
+		/* ── Sparkline (components.Sparkline) ──────────────────────────────────
+		   Ported VERBATIM from oxpulse-admin internal/admin/templates/layout.html:131-133.
+		   Server-rendered inline SVG; no JS, no chart library, CSP/ТСПУ-safe.
+		   Stroke colours use existing tokens (var(--accent)/var(--border)). */
+		.sparkline{vertical-align:middle;display:inline-block}
+		.sparkline-line{stroke:var(--accent);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+		.sparkline-zero{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
 	</style>
 }
