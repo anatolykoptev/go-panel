@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, krolik]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
