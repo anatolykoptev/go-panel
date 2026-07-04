@@ -913,6 +913,15 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		}
 
 		if fragmentOnly || render.IsHTMX(req) {
+			// append=1 → Load-more mode: bare <tr> rows for a beforeend swap
+			// into the existing tbody + an OOB pagination replacement.
+			if q.Get("append") == "1" {
+				c := listRowsAppend(data)
+				if err := c.Render(ctx, w); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+				return
+			}
 			c := listRowsFragment(data)
 			if err := c.Render(ctx, w); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
