@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.3](https://github.com/anatolykoptev/go-panel/compare/v0.13.2...v0.13.3) (2026-07-05)
+
+
+### Bug Fixes
+
+* **resource:** first-click pagination + Load-more append mode ([#65](https://github.com/anatolykoptev/go-panel/issues/65)) ([b0092bb](https://github.com/anatolykoptev/go-panel/commit/b0092bb5764eb0fffa9bfb4b080522e96c287203))
+
 ## [0.13.2](https://github.com/anatolykoptev/go-panel/compare/v0.13.1...v0.13.2) (2026-06-28)
 
 
