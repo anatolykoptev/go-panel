@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# The krolik runner's $HOME carries a go.work that does not list CI checkouts;
+# without GOWORK=off every go command fails with "directory prefix . does not
+# contain modules listed in go.work".
+env:
+  GOWORK: "off"
+
 jobs:
   check:
     runs-on: [self-hosted, krolik]
@@ -18,8 +24,6 @@ jobs:
           go-version-file: go.mod
       - run: go build ./...
       - name: Verify templ codegen is fresh
-        env:
-          GOWORK: "off"
         run: |
           go tool templ generate ./...
           git diff --exit-code
