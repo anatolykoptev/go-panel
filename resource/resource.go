@@ -199,7 +199,7 @@ type Panel struct {
 	nav        []shell.NavItem
 	title      string
 	csrfKey    []byte
-	locales    locale.Set        // configured i18n locales; zero value = single-locale
+	locales    locale.Set          // configured i18n locales; zero value = single-locale
 	profileCfg shell.ProfileConfig // static defaults for the sidebar profile block
 }
 
@@ -532,7 +532,7 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 		layoutComp := shell.Layout(p.title, nav, content)
 		renderCtx := shell.ContextWithChrome(req.Context(), p.chromeStateFrom(req))
 		if err := layoutComp.Render(renderCtx, w); err != nil {
-			slog.Error("resource: render detail page", "resource", r.Name, "id", id, "err", err)
+			slog.Error("resource: render detail page", "resource", r.Name, "id", strconv.Quote(id), "err", err)
 			http.Error(w, "render failed", http.StatusInternalServerError)
 		}
 	}
@@ -913,19 +913,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		}
 
 		if fragmentOnly || render.IsHTMX(req) {
-			// append=1 → Load-more mode: bare <tr> rows for a beforeend swap
-			// into the existing tbody + an OOB pagination replacement.
-			if q.Get("append") == "1" {
-				c := listRowsAppend(data)
-				if err := c.Render(ctx, w); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-				}
-				return
-			}
-			c := listRowsFragment(data)
-			if err := c.Render(ctx, w); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
+			renderListFragment(ctx, w, data, q.Get("append") == "1")
 			return
 		}
 
@@ -938,6 +926,19 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 }
 
 // --- helpers ---
+
+// renderListFragment writes the htmx response for a list request: bare <tr>
+// rows for a Load-more beforeend swap (append mode, with an OOB pagination
+// replacement) or the full list-region fragment.
+func renderListFragment(ctx context.Context, w http.ResponseWriter, data listPageData, appendMode bool) {
+	c := listRowsFragment(data)
+	if appendMode {
+		c = listRowsAppend(data)
+	}
+	if err := c.Render(ctx, w); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
 
 func combineConds(a, b string) string {
 	a = strings.TrimSpace(a)

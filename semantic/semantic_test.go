@@ -95,7 +95,7 @@ func setupTables(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatalf("create tables: %v", err)
 	}
 	t.Cleanup(func() {
-		pool.Exec(context.Background(), `
+		_, _ = pool.Exec(context.Background(), `
 			DROP TABLE IF EXISTS sem_test_content_vectors;
 			DROP TABLE IF EXISTS sem_test_place_vectors;
 		`)
@@ -512,7 +512,7 @@ func TestHitModel_FromRow(t *testing.T) {
 		t.Fatalf("create table: %v", err)
 	}
 	t.Cleanup(func() {
-		pool.Exec(ctx, `DROP TABLE IF EXISTS sem_test_model_vectors`)
+		_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS sem_test_model_vectors`)
 	})
 
 	const storedModel = "bge-m3"

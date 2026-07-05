@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ var pagedResource = resource.Resource{
 		var rows []resource.Row
 		for i := q.Offset; i < total && i < q.Offset+q.Limit; i++ {
 			rows = append(rows, resource.Row{
-				ID:    fmt.Sprintf("%d", i),
+				ID:    strconv.Itoa(i),
 				Cells: []resource.Cell{{Value: fmt.Sprintf("row-%03d", i)}},
 			})
 		}
