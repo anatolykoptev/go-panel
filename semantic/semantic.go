@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -241,6 +242,12 @@ func (s *Store) querySource(ctx context.Context, src Source, vec []float32, k in
 		fallbackModel = "multilingual-e5-large"
 	}
 
+	return scanHits(rows, src, fallbackModel)
+}
+
+// scanHits reads all result rows for a Source into Hits, resolving kind and
+// model fallbacks per row.
+func scanHits(rows pgx.Rows, src Source, fallbackModel string) ([]Hit, error) {
 	var hits []Hit
 	for rows.Next() {
 		h := Hit{Source: src.Name}
@@ -428,7 +435,7 @@ func (s *Store) SemanticSearch(ctx context.Context, queryText string, k int, f F
 		return nil, fmt.Errorf("semantic: embed query: %w", err)
 	}
 	if len(vecs) == 0 || len(vecs[0]) == 0 {
-		return nil, fmt.Errorf("semantic: embedder returned empty vector")
+		return nil, errors.New("semantic: embedder returned empty vector")
 	}
 	return s.Search(ctx, vecs[0], k, f)
 }
