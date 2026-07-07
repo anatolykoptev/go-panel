@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mimeBoundaryRE matches the random per-message MIME boundary (boundaryBytes
@@ -187,7 +188,7 @@ func TestSendDeliversMessageContent(t *testing.T) {
 		t.Fatalf("RCPT TO = %v, want [alice@example.com]", c.rcptTo)
 	}
 	msg := string(c.data)
-	for _, want := range []string{"Subject: Sign in to piter.now", "text/plain", "text/html", "Click https://piter.now/x"} {
+	for _, want := range []string{"From: noreply@piter.now\r\n", "Subject: Sign in to piter.now", "text/plain", "text/html", "Click https://piter.now/x"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("message missing %q:\n%s", want, msg)
 		}
@@ -229,6 +230,10 @@ func TestSendWithReplyToRejectsHeaderInjection(t *testing.T) {
 // TestSendWithReplyToEmptyMatchesSend locks requirement 3's "empty replyTo ==
 // plain Send" equivalence: the two must produce byte-identical wire messages.
 func TestSendWithReplyToEmptyMatchesSend(t *testing.T) {
+	restore := nowFn
+	nowFn = func() time.Time { return time.Unix(1751900000, 0).UTC() }
+	defer func() { nowFn = restore }()
+
 	cSend := &fakeSMTPClient{hasSTARTTLS: true}
 	sSend := senderWith(cSend, false)
 	if err := sSend.Send(context.Background(), "a@b.com", "s", "<p>h</p>", "h"); err != nil {
@@ -241,9 +246,10 @@ func TestSendWithReplyToEmptyMatchesSend(t *testing.T) {
 		t.Fatalf("SendWithReplyTo(empty): %v", err)
 	}
 
-	// Normalize the random per-message MIME boundary before comparing — it is
-	// the only field expected to differ between two independent buildMessage
-	// calls with otherwise-identical arguments.
+	// Normalize the random 32-hex tokens (MIME boundary and Message-ID) before
+	// comparing — with the clock frozen above they are the only fields expected
+	// to differ between two independent buildMessage calls with otherwise-
+	// identical arguments.
 	normSend := mimeBoundaryRE.ReplaceAllString(string(cSend.data), "BOUNDARY")
 	normReplyTo := mimeBoundaryRE.ReplaceAllString(string(cReplyTo.data), "BOUNDARY")
 	if normSend != normReplyTo {
@@ -295,5 +301,108 @@ func TestDialSMTPPlaintextDialError(t *testing.T) {
 func TestDialSMTPImplicitTLSDialError(t *testing.T) {
 	if _, _, err := dialSMTP(SMTPConfig{Host: "127.0.0.1", Port: implicitTLSPort}); err == nil {
 		t.Fatal("dialSMTP(465) succeeded with no TLS server; want a connection error")
+	}
+}
+
+// TestSendUsesFromNameInHeaderOnly locks the FromName split: the From HEADER
+// carries the display-name form while the SMTP envelope (MAIL FROM) stays the
+// bare address — RFC 5321 accepts only an addr-spec there.
+func TestSendUsesFromNameInHeaderOnly(t *testing.T) {
+	c := &fakeSMTPClient{hasSTARTTLS: true}
+	s := senderWith(c, false)
+	s.cfg.From = "noreply@piter.now"
+	s.cfg.FromName = "piter.now"
+	if err := s.Send(context.Background(), "a@b.com", "s", "<p>h</p>", "h"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if c.mailFrom != "noreply@piter.now" {
+		t.Fatalf("MAIL FROM = %q, want the bare address", c.mailFrom)
+	}
+	if !strings.Contains(string(c.data), "From: \"piter.now\" <noreply@piter.now>\r\n") {
+		t.Fatalf("From header missing display-name form:\n%s", c.data)
+	}
+}
+
+// TestHeaderFromEncodesNonASCIIName locks RFC 2047 encoding of a Cyrillic
+// display name: raw UTF-8 must never reach the From header line.
+func TestHeaderFromEncodesNonASCIIName(t *testing.T) {
+	s := &SMTPSender{cfg: SMTPConfig{From: "noreply@piter.now", FromName: "Питер"}}
+	got := s.headerFrom()
+	if !strings.HasPrefix(got, "=?utf-8?") || !strings.HasSuffix(got, "<noreply@piter.now>") {
+		t.Fatalf("headerFrom() = %q, want RFC 2047-encoded name + bare addr", got)
+	}
+}
+
+// TestBuildMessageEncodesNonASCIISubject locks that a Cyrillic subject leaves
+// the header section as RFC 2047 encoded-words, never raw UTF-8.
+func TestBuildMessageEncodesNonASCIISubject(t *testing.T) {
+	msg, err := buildMessage("f@x.com", "t@y.com", "", "Заявка: Иван", "<p>h</p>", "h")
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	headers, _, _ := strings.Cut(string(msg), "\r\n\r\n")
+	if !strings.Contains(headers, "Subject: =?utf-8?q?") {
+		t.Fatalf("subject not RFC 2047-encoded:\n%s", headers)
+	}
+	if strings.Contains(headers, "Заявка") {
+		t.Fatalf("raw Cyrillic leaked into the header section:\n%s", headers)
+	}
+}
+
+// TestBuildMessageSubjectPassthrough locks the two no-op cases: pure-ASCII
+// subjects and ALREADY-encoded encoded-words (a caller that pre-encodes, as
+// go-grad's leadstore did before this landed upstream) pass through unchanged
+// — no double encoding.
+func TestBuildMessageSubjectPassthrough(t *testing.T) {
+	for _, subj := range []string{"Sign in to piter.now", "=?utf-8?q?=D0=97=D0=B0?="} {
+		msg, err := buildMessage("f@x.com", "t@y.com", "", subj, "<p>h</p>", "h")
+		if err != nil {
+			t.Fatalf("buildMessage(%q): %v", subj, err)
+		}
+		if !strings.Contains(string(msg), "Subject: "+subj+"\r\n") {
+			t.Errorf("subject %q did not pass through unchanged:\n%s", subj, msg)
+		}
+	}
+}
+
+// TestBuildMessageDateAndMessageID locks the two deliverability headers: a
+// parseable RFC 1123Z Date and a Message-ID scoped to the From domain.
+func TestBuildMessageDateAndMessageID(t *testing.T) {
+	restore := nowFn
+	nowFn = func() time.Time { return time.Unix(1751900000, 0).UTC() }
+	defer func() { nowFn = restore }()
+
+	msg, err := buildMessage("\"n\" <f@x.com>", "t@y.com", "", "s", "<p>h</p>", "h")
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	headers, _, _ := strings.Cut(string(msg), "\r\n\r\n")
+	dateVal := ""
+	for _, l := range strings.Split(headers, "\r\n") {
+		if v, ok := strings.CutPrefix(l, "Date: "); ok {
+			dateVal = v
+		}
+	}
+	if dateVal == "" {
+		t.Fatalf("no Date header:\n%s", headers)
+	}
+	if _, err := time.Parse(time.RFC1123Z, dateVal); err != nil {
+		t.Errorf("Date %q not RFC 1123Z: %v", dateVal, err)
+	}
+	if !regexp.MustCompile(`\r\nMessage-ID: <[0-9a-f]{32}@x\.com>\r\n`).Match(msg) {
+		t.Errorf("Message-ID missing or malformed:\n%s", headers)
+	}
+}
+
+// TestFromDomain locks the fallback ladder for the Message-ID domain.
+func TestFromDomain(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"f@x.com", "x.com"},
+		{"\"piter.now\" <noreply@send.piter.now>", "send.piter.now"},
+		{"not-an-address", "localhost"},
+	} {
+		if got := fromDomain(tc.in); got != tc.want {
+			t.Errorf("fromDomain(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
