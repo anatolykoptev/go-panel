@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/anatolykoptev/go-panel/compare/v0.13.3...v0.14.0) (2026-07-07)
+
+
+### Features
+
+* add Reply-To support to identity/email via extension interface ([#67](https://github.com/anatolykoptev/go-panel/issues/67)) ([357efee](https://github.com/anatolykoptev/go-panel/commit/357efee26d986229d87a690f08dfb6b4a56996b7))
+
 ## [0.13.3](https://github.com/anatolykoptev/go-panel/compare/v0.13.2...v0.13.3) (2026-07-05)
 
 
