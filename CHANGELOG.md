@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/anatolykoptev/go-panel/compare/v0.14.0...v0.15.0) (2026-07-07)
+
+
+### Features
+
+* **email:** From display name, encoded subjects, Date + Message-ID headers ([#69](https://github.com/anatolykoptev/go-panel/issues/69)) ([e87b7fb](https://github.com/anatolykoptev/go-panel/commit/e87b7fb594ee5ace40ba8e1d7cf1d6647549ca64))
+
 ## [0.14.0](https://github.com/anatolykoptev/go-panel/compare/v0.13.3...v0.14.0) (2026-07-07)
 
 
