@@ -8,10 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // implicitTLSPort is the SMTPS port: the transport is TLS from the first byte
@@ -32,6 +35,14 @@ type SMTPConfig struct {
 	Username string
 	Password string
 	From     string
+	// FromName is an optional display name for the From HEADER
+	// (`"piter.now" <noreply@send.piter.now>`). A bare-address From with no
+	// display name is a bulk-mail fingerprint for inbox classifiers; naming
+	// the sender is what keeps transactional mail out of the newsletter tab.
+	// Non-ASCII names are RFC 2047-encoded by net/mail. The SMTP envelope
+	// (MAIL FROM) always stays the bare From address (RFC 5321 addr-spec).
+	// Empty preserves the previous bare-address header.
+	FromName string
 }
 
 // smtpClient is the subset of *smtp.Client that Send drives. It is an interface
@@ -102,7 +113,7 @@ func (s *SMTPSender) Send(ctx context.Context, to, subject, htmlBody, textBody s
 // SendWithReplyTo is Send plus a Reply-To header (ReplyToSender). An empty
 // replyTo produces byte-identical output to Send.
 func (s *SMTPSender) SendWithReplyTo(_ context.Context, to, replyTo, subject, htmlBody, textBody string) error {
-	msg, err := buildMessage(s.cfg.From, to, replyTo, subject, htmlBody, textBody)
+	msg, err := buildMessage(s.headerFrom(), to, replyTo, subject, htmlBody, textBody)
 	if err != nil {
 		return err
 	}
@@ -153,12 +164,47 @@ func (s *SMTPSender) SendWithReplyTo(_ context.Context, to, replyTo, subject, ht
 
 const crlf = "\r\n"
 
+// nowFn stamps the Date header; a package var so tests can freeze the clock.
+var nowFn = time.Now
+
+// headerFrom renders the From header value: the bare configured address, or
+// an RFC 5322 display-name form when FromName is set (net/mail quotes and
+// RFC 2047-encodes the name as needed). The SMTP envelope keeps the bare
+// address either way -- see the c.Mail call in SendWithReplyTo.
+func (s *SMTPSender) headerFrom() string {
+	if s.cfg.FromName == "" {
+		return s.cfg.From
+	}
+	return (&mail.Address{Name: s.cfg.FromName, Address: s.cfg.From}).String()
+}
+
+// fromDomain extracts the From address domain for the Message-ID right-hand
+// side; from may be a bare address or a display-name form. Falls back to
+// "localhost" rather than failing the send over a cosmetic header part.
+func fromDomain(from string) string {
+	a, err := mail.ParseAddress(from)
+	if err != nil {
+		return "localhost"
+	}
+	if i := strings.LastIndex(a.Address, "@"); i >= 0 && i+1 < len(a.Address) {
+		return a.Address[i+1:]
+	}
+	return "localhost"
+}
+
 // boundaryBytes is the entropy of the MIME multipart boundary.
 const boundaryBytes = 16
 
 // buildMessage renders an RFC 5322 / MIME multipart/alternative message with a
 // plain-text and an HTML part. An empty replyTo omits the Reply-To header
-// entirely (byte-identical to the pre-Reply-To message shape).
+// entirely, so SendWithReplyTo("") stays byte-identical to Send.
+//
+// Deliverability hygiene: the Subject is RFC 2047 Q-encoded when it contains
+// non-ASCII (pure-ASCII subjects -- including already-encoded encoded-words --
+// pass through unchanged), and every message carries Date and Message-ID
+// headers. Raw UTF-8 in a header violates RFC 5322's 7-bit assumption, and a
+// missing Date/Message-ID is a standard spam-score line item; both push
+// otherwise-transactional mail into the newsletter/spam bucket.
 //
 // Header values are rejected if they contain CR or LF: interpolating an
 // attacker-controlled address/subject into a header line would otherwise allow
@@ -175,6 +221,10 @@ func buildMessage(from, to, replyTo, subject, htmlBody, textBody string) ([]byte
 		return nil, fmt.Errorf("identity/email: boundary: %w", err)
 	}
 	boundary := hex.EncodeToString(b)
+	id := make([]byte, boundaryBytes)
+	if _, err := rand.Read(id); err != nil {
+		return nil, fmt.Errorf("identity/email: message-id: %w", err)
+	}
 
 	var sb strings.Builder
 	sb.WriteString("From: " + from + crlf)
@@ -182,7 +232,9 @@ func buildMessage(from, to, replyTo, subject, htmlBody, textBody string) ([]byte
 	if replyTo != "" {
 		sb.WriteString("Reply-To: " + replyTo + crlf)
 	}
-	sb.WriteString("Subject: " + subject + crlf)
+	sb.WriteString("Subject: " + mime.QEncoding.Encode("utf-8", subject) + crlf)
+	sb.WriteString("Date: " + nowFn().Format(time.RFC1123Z) + crlf)
+	sb.WriteString("Message-ID: <" + hex.EncodeToString(id) + "@" + fromDomain(from) + ">" + crlf)
 	sb.WriteString("MIME-Version: 1.0" + crlf)
 	sb.WriteString("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"" + crlf + crlf)
 
