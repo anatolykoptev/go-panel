@@ -188,7 +188,7 @@ func TestSendDeliversMessageContent(t *testing.T) {
 		t.Fatalf("RCPT TO = %v, want [alice@example.com]", c.rcptTo)
 	}
 	msg := string(c.data)
-	for _, want := range []string{"Subject: Sign in to piter.now", "text/plain", "text/html", "Click https://piter.now/x"} {
+	for _, want := range []string{"From: noreply@piter.now\r\n", "Subject: Sign in to piter.now", "text/plain", "text/html", "Click https://piter.now/x"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("message missing %q:\n%s", want, msg)
 		}
