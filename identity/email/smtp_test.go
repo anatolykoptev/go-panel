@@ -7,9 +7,15 @@ import (
 	"io"
 	"net"
 	"net/smtp"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// mimeBoundaryRE matches the random per-message MIME boundary (boundaryBytes
+// hex-encoded), so tests can normalize it out before comparing two otherwise-
+// identical messages built in separate buildMessage calls.
+var mimeBoundaryRE = regexp.MustCompile(`[0-9a-f]{32}`)
 
 // fakeSMTPClient records the SMTP conversation so tests can assert ordering and
 // TLS enforcement without a real server.
@@ -185,6 +191,63 @@ func TestSendDeliversMessageContent(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("message missing %q:\n%s", want, msg)
 		}
+	}
+}
+
+// TestSendWithReplyToDeliversHeader locks requirement 3 end-to-end through
+// SMTPSender: SendWithReplyTo puts an exact "Reply-To: <addr>" line in the
+// wire message alongside the existing From/To/Subject.
+func TestSendWithReplyToDeliversHeader(t *testing.T) {
+	c := &fakeSMTPClient{hasSTARTTLS: true}
+	s := senderWith(c, false)
+	s.cfg.From = "noreply@piter.now"
+	err := s.SendWithReplyTo(context.Background(), "alice@example.com", "lead@example.com", "Sign in to piter.now",
+		`<p>Click <a href="https://piter.now/x">here</a></p>`, "Click https://piter.now/x")
+	if err != nil {
+		t.Fatalf("SendWithReplyTo: %v", err)
+	}
+	if !strings.Contains(string(c.data), "Reply-To: lead@example.com\r\n") {
+		t.Fatalf("message missing Reply-To header:\n%s", c.data)
+	}
+}
+
+// TestSendWithReplyToRejectsHeaderInjection locks requirement 3's CRLF guard on
+// the wire path (not just the internal buildMessage unit test): a malicious
+// replyTo must abort delivery, never reach c.Data().
+func TestSendWithReplyToRejectsHeaderInjection(t *testing.T) {
+	c := &fakeSMTPClient{hasSTARTTLS: true}
+	s := senderWith(c, false)
+	err := s.SendWithReplyTo(context.Background(), "a@b.com", "lead@example.com\r\nBcc: x@evil.com", "s", "<p>h</p>", "h")
+	if err == nil {
+		t.Fatal("SendWithReplyTo accepted a CR/LF replyTo value (header injection)")
+	}
+	if called(c, "Data") {
+		t.Fatal("SendWithReplyTo reached the SMTP conversation despite a rejected header")
+	}
+}
+
+// TestSendWithReplyToEmptyMatchesSend locks requirement 3's "empty replyTo ==
+// plain Send" equivalence: the two must produce byte-identical wire messages.
+func TestSendWithReplyToEmptyMatchesSend(t *testing.T) {
+	cSend := &fakeSMTPClient{hasSTARTTLS: true}
+	sSend := senderWith(cSend, false)
+	if err := sSend.Send(context.Background(), "a@b.com", "s", "<p>h</p>", "h"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	cReplyTo := &fakeSMTPClient{hasSTARTTLS: true}
+	sReplyTo := senderWith(cReplyTo, false)
+	if err := sReplyTo.SendWithReplyTo(context.Background(), "a@b.com", "", "s", "<p>h</p>", "h"); err != nil {
+		t.Fatalf("SendWithReplyTo(empty): %v", err)
+	}
+
+	// Normalize the random per-message MIME boundary before comparing — it is
+	// the only field expected to differ between two independent buildMessage
+	// calls with otherwise-identical arguments.
+	normSend := mimeBoundaryRE.ReplaceAllString(string(cSend.data), "BOUNDARY")
+	normReplyTo := mimeBoundaryRE.ReplaceAllString(string(cReplyTo.data), "BOUNDARY")
+	if normSend != normReplyTo {
+		t.Fatalf("SendWithReplyTo(empty) produced a different wire message than Send:\nSend: %s\nSendWithReplyTo: %s", cSend.data, cReplyTo.data)
 	}
 }
 
