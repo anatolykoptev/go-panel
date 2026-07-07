@@ -95,8 +95,14 @@ func tlsConfigFor(host string) *tls.Config {
 // Send composes a multipart/alternative message and delivers it over a TLS-
 // protected SMTP session. The context is accepted for interface symmetry;
 // net/smtp has no context-aware API.
-func (s *SMTPSender) Send(_ context.Context, to, subject, htmlBody, textBody string) error {
-	msg, err := buildMessage(s.cfg.From, to, subject, htmlBody, textBody)
+func (s *SMTPSender) Send(ctx context.Context, to, subject, htmlBody, textBody string) error {
+	return s.SendWithReplyTo(ctx, to, "", subject, htmlBody, textBody)
+}
+
+// SendWithReplyTo is Send plus a Reply-To header (ReplyToSender). An empty
+// replyTo produces byte-identical output to Send.
+func (s *SMTPSender) SendWithReplyTo(_ context.Context, to, replyTo, subject, htmlBody, textBody string) error {
+	msg, err := buildMessage(s.cfg.From, to, replyTo, subject, htmlBody, textBody)
 	if err != nil {
 		return err
 	}
@@ -151,14 +157,15 @@ const crlf = "\r\n"
 const boundaryBytes = 16
 
 // buildMessage renders an RFC 5322 / MIME multipart/alternative message with a
-// plain-text and an HTML part.
+// plain-text and an HTML part. An empty replyTo omits the Reply-To header
+// entirely (byte-identical to the pre-Reply-To message shape).
 //
 // Header values are rejected if they contain CR or LF: interpolating an
 // attacker-controlled address/subject into a header line would otherwise allow
 // header injection (RFC 5322 section 2.2). This is defense-in-depth behind
-// validEmail.
-func buildMessage(from, to, subject, htmlBody, textBody string) ([]byte, error) {
-	for _, h := range []string{from, to, subject} {
+// validEmail. replyTo goes through the same guard.
+func buildMessage(from, to, replyTo, subject, htmlBody, textBody string) ([]byte, error) {
+	for _, h := range []string{from, to, replyTo, subject} {
 		if strings.ContainsAny(h, "\r\n") {
 			return nil, errors.New("identity/email: header value contains CR/LF")
 		}
@@ -172,6 +179,9 @@ func buildMessage(from, to, subject, htmlBody, textBody string) ([]byte, error) 
 	var sb strings.Builder
 	sb.WriteString("From: " + from + crlf)
 	sb.WriteString("To: " + to + crlf)
+	if replyTo != "" {
+		sb.WriteString("Reply-To: " + replyTo + crlf)
+	}
 	sb.WriteString("Subject: " + subject + crlf)
 	sb.WriteString("MIME-Version: 1.0" + crlf)
 	sb.WriteString("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"" + crlf + crlf)
