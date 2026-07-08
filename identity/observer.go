@@ -31,6 +31,12 @@ const (
 	OutcomeBadRequest
 	// OutcomeError means an infrastructure failure occurred (store, session, email).
 	OutcomeError
+	// OutcomeLimiterError means the RateLimiter itself failed (e.g. Redis
+	// outage) — distinct from OutcomeRateLimited, which means the limiter
+	// answered and denied the attempt as over-quota. allowStart fails closed
+	// in both cases (denies the attempt either way), but conflating the two
+	// outcomes would make an infrastructure outage read as normal throttling.
+	OutcomeLimiterError
 )
 
 // Observer receives a single observation per completed auth operation.

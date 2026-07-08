@@ -227,6 +227,25 @@ func TestObserverMagicStartRateLimited(t *testing.T) {
 	h.obs.assertOne(t, identity.OpMagicStart, identity.OutcomeRateLimited)
 }
 
+// TestObserverMagicStartLimiterError verifies that a RateLimiter TRANSPORT
+// failure (e.g. Redis outage) emits (OpMagicStart, OutcomeLimiterError) — NOT
+// OutcomeRateLimited, which would misreport an infrastructure outage as
+// normal over-quota throttling.
+// Falsifiability: if allowStart collapsed a limiter error into the same
+// false it returns for a real deny, this test would observe
+// OutcomeRateLimited instead and fail.
+func TestObserverMagicStartLimiterError(t *testing.T) {
+	h := newObsHarness(t)
+	h.rl.allow = false
+	h.rl.err = errors.New("redis: connection refused")
+	rec := httptest.NewRecorder()
+	identity.MagicStartHandler(h.auth).ServeHTTP(rec, postJSON("/auth/magic/start", `{"email":"alice@example.com"}`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (no enumeration)", rec.Code)
+	}
+	h.obs.assertOne(t, identity.OpMagicStart, identity.OutcomeLimiterError)
+}
+
 // ---- MagicVerify outcomes --------------------------------------------------
 
 // TestObserverMagicVerifyOK verifies that a successful verification emits
