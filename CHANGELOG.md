@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.16.0](https://github.com/anatolykoptev/go-panel/compare/v0.15.0...v0.16.0) (2026-07-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* removed resource.Perms, resource.ReadAny, Resource.Perms, and Writer.WriteAny. Consumers setting Perms: resource.ReadAny should delete the line (no-op, behaviour unchanged); consumers relying on WriteAny=true for write access should set Resource.RequiredRole to the role they intended to require, or leave it empty for the previous "any authenticated operator" behaviour.
+
+### Bug Fixes
+
+* council-2026-07 findings — FieldDateTime + Validate hook, remove inert Perms, list-error hygiene, limiter outcome ([#71](https://github.com/anatolykoptev/go-panel/issues/71)) ([4ca0e1a](https://github.com/anatolykoptev/go-panel/commit/4ca0e1a7d550f33524a90016e892f15738854715))
+
 ## [0.15.0](https://github.com/anatolykoptev/go-panel/compare/v0.14.0...v0.15.0) (2026-07-07)
 
 
