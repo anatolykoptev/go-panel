@@ -238,6 +238,20 @@ templ formField(fld Field, value, errMsg, localeBadge string) {
 					aria-invalid="true"
 				}
 			/>
+		} else if fld.Kind == FieldDateTime {
+			<input
+				id={ "field-" + fld.Key }
+				name={ fld.Key }
+				type="datetime-local"
+				value={ value }
+				if fld.Required {
+					required
+				}
+				class="pm7-input"
+				if errMsg != "" {
+					aria-invalid="true"
+				}
+			/>
 		} else if fld.Kind == FieldTextarea {
 			<textarea
 				id={ "field-" + fld.Key }
