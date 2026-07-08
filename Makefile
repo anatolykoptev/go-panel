@@ -22,8 +22,10 @@ race:
 lint:
 > golangci-lint run
 
+# Pinned (not @latest) so a new govulncheck release can't silently change what
+# gates the merge — bump the pin deliberately.
 vuln:
-> go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+> go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
 # gen: regenerate all _templ.go files from their .templ sources.
 # Requires: go tool templ (tool directive in go.mod, resolved via go mod tidy).
