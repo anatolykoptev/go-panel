@@ -55,7 +55,7 @@ func (s *testAccountStore) GetByID(_ context.Context, id string) (*auth.Account,
 	return &cp, nil
 }
 
-func (s *testAccountStore) UpdateLastLogin(context.Context, string) error        { return nil }
+func (s *testAccountStore) UpdateLastLogin(context.Context, string) error           { return nil }
 func (s *testAccountStore) UpdatePasswordHash(_ context.Context, _, _ string) error { return nil }
 func (s *testAccountStore) CreateAccount(_ context.Context, _, _, _, _ string) (string, bool, error) {
 	return "", false, nil

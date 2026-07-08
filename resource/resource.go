@@ -927,7 +927,8 @@ func renderListFragment(ctx context.Context, w http.ResponseWriter, data listPag
 		c = listRowsAppend(data)
 	}
 	if err := c.Render(ctx, w); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("resource: render list fragment", "resource", data.Resource.Name, "err", err)
+		http.Error(w, "render failed", http.StatusInternalServerError)
 	}
 }
 

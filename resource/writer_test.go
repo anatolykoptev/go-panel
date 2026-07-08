@@ -840,8 +840,12 @@ func TestWriterRoutes_EditWithIDNew(t *testing.T) {
 type noSessionNameAuth struct{}
 
 func (noSessionNameAuth) Require(h http.HandlerFunc) http.HandlerFunc { return h }
-func (noSessionNameAuth) LoginHandler() http.Handler                  { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }
-func (noSessionNameAuth) LogoutHandler() http.Handler                 { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }
+func (noSessionNameAuth) LoginHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {})
+}
+func (noSessionNameAuth) LogoutHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {})
+}
 
 // writerResourceWithOptionsFunc builds a resource with a FieldSelect backed by OptionsFunc.
 func writerResourceWithOptionsFunc(
