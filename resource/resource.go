@@ -557,7 +557,7 @@ func withResolvedForm(r Resource, ctx context.Context, t tenant.Tenant) (Resourc
 
 // multiLocale reports whether more than one locale is configured.
 func (p *Panel) multiLocale() bool {
-	return len(p.locales.Available) > 1
+	return p.locales.Multi()
 }
 
 // activeLocale resolves the locale to edit from the request's ?locale= query,

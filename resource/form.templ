@@ -25,7 +25,7 @@ func (d formPageData) isEdit() bool {
 
 // multiLocale reports whether more than one locale is configured.
 func (d formPageData) multiLocale() bool {
-	return len(d.Locales.Available) > 1
+	return d.Locales.Multi()
 }
 
 // showLocaleSwitcher reports whether to render the per-locale switcher. Only on

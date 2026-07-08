@@ -76,6 +76,34 @@ func TestSetHasResolve(t *testing.T) {
 	}
 }
 
+// TestSetMulti verifies Multi reports whether more than one locale is
+// configured — the single predicate resource.Panel.multiLocale and
+// formPageData.multiLocale both delegate to (dedup of the two identical
+// len(Available)>1 checks).
+func TestSetMulti(t *testing.T) {
+	t.Run("single locale", func(t *testing.T) {
+		s, err := NewSet("en", "en")
+		if err != nil {
+			t.Fatalf("NewSet: %v", err)
+		}
+		if s.Multi() {
+			t.Error("single-locale Set must report Multi()==false")
+		}
+	})
+	t.Run("multi locale", func(t *testing.T) {
+		s := mustSet(t) // en + es
+		if !s.Multi() {
+			t.Error("two-locale Set must report Multi()==true")
+		}
+	})
+	t.Run("zero value", func(t *testing.T) {
+		var s Set
+		if s.Multi() {
+			t.Error("zero-value Set must report Multi()==false")
+		}
+	})
+}
+
 func TestContextRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	if From(ctx) != "" {
