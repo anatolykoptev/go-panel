@@ -117,7 +117,6 @@ resource.Register(p, resource.Resource{
         {Key: "q",      SQLExpr: "p.name",   Match: admintable.ILike},
     }},
     Scope: tenant.Scope{Column: "p.city_slug"},
-    Perms: resource.ReadAny,
     // Optional: live count pill on the nav item, TTL-bounded.
     Badge: shell.CachedBadge(30*time.Second, func(ctx context.Context) string {
         return strconv.Itoa(store.CountPlaces(ctx))

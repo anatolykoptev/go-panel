@@ -46,7 +46,6 @@ var testResource = resource.Resource{
 		{Key: "status", SQLExpr: "i.status", Match: admintable.Eq, Allowed: []string{"active", "inactive"}},
 	}},
 	Scope: tenant.Scope{Column: "i.city_slug"},
-	Perms: resource.ReadAny,
 	Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
 		return []resource.Row{
 			{ID: "1", Cells: []resource.Cell{{Value: "Alpha"}, {Value: "2024-01-01"}}, Href: "/admin/items/1"},
@@ -180,7 +179,6 @@ func TestListPage_TenantScopeApplied(t *testing.T) {
 		},
 		Filter: admintable.FilterSpec{},
 		Scope:  tenant.Scope{Column: "t.city_slug"},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
 			gotConds = q.WhereConds
 			return nil, 0, nil
@@ -235,7 +233,6 @@ func TestPaginationPreservesFilterParams(t *testing.T) {
 			{Key: "status", SQLExpr: "o.status", Match: admintable.Eq, Allowed: []string{"active", "inactive"}},
 		}},
 		Scope: tenant.Scope{},
-		Perms: resource.ReadAny,
 		// Lister returns 2 pages worth of rows (total=100, default pageSize=50)
 		// so that the pagination widget renders a Next link.
 		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
@@ -302,7 +299,6 @@ func TestResourceBadgeWiredToNavItem(t *testing.T) {
 			DefaultDir: admintable.Asc,
 		},
 		Filter: admintable.FilterSpec{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
 			return nil, 0, nil
 		},

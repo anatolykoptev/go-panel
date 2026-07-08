@@ -108,17 +108,6 @@ type ListQuery struct {
 	Offset     int
 }
 
-// Perms declares who may read or write this resource.
-// Foundations: ReadAny means any authenticated session can read.
-// Write perms are relevant only from Phase 2 (form/edit).
-type Perms struct {
-	// ReadAny allows any authenticated operator to read. Default.
-	ReadAny bool
-}
-
-// ReadAny is the foundations default: any authenticated operator can read.
-var ReadAny = Perms{ReadAny: true}
-
 // Resource is the declarative contract for one admin entity.
 // Declare once, get list + (later) detail + edit + MCP for free.
 //
@@ -133,13 +122,13 @@ type Resource struct {
 	Sort   admintable.Spec
 	Filter admintable.FilterSpec
 	Scope  tenant.Scope // city_slug scope; empty = global
-	Perms  Perms
 
-	// RequiredRole gates every route of this resource behind the named role:
-	// only a session whose role equals RequiredRole (or the "owner" super-role)
-	// may reach the list, detail, and form routes; everyone else gets 403.
-	// Empty (default) = no role gate: any authenticated operator may access,
-	// preserving the foundational behaviour.
+	// RequiredRole is the SOLE authorization lever for this resource, applied
+	// uniformly to every route — read (list, detail) AND write (new/edit/save).
+	// Only a session whose role equals RequiredRole (or the "owner" super-role)
+	// may reach any of them; everyone else gets 403. Empty (default) = no role
+	// gate: any authenticated operator may read and write, preserving the
+	// foundational behaviour.
 	//
 	// A non-empty RequiredRole requires the configured authenticator to
 	// implement RoleAuthenticator; Register panics at startup otherwise

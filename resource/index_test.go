@@ -39,7 +39,6 @@ func minimalResource(name string) resource.Resource {
 			DefaultDir: admintable.Asc,
 		},
 		Filter: admintable.FilterSpec{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
 			return nil, 0, nil
 		},

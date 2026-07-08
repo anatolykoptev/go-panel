@@ -70,9 +70,8 @@ func writerResource(loadFn func(context.Context, tenant.Tenant, string) (map[str
 				{Key: "note", Label: "Note", Kind: resource.FieldJSON},
 			},
 		},
-		Load:     loadFn,
-		Save:     saveFn,
-		WriteAny: true,
+		Load: loadFn,
+		Save: saveFn,
 	}
 	return r
 }
@@ -509,8 +508,7 @@ func writerResourceWithDate(
 		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
 			return map[string]string{}, nil
 		},
-		Save:     saveFn,
-		WriteAny: true,
+		Save: saveFn,
 	}
 	return r
 }
@@ -861,8 +859,7 @@ func writerResourceWithOptionsFunc(
 		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
 			return map[string]string{}, nil
 		},
-		Save:     saveFn,
-		WriteAny: true,
+		Save: saveFn,
 	}
 	return r
 }

@@ -93,7 +93,6 @@ func main() {
 			{Key: "q", SQLExprs: []string{"p.name"}, Match: admintable.ILike},
 		}},
 		Scope:  tenant.Scope{Column: "p.city_slug"},
-		Perms:  resource.ReadAny,
 		Lister: placesLister,
 	}
 

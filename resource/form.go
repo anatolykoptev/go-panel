@@ -184,8 +184,6 @@ type Writer struct {
 	// out the shared columns it never received. Create (id=="") and Default-locale
 	// saves always carry the full field set.
 	Save func(ctx context.Context, t tenant.Tenant, id string, values map[string]string) error
-	// WriteAny allows any authenticated operator to write.
-	WriteAny bool
 }
 
 // formErrors holds per-field validation errors.

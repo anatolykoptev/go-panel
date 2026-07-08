@@ -28,7 +28,6 @@ var pagedResource = resource.Resource{
 		DefaultKey: "name",
 		DefaultDir: admintable.Asc,
 	},
-	Perms: resource.ReadAny,
 	Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
 		const total = 120
 		var rows []resource.Row
