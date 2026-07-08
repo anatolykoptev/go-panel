@@ -2,6 +2,7 @@ package resource_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -128,6 +129,48 @@ func TestListPage_RendersWithRows(t *testing.T) {
 	}
 	if !strings.Contains(body2, "Items") {
 		t.Errorf("expected title 'Items' in response")
+	}
+}
+
+// TestListPage_ListerErrorDoesNotLeakDetails verifies that a Lister failure
+// (e.g. a raw pgx/SQL error) produces a generic 500 body — the underlying
+// error text must never reach the HTTP response.
+func TestListPage_ListerErrorDoesNotLeakDetails(t *testing.T) {
+	p := newTestPanel()
+	leaky := testResource
+	sensitive := "pq: relation \"items\" does not exist (connection to db-primary.internal:5432)"
+	leaky.Lister = func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
+		return nil, 0, errors.New(sensitive)
+	}
+	resource.Register(p, leaky)
+
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath: "/admin",
+		Secure:   false,
+	})
+	body := strings.NewReader("username=admin&password=secret")
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/login", body)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginW := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(loginW, loginReq)
+	cookieVal := extractCookieValue(loginW.Header().Get("Set-Cookie"), "panel_admin")
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), sensitive) {
+		t.Errorf("response body leaked the raw Lister error: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "db-primary.internal") {
+		t.Errorf("response body leaked infrastructure details: %s", w.Body.String())
 	}
 }
 

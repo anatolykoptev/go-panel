@@ -883,7 +883,8 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 
 		rows, total, err := r.Lister(ctx, lq)
 		if err != nil {
-			http.Error(w, "list failed: "+err.Error(), http.StatusInternalServerError)
+			slog.Error("resource: list failed", "resource", r.Name, "err", err)
+			http.Error(w, "list failed", http.StatusInternalServerError)
 			return
 		}
 
@@ -909,7 +910,8 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		content := listPageContent(data)
 		layoutComp := shell.Layout(p.title, nav, content)
 		if err := layoutComp.Render(shell.ContextWithChrome(ctx, p.chromeStateFrom(req)), w); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			slog.Error("resource: render list page", "resource", r.Name, "err", err)
+			http.Error(w, "render failed", http.StatusInternalServerError)
 		}
 	}
 }
