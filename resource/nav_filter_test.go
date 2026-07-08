@@ -55,7 +55,7 @@ func (s *testAccountStore) GetByID(_ context.Context, id string) (*auth.Account,
 	return &cp, nil
 }
 
-func (s *testAccountStore) UpdateLastLogin(context.Context, string) error        { return nil }
+func (s *testAccountStore) UpdateLastLogin(context.Context, string) error           { return nil }
 func (s *testAccountStore) UpdatePasswordHash(_ context.Context, _, _ string) error { return nil }
 func (s *testAccountStore) CreateAccount(_ context.Context, _, _, _, _ string) (string, bool, error) {
 	return "", false, nil
@@ -130,7 +130,6 @@ func openResource(name string) resource.Resource {
 		},
 		Filter: admintable.FilterSpec{},
 		Scope:  tenant.Scope{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
 			return nil, 0, nil
 		},

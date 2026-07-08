@@ -52,8 +52,12 @@ func MagicStartHandler(a *PublicAuthenticator) http.Handler {
 			a.cfg.Observer.Observe(OpMagicStart, OutcomeBadRequest, time.Since(start))
 			return
 		}
-		if !a.allowStart(ctx, emailAddr, a.cfg.ClientIP(r)) {
-			a.cfg.Observer.Observe(OpMagicStart, OutcomeRateLimited, time.Since(start))
+		if allowed, limiterErr := a.allowStart(ctx, emailAddr, a.cfg.ClientIP(r)); !allowed {
+			outcome := OutcomeRateLimited
+			if limiterErr != nil {
+				outcome = OutcomeLimiterError
+			}
+			a.cfg.Observer.Observe(OpMagicStart, outcome, time.Since(start))
 			return
 		}
 		token, err := a.magic.Start(ctx, emailAddr)
@@ -257,19 +261,23 @@ func validEmail(s string) bool {
 }
 
 // allowStart fails closed: a limiter error denies the attempt rather than
-// risking unmetered abuse.
-func (a *PublicAuthenticator) allowStart(ctx context.Context, emailAddr, ip string) bool {
+// risking unmetered abuse. The returned error identifies a limiter
+// TRANSPORT failure (e.g. Redis outage) as distinct from a normal
+// over-quota deny — callers must not record a transport failure as
+// OutcomeRateLimited, or an infrastructure outage silently reads as
+// throttling in metrics.
+func (a *PublicAuthenticator) allowStart(ctx context.Context, emailAddr, ip string) (allowed bool, limiterErr error) {
 	okEmail, err := a.cfg.RateLimiter.Allow(ctx, rlEmailPrefix+emailAddr, a.cfg.EmailRate.Limit, a.cfg.EmailRate.Window)
 	if err != nil {
 		a.log.ErrorContext(ctx, "identity: email rate-limit error", slog.String("err", err.Error()))
-		return false
+		return false, err
 	}
 	okIP, err := a.cfg.RateLimiter.Allow(ctx, rlIPPrefix+ip, a.cfg.IPRate.Limit, a.cfg.IPRate.Window)
 	if err != nil {
 		a.log.ErrorContext(ctx, "identity: ip rate-limit error", slog.String("err", err.Error()))
-		return false
+		return false, err
 	}
-	return okEmail && okIP
+	return okEmail && okIP, nil
 }
 
 func (a *PublicAuthenticator) magicLink(token, returnTo string) string {

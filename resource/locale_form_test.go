@@ -61,9 +61,8 @@ func localeWriterResource(
 				{Key: "body", Label: "Body", Kind: resource.FieldTextarea, Translatable: true},
 			},
 		},
-		Load:     loadFn,
-		Save:     saveFn,
-		WriteAny: true,
+		Load: loadFn,
+		Save: saveFn,
 	}
 	return r
 }

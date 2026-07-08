@@ -23,7 +23,6 @@ func minResource(name string) resource.Resource {
 		},
 		Filter: admintable.FilterSpec{},
 		Scope:  tenant.Scope{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
 			return nil, 0, nil
 		},

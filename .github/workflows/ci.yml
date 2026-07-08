@@ -33,4 +33,9 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.11.4
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      # Dependency-CVE gate. Pinned (not @latest, see Makefile `vuln` target)
+      # so a new govulncheck release can't silently change what gates the
+      # merge, and named so a CVE finding shows up as its own red step
+      # instead of a generic "ci" failure.
+      - name: govulncheck (CVE gate)
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...

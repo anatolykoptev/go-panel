@@ -2,6 +2,7 @@ package resource_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,7 +47,6 @@ var testResource = resource.Resource{
 		{Key: "status", SQLExpr: "i.status", Match: admintable.Eq, Allowed: []string{"active", "inactive"}},
 	}},
 	Scope: tenant.Scope{Column: "i.city_slug"},
-	Perms: resource.ReadAny,
 	Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
 		return []resource.Row{
 			{ID: "1", Cells: []resource.Cell{{Value: "Alpha"}, {Value: "2024-01-01"}}, Href: "/admin/items/1"},
@@ -132,6 +132,48 @@ func TestListPage_RendersWithRows(t *testing.T) {
 	}
 }
 
+// TestListPage_ListerErrorDoesNotLeakDetails verifies that a Lister failure
+// (e.g. a raw pgx/SQL error) produces a generic 500 body — the underlying
+// error text must never reach the HTTP response.
+func TestListPage_ListerErrorDoesNotLeakDetails(t *testing.T) {
+	p := newTestPanel()
+	leaky := testResource
+	sensitive := "pq: relation \"items\" does not exist (connection to db-primary.internal:5432)"
+	leaky.Lister = func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
+		return nil, 0, errors.New(sensitive)
+	}
+	resource.Register(p, leaky)
+
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath: "/admin",
+		Secure:   false,
+	})
+	body := strings.NewReader("username=admin&password=secret")
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/login", body)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginW := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(loginW, loginReq)
+	cookieVal := extractCookieValue(loginW.Header().Get("Set-Cookie"), "panel_admin")
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), sensitive) {
+		t.Errorf("response body leaked the raw Lister error: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "db-primary.internal") {
+		t.Errorf("response body leaked infrastructure details: %s", w.Body.String())
+	}
+}
+
 func TestListPage_HTMXReturnsFragment(t *testing.T) {
 	p := newTestPanel()
 	resource.Register(p, testResource)
@@ -180,7 +222,6 @@ func TestListPage_TenantScopeApplied(t *testing.T) {
 		},
 		Filter: admintable.FilterSpec{},
 		Scope:  tenant.Scope{Column: "t.city_slug"},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
 			gotConds = q.WhereConds
 			return nil, 0, nil
@@ -235,7 +276,6 @@ func TestPaginationPreservesFilterParams(t *testing.T) {
 			{Key: "status", SQLExpr: "o.status", Match: admintable.Eq, Allowed: []string{"active", "inactive"}},
 		}},
 		Scope: tenant.Scope{},
-		Perms: resource.ReadAny,
 		// Lister returns 2 pages worth of rows (total=100, default pageSize=50)
 		// so that the pagination widget renders a Next link.
 		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
@@ -302,7 +342,6 @@ func TestResourceBadgeWiredToNavItem(t *testing.T) {
 			DefaultDir: admintable.Asc,
 		},
 		Filter: admintable.FilterSpec{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
 			return nil, 0, nil
 		},

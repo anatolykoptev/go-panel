@@ -112,11 +112,15 @@ func New(cfg Config) (*PublicAuthenticator, error) {
 		return nil, fmt.Errorf("identity: provider %q does not implement MagicProvider", name)
 	}
 
+	observerUnset := cfg.Observer == nil
 	cfg = applyDefaults(cfg)
 
 	log := cfg.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+	if observerUnset {
+		log.Warn("identity: Config.Observer not set — auth metrics disabled")
 	}
 	return &PublicAuthenticator{cfg: cfg, magic: magic, log: log}, nil
 }

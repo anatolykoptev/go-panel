@@ -70,9 +70,8 @@ func writerResource(loadFn func(context.Context, tenant.Tenant, string) (map[str
 				{Key: "note", Label: "Note", Kind: resource.FieldJSON},
 			},
 		},
-		Load:     loadFn,
-		Save:     saveFn,
-		WriteAny: true,
+		Load: loadFn,
+		Save: saveFn,
 	}
 	return r
 }
@@ -509,8 +508,7 @@ func writerResourceWithDate(
 		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
 			return map[string]string{}, nil
 		},
-		Save:     saveFn,
-		WriteAny: true,
+		Save: saveFn,
 	}
 	return r
 }
@@ -578,6 +576,192 @@ func TestWriterRoutes_FieldDateValid(t *testing.T) {
 	}
 	if saveCount != 1 {
 		t.Errorf("Save must be called exactly once for valid date, called %d times", saveCount)
+	}
+}
+
+// writerResourceWithDateTime builds a test resource with a FieldDateTime field.
+func writerResourceWithDateTime(
+	saveFn func(context.Context, tenant.Tenant, string, map[string]string) error,
+) resource.Resource {
+	r := testResource
+	r.Writer = &resource.Writer{
+		Form: resource.FormSpec{
+			Fields: []resource.Field{
+				{Key: "name", Label: "Name", Kind: resource.FieldText, Required: true},
+				{Key: "starts", Label: "Starts At", Kind: resource.FieldDateTime},
+			},
+		},
+		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		Save: saveFn,
+	}
+	return r
+}
+
+// postWriterForm posts form values against a registered writer resource and
+// returns the recorded response.
+func postWriterForm(t *testing.T, p *resource.Panel, cookieVal string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	form.Set("_csrf", csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+	return w
+}
+
+// TestWriterRoutes_FieldDateTimeInvalid verifies that a malformed datetime-local
+// value returns 422 and Save is not called.
+func TestWriterRoutes_FieldDateTimeInvalid(t *testing.T) {
+	saveCount := 0
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithDateTime(
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	w := postWriterForm(t, p, cookieVal, url.Values{"name": {"Test"}, "starts": {"not-a-datetime"}})
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid datetime, got %d", w.Code)
+	}
+	if saveCount != 0 {
+		t.Errorf("Save must not be called on invalid datetime, called %d times", saveCount)
+	}
+}
+
+// TestWriterRoutes_FieldDateTimeValid_TFormat verifies the browser
+// datetime-local submission format ("2006-01-02T15:04") passes validation.
+func TestWriterRoutes_FieldDateTimeValid_TFormat(t *testing.T) {
+	saveCount := 0
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithDateTime(
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	w := postWriterForm(t, p, cookieVal, url.Values{"name": {"Test"}, "starts": {"2025-12-31T18:30"}})
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("expected 303 redirect for valid T-format datetime, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if saveCount != 1 {
+		t.Errorf("Save must be called exactly once, called %d times", saveCount)
+	}
+}
+
+// TestWriterRoutes_FieldDateTimeValid_SpaceFormat verifies the human-typed
+// space-separated form ("2006-01-02 15:04") also passes validation.
+func TestWriterRoutes_FieldDateTimeValid_SpaceFormat(t *testing.T) {
+	saveCount := 0
+	p := newWriterPanel()
+	resource.Register(p, writerResourceWithDateTime(
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	w := postWriterForm(t, p, cookieVal, url.Values{"name": {"Test"}, "starts": {"2025-12-31 18:30"}})
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("expected 303 redirect for valid space-format datetime, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if saveCount != 1 {
+		t.Errorf("Save must be called exactly once, called %d times", saveCount)
+	}
+}
+
+// TestWriterRoutes_ValidateHookRejectsText verifies the per-field Validate hook
+// runs for FieldText — previously a validation-free escape hatch — and blocks
+// Save when it returns a non-empty message.
+func TestWriterRoutes_ValidateHookRejectsText(t *testing.T) {
+	saveCount := 0
+	p := newWriterPanel()
+	r := testResource
+	r.Writer = &resource.Writer{
+		Form: resource.FormSpec{
+			Fields: []resource.Field{
+				{
+					Key: "code", Label: "Code", Kind: resource.FieldText, Required: true,
+					Validate: func(val string) string {
+						if val != strings.ToUpper(val) {
+							return "Code must be upper-case"
+						}
+						return ""
+					},
+				},
+			},
+		},
+		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		Save: func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	w := postWriterForm(t, p, cookieVal, url.Values{"code": {"lower"}})
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for Validate-hook rejection, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if saveCount != 0 {
+		t.Errorf("Save must not be called when Validate hook rejects, called %d times", saveCount)
+	}
+}
+
+// TestWriterRoutes_ValidateHookAllowsPass verifies a passing Validate hook
+// (empty return) lets a valid submission through to Save.
+func TestWriterRoutes_ValidateHookAllowsPass(t *testing.T) {
+	saveCount := 0
+	p := newWriterPanel()
+	r := testResource
+	r.Writer = &resource.Writer{
+		Form: resource.FormSpec{
+			Fields: []resource.Field{
+				{
+					Key: "code", Label: "Code", Kind: resource.FieldText, Required: true,
+					Validate: func(val string) string {
+						if val != strings.ToUpper(val) {
+							return "Code must be upper-case"
+						}
+						return ""
+					},
+				},
+			},
+		},
+		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		Save: func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			saveCount++
+			return nil
+		},
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	w := postWriterForm(t, p, cookieVal, url.Values{"code": {"UPPER"}})
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("expected 303 redirect, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if saveCount != 1 {
+		t.Errorf("Save must be called exactly once, called %d times", saveCount)
 	}
 }
 
@@ -656,8 +840,12 @@ func TestWriterRoutes_EditWithIDNew(t *testing.T) {
 type noSessionNameAuth struct{}
 
 func (noSessionNameAuth) Require(h http.HandlerFunc) http.HandlerFunc { return h }
-func (noSessionNameAuth) LoginHandler() http.Handler                  { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }
-func (noSessionNameAuth) LogoutHandler() http.Handler                 { return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}) }
+func (noSessionNameAuth) LoginHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {})
+}
+func (noSessionNameAuth) LogoutHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {})
+}
 
 // writerResourceWithOptionsFunc builds a resource with a FieldSelect backed by OptionsFunc.
 func writerResourceWithOptionsFunc(
@@ -675,8 +863,7 @@ func writerResourceWithOptionsFunc(
 		Load: func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
 			return map[string]string{}, nil
 		},
-		Save:     saveFn,
-		WriteAny: true,
+		Save: saveFn,
 	}
 	return r
 }

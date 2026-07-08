@@ -24,7 +24,6 @@ func detailerResource(name string, detailer func(context.Context, *http.Request,
 			DefaultDir: admintable.Asc,
 		},
 		Filter: admintable.FilterSpec{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
 			return []resource.Row{{ID: "1", Cells: []resource.Cell{{Value: "first"}}}}, 1, nil
 		},
@@ -386,7 +385,6 @@ func TestDetailer_WriterAndDetailerCoexist(t *testing.T) {
 			DefaultDir: admintable.Asc,
 		},
 		Filter: admintable.FilterSpec{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
 			return nil, 0, nil
 		},
@@ -406,7 +404,6 @@ func TestDetailer_WriterAndDetailerCoexist(t *testing.T) {
 			Save: func(_ context.Context, _ tenant.Tenant, id string, vals map[string]string) error {
 				return nil
 			},
-			WriteAny: true,
 		},
 	}
 
@@ -544,7 +541,6 @@ func TestColWidthAlignInListHeader(t *testing.T) {
 			DefaultDir: admintable.Asc,
 		},
 		Filter: admintable.FilterSpec{},
-		Perms:  resource.ReadAny,
 		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) { return nil, 0, nil },
 	}
 	resource.Register(p, res)
