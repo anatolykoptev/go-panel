@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/anatolykoptev/go-panel/compare/v0.17.0...v0.18.0) (2026-07-10)
+
+
+### Features
+
+* **resource:** MountPage for custom auth-wrapped admin pages ([#77](https://github.com/anatolykoptev/go-panel/issues/77)) ([a8ab1aa](https://github.com/anatolykoptev/go-panel/commit/a8ab1aa59c982957df30953c45dff90546e0421a))
+
 ## [0.17.0](https://github.com/anatolykoptev/go-panel/compare/v0.16.0...v0.17.0) (2026-07-10)
 
 
