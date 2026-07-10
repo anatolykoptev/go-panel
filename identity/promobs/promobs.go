@@ -25,13 +25,20 @@ const (
 	opSessionRecheck = "session_recheck"
 	opBcryptLogin    = "bcrypt_login"
 
-	outcomeOK                 = "ok"
-	outcomeRateLimited        = "rate_limited"
-	outcomeInvalidToken       = "invalid_token"
-	outcomeBadRequest         = "bad_request"
-	outcomeError              = "error"
-	outcomeInvalidCredentials = "invalid_credentials"
+	outcomeOK           = "ok"
+	outcomeRateLimited  = "rate_limited"
+	outcomeInvalidToken = "invalid_token"
+	outcomeBadRequest   = "bad_request"
+	outcomeError        = "error"
+	// outcomeInvalidCredentials is a Prometheus metric label value (not a
+	// credential) — the linter's secret heuristic matches the const NAME.
+	outcomeInvalidCredentials = "invalid_credentials" //nolint:gosec // G101 false positive: Prometheus metric label value, not a credential
 	outcomeLimiterError       = "limiter_error"
+
+	// labelUnknown is the fallback label value for an Op/Outcome the mapping
+	// functions below don't recognize (e.g. a future enum value observed by
+	// an older build). Shared by all four opLabel/outcomeLabel default branches.
+	labelUnknown = "unknown"
 )
 
 // Observer is the Prometheus-backed identity.Observer. It satisfies
@@ -81,7 +88,7 @@ func opLabel(op identity.Op) string {
 	case identity.OpLinkDevice:
 		return opLinkDevice
 	default:
-		return "unknown"
+		return labelUnknown
 	}
 }
 
@@ -98,7 +105,7 @@ func outcomeLabel(outcome identity.Outcome) string {
 	case identity.OutcomeError:
 		return outcomeError
 	default:
-		return "unknown"
+		return labelUnknown
 	}
 }
 
@@ -134,7 +141,7 @@ func authOpLabel(op auth.Op) string {
 	case auth.OpBcryptLogin:
 		return opBcryptLogin
 	default:
-		return "unknown"
+		return labelUnknown
 	}
 }
 
@@ -151,6 +158,6 @@ func authOutcomeLabel(outcome auth.Outcome) string {
 	case auth.OutcomeLimiterError:
 		return outcomeLimiterError
 	default:
-		return "unknown"
+		return labelUnknown
 	}
 }
