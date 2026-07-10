@@ -27,8 +27,15 @@ type Outcome uint8
 const (
 	// OutcomeOK means the operation completed successfully.
 	OutcomeOK Outcome = iota + 1
-	// OutcomeInvalidCredentials means a login attempt failed (unknown email,
-	// wrong password) or a session failed its live revocation check.
+	// OutcomeInvalidCredentials means a login attempt or a session's live
+	// revocation check was denied for a reason the caller controls (unknown
+	// email, wrong password, a revoked/deactivated account, role drift) — as
+	// opposed to an infrastructure failure (OutcomeError). Reserved: this
+	// phase does not emit it anywhere yet. liveSession's revocation-deny
+	// branches (ErrAccountNotFound, !Active, role change) return nil without
+	// observing, and LoginHandler is not yet instrumented — wiring both is
+	// Phase 2 (auth-outcome instrumentation) scope. Only OpSessionRecheck /
+	// OutcomeError (the transient-store-error degrade) is emitted today.
 	OutcomeInvalidCredentials
 	// OutcomeError means an infrastructure failure occurred (e.g. the
 	// AccountStore returned a transient, non-not-found error).

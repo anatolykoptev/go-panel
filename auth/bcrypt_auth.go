@@ -23,15 +23,15 @@ import (
 // rate-limiting are planned and not yet wired; the type name reflects the target
 // shape. Ported in design from oxpulse-admin/internal/admin/auth.go.
 type BcryptTOTPAuth struct {
-	store                 AccountStore
-	hmacKey               []byte
-	basePath              string
-	cookieName            string
-	sessionTTL            time.Duration
-	secure                bool
-	loginTempl            func(errMsg string) http.Handler
-	observer              Observer
-	revocationFailClosed  bool
+	store                AccountStore
+	hmacKey              []byte
+	basePath             string
+	cookieName           string
+	sessionTTL           time.Duration
+	secure               bool
+	loginTempl           func(errMsg string) http.Handler
+	observer             Observer
+	revocationFailClosed bool
 }
 
 // BcryptConfig configures BcryptTOTPAuth.
