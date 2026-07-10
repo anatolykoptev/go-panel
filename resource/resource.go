@@ -178,6 +178,10 @@ type Resource struct {
 // It holds the mux, authenticator, tenant resolver, and the registered nav.
 // Consumers create it via New() and call Handler() to get the http.Handler.
 type Panel struct {
+	// mux is the internal ServeMux. The index route is registered lazily, in
+	// finalize() on the first Handler() call — so mux must never be exposed
+	// except via Handler(); a future accessor handing out p.mux directly
+	// (without routing through Handler()) would serve a 404 at the index.
 	mux  *http.ServeMux
 	auth interface {
 		Require(http.HandlerFunc) http.HandlerFunc
@@ -479,17 +483,19 @@ func validateRoleConfig(p *Panel, r Resource) {
 // capability. For an empty role it is exactly p.auth.Require — no behaviour
 // change for resources that declare no RequiredRole.
 //
-// A non-empty role requires p.auth to implement RoleAuthenticator. That is
-// guaranteed at Register time by validateRoleConfig, so the assertion here is
-// defence-in-depth: a failure means the guarantee was bypassed, and we fail
-// closed (panic at mount) rather than fail open.
+// A non-empty role requires p.auth to implement RoleAuthenticator. guard has
+// two callers: Register, which pre-validates this via validateRoleConfig (so
+// the panic below is defence-in-depth there — a failure means that guarantee
+// was bypassed), and MountPage, which has no separate pre-check and relies on
+// guard itself to validate eagerly at mount time. Either way we fail closed
+// (panic at mount) rather than fail open.
 func (p *Panel) guard(requiredRole string, h http.HandlerFunc) http.HandlerFunc {
 	if requiredRole == "" {
 		return p.auth.Require(h)
 	}
 	ra, ok := p.auth.(RoleAuthenticator)
 	if !ok {
-		panic(fmt.Sprintf("resource: guard called with role %q but the authenticator does not implement RoleAuthenticator (validateRoleConfig bypassed — fail-closed)", requiredRole))
+		panic(fmt.Sprintf("resource: guard called with role %q but the authenticator does not implement RoleAuthenticator (fail-closed)", requiredRole))
 	}
 	return ra.RequireRole(requiredRole, h)
 }

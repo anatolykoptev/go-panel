@@ -193,6 +193,55 @@ func TestMountPage_Alias(t *testing.T) {
 	})
 }
 
+// TestMountPage_RequiredRole verifies MountPage's RequiredRole wiring
+// end-to-end, not just the eager-validation panic (TestMountPage_Panics
+// below): a session whose role matches reaches the page; a session whose
+// role does not is denied. Reuses the BcryptTOTPAuth/AccountStore role
+// harness from nav_filter_test.go (the same one Resource.RequiredRole is
+// proven against), so this is the MountPage analogue of
+// TestNavHide_DerivedFromRequiredRole_WrongRole / _MatchingRole.
+func TestMountPage_RequiredRole(t *testing.T) {
+	store := newTestAccountStore()
+	seedAccount(t, store, "u1", "admin@example.com", "s3cret", "admin")
+	seedAccount(t, store, "u2", "support@example.com", "s3cret", "support")
+	p, a := newBcryptPanelWithStore(store)
+
+	p.MountPage(resource.PageSpec{
+		Path: "billing",
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("billing-body"))
+		},
+		RequiredRole: "admin",
+	})
+
+	t.Run("admin session reaches the page", func(t *testing.T) {
+		cookie := bcryptLogin(t, a, "admin@example.com", "s3cret")
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/billing/", nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		p.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+		if got := w.Body.String(); got != "billing-body" {
+			t.Errorf("expected billing-body, got %q", got)
+		}
+	})
+
+	t.Run("wrong-role session is denied", func(t *testing.T) {
+		cookie := bcryptLogin(t, a, "support@example.com", "s3cret")
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/billing/", nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		p.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d", w.Code)
+		}
+	})
+}
+
 // TestMountPage_Panics covers the fail-closed misuse cases: MountPage after
 // finalization, a nil Handler, a duplicate index, an empty alias, and a role
 // the configured authenticator cannot back.

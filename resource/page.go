@@ -35,7 +35,10 @@ type PageSpec struct {
 // MountPage registers a custom admin page into the Panel's own mux, wrapped
 // with the same auth/role guard Register uses for resources. It must be
 // called before the first Handler() call, which finalizes the mux; calling
-// MountPage afterward panics.
+// MountPage afterward panics. Like AddNav, it must be called at setup time,
+// not concurrently with other Panel mutations (Register, AddNav, other
+// MountPage calls) — go-panel's setup phase is single-threaded by contract,
+// not by lock.
 //
 // spec.Path == "" (or "/") mounts the page as the panel's index, replacing
 // the default redirect-to-first-resource. Only one page may claim the index —
