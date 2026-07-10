@@ -39,8 +39,11 @@ const (
 	// role change) still return nil without observing — unchanged from
 	// Phase 1, out of this phase's scope.
 	OutcomeInvalidCredentials
-	// OutcomeError means an infrastructure failure occurred (e.g. the
-	// AccountStore returned a transient, non-not-found error).
+	// OutcomeError means an infrastructure failure occurred: for
+	// OpSessionRecheck, the AccountStore returned a transient, non-not-found
+	// error; for OpBcryptLogin, issueSession's makeToken (crypto/rand) call
+	// failed. Both are terminal branches with no caller-controlled cause, as
+	// opposed to OutcomeInvalidCredentials.
 	OutcomeError
 	// OutcomeRateLimited means the login attempt was rejected by
 	// BcryptConfig.RateLimiter as over-quota (Allow returned false). Emitted

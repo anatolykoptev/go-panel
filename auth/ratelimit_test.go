@@ -132,6 +132,24 @@ func TestBcrypt_NilRateLimiter_NoThrottle(t *testing.T) {
 	}
 }
 
+// TestBcrypt_RateLimit_SubSecondWindow_RetryAfterFloorsAtOne proves
+// rejectThrottled never renders a nonsensical "retry immediately" Retry-After:
+// int(Window.Seconds()) truncates a sub-second Window to 0, so the header
+// must floor at 1.
+func TestBcrypt_RateLimit_SubSecondWindow_RetryAfterFloorsAtOne(t *testing.T) {
+	store := newFakeStore()
+	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
+	limiter := &fakeLimiter{allow: false}
+	rule := auth.RateRule{Limit: 5, Window: 500 * time.Millisecond}
+	a := auth.NewBcryptTOTPAuth(rateLimitCfg(store, nil, limiter, rule))
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+
+	if got := w.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("expected Retry-After floored at 1 for a sub-second window, got %q", got)
+	}
+}
+
 func TestBcrypt_RateLimiterSet_ZeroLoginRate_Panics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

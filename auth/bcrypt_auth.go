@@ -349,10 +349,13 @@ func (a *BcryptTOTPAuth) checkRateLimit(w http.ResponseWriter, r *http.Request) 
 }
 
 // rejectThrottled writes the 429 response shared by both checkRateLimit
-// denial branches: a Retry-After hint sized to the configured window, and
-// the login form re-rendered with a throttle message.
+// denial branches: a Retry-After hint sized to the configured window
+// (floored at 1 second, so a sub-second Window never renders "0" — a
+// nonsensical "retry immediately" hint), and the login form re-rendered
+// with a throttle message.
 func (a *BcryptTOTPAuth) rejectThrottled(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Retry-After", strconv.Itoa(int(a.loginRate.Window.Seconds())))
+	retryAfter := max(1, int(a.loginRate.Window.Seconds()))
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 	w.WriteHeader(http.StatusTooManyRequests)
 	a.renderLogin(r.Context(), w, "Too many login attempts. Please try again later.")
 }
@@ -388,15 +391,16 @@ func (a *BcryptTOTPAuth) verifyPassword(w http.ResponseWriter, r *http.Request, 
 }
 
 // issueSession mints the session token, sets the session cookie, best-effort
-// records UpdateLastLogin, observes OutcomeOK, and redirects to the admin
-// root. Terminal step of the login pipeline for every account today (the P5
-// MFA step will instead route TOTPEnabled accounts through dispatchMFA
-// before ever reaching here).
+// records UpdateLastLogin, observes the terminal outcome, and redirects to
+// the admin root. Terminal step of the login pipeline for every account
+// today (the P5 MFA step will instead route TOTPEnabled accounts through
+// dispatchMFA before ever reaching here).
 func (a *BcryptTOTPAuth) issueSession(w http.ResponseWriter, r *http.Request, acct *Account) {
 	start := time.Now()
 	tok, err := a.makeToken(acct.ID, acct.Role)
 	if err != nil {
 		slog.Error("auth: failed to generate session token", "err", err)
+		a.observer.Observe(OpBcryptLogin, OutcomeError, time.Since(start))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
