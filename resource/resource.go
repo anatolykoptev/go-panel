@@ -36,6 +36,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/csrf"
@@ -177,6 +178,10 @@ type Resource struct {
 // It holds the mux, authenticator, tenant resolver, and the registered nav.
 // Consumers create it via New() and call Handler() to get the http.Handler.
 type Panel struct {
+	// mux is the internal ServeMux. The index route is registered lazily, in
+	// finalize() on the first Handler() call — so mux must never be exposed
+	// except via Handler(); a future accessor handing out p.mux directly
+	// (without routing through Handler()) would serve a 404 at the index.
 	mux  *http.ServeMux
 	auth interface {
 		Require(http.HandlerFunc) http.HandlerFunc
@@ -190,6 +195,19 @@ type Panel struct {
 	csrfKey    []byte
 	locales    locale.Set          // configured i18n locales; zero value = single-locale
 	profileCfg shell.ProfileConfig // static defaults for the sidebar profile block
+
+	// indexOverride is set once via MountPage(PageSpec{Path: ""}) before the
+	// mux is finalized; it replaces the default handleIndex at GET {basePath}/{$}.
+	// Written only during setup (MountPage); read exactly once, in finalize().
+	indexOverride http.HandlerFunc
+	// finalizeOnce guards the one-time index-route mount performed by
+	// finalize(), invoked on the first Handler() call.
+	finalizeOnce sync.Once
+	// finalized is set true once finalize() has run. MountPage panics if
+	// called after finalized is true: pages must be mounted before the first
+	// Handler() call, so the routes the mux serves are fixed for its whole
+	// lifetime (fail-closed rather than silently accepting a too-late mount).
+	finalized bool
 }
 
 // SetProfile configures the static defaults for the sidebar profile block.
@@ -279,14 +297,22 @@ func New(cfg Config) *Panel {
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
 	p.mux.Handle(bp+"/login", cfg.Auth.LoginHandler())
 	p.mux.Handle(bp+"/logout", cfg.Auth.LogoutHandler())
-	// Index route: redirect to the first real resource (or show a minimal page).
-	p.mux.HandleFunc("GET "+bp+"/{$}", p.auth.Require(p.handleIndex))
+	// Index route (GET bp+"/{$}") is registered by finalize(), on the first
+	// Handler() call — not here. A MountPage(PageSpec{Path: ""}) custom index
+	// must be able to claim that pattern before it's mounted; registering it
+	// eagerly here would collide with MountPage's own registration (the mux
+	// panics on a duplicate "GET {$}" pattern).
 	return p
 }
 
 // Handler returns the http.Handler for the entire admin surface.
 // Mount at the admin path (e.g. /admin/) in your app mux.
+//
+// The first call finalizes the mux: it mounts the index route (a MountPage
+// custom index if one was registered via PageSpec{Path: ""}, otherwise the
+// default handleIndex). MountPage calls after Handler() has been called panic.
 func (p *Panel) Handler() http.Handler {
+	p.finalize()
 	return p.mux
 }
 
@@ -457,17 +483,19 @@ func validateRoleConfig(p *Panel, r Resource) {
 // capability. For an empty role it is exactly p.auth.Require — no behaviour
 // change for resources that declare no RequiredRole.
 //
-// A non-empty role requires p.auth to implement RoleAuthenticator. That is
-// guaranteed at Register time by validateRoleConfig, so the assertion here is
-// defence-in-depth: a failure means the guarantee was bypassed, and we fail
-// closed (panic at mount) rather than fail open.
+// A non-empty role requires p.auth to implement RoleAuthenticator. guard has
+// two callers: Register, which pre-validates this via validateRoleConfig (so
+// the panic below is defence-in-depth there — a failure means that guarantee
+// was bypassed), and MountPage, which has no separate pre-check and relies on
+// guard itself to validate eagerly at mount time. Either way we fail closed
+// (panic at mount) rather than fail open.
 func (p *Panel) guard(requiredRole string, h http.HandlerFunc) http.HandlerFunc {
 	if requiredRole == "" {
 		return p.auth.Require(h)
 	}
 	ra, ok := p.auth.(RoleAuthenticator)
 	if !ok {
-		panic(fmt.Sprintf("resource: guard called with role %q but the authenticator does not implement RoleAuthenticator (validateRoleConfig bypassed — fail-closed)", requiredRole))
+		panic(fmt.Sprintf("resource: guard called with role %q but the authenticator does not implement RoleAuthenticator (fail-closed)", requiredRole))
 	}
 	return ra.RequireRole(requiredRole, h)
 }
