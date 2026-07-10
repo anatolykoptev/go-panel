@@ -707,8 +707,18 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 			return
 		}
 
-		// Persist — generic error body; detail logged server-side.
+		// Persist — a *SaveError is a domain validation failure (e.g. a
+		// booking-overlap check in the Writer's own store): re-render the
+		// form at 422 with the message on its field, same as field-level
+		// validation above. Any other error is a genuine internal failure —
+		// generic 500 body, detail logged server-side, never masked as a
+		// user error.
 		if err := rr.Writer.Save(ctx, t, id, values); err != nil {
+			var se *SaveError
+			if errors.As(err, &se) {
+				renderValidationErrors(w, req, p, rr, id, loc, values, formErrors{se.Field: se.Message})
+				return
+			}
 			slog.Error("resource: save failed", "resource", r.Name, "err", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
