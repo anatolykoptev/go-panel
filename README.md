@@ -43,7 +43,7 @@ oxpulse-admin, go-grad.
 | Package | Responsibility | Status |
 |---|---|---|
 | [`admintable`](./admintable/) | SQL-injection-safe `Spec` (sort) + `FilterSpec` (filter) + pagination | stable |
-| [`auth`](./auth/) | Pluggable session: `HMACAuth` (single-user, per-login nonce) + `BcryptTOTPAuth` (multi-user, bcrypt + TOTP 2FA + roles) | stable |
+| [`auth`](./auth/) | Pluggable session: `HMACAuth` (single-user, per-login nonce) + `BcryptTOTPAuth` (multi-user, bcrypt + roles; TOTP 2FA in progress, not yet wired at login) | stable |
 | [`csrf`](./csrf/) | Double-submit CSRF tokens bound to session cookie (32-byte key floor) | stable |
 | [`render`](./render/) | htmx fragment vs full-page, goldmark markdown | stable |
 | [`resource`](./resource/) | **Core**: `Resource` declaration → list + CRUD form handlers (`Writer`, `OptionsFunc`) + nav entry + role-gating (`RequiredRole`) | stable |
