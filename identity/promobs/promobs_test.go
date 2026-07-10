@@ -4,13 +4,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/identity"
 	"github.com/anatolykoptev/go-panel/identity/promobs"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// compile-time: Observer satisfies the framework interface.
-var _ identity.Observer = (*promobs.Observer)(nil)
+// compile-time: the single promobs Observer satisfies BOTH the identity and
+// auth package Observer seams (via AsAuthObserver), so one concrete
+// Prometheus observer wires into identity.Config.Observer AND
+// auth.BcryptConfig.Observer.
+var (
+	_ identity.Observer = (*promobs.Observer)(nil)
+	_ auth.Observer     = (*promobs.AuthObserver)(nil)
+)
 
 func TestObserver_IncrementOnObserve(t *testing.T) {
 	reg := prometheus.NewRegistry()
@@ -50,6 +57,51 @@ func TestObserver_IncrementOnObserve(t *testing.T) {
 	} {
 		if got := counts[lp{tc.op, tc.outcome}]; got != 1 {
 			t.Errorf("op=%s outcome=%s: want 1, got %.0f", tc.op, tc.outcome, got)
+		}
+	}
+}
+
+// TestAuthObserver_SharesMetricFamilyWithIdentityObserver is the smoke test
+// for the adapter: an auth-seam observation and an identity-seam observation
+// on the SAME *Observer both land in the one auth_ops_total family, so a
+// single promobs.Observer wired into both go-panel configs produces one
+// coherent dashboard rather than two disjoint metric sets.
+func TestAuthObserver_SharesMetricFamilyWithIdentityObserver(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	obs := promobs.New(reg, "test")
+
+	obs.Observe(identity.OpMagicVerify, identity.OutcomeOK, time.Millisecond)
+	obs.AsAuthObserver().Observe(auth.OpSessionRecheck, auth.OutcomeError, 3*time.Millisecond)
+
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	type lp struct{ op, outcome string }
+	counts := map[lp]float64{}
+	for _, mf := range mfs {
+		if mf.GetName() != "test_auth_ops_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			var op, outcome string
+			for _, l := range m.GetLabel() {
+				switch l.GetName() {
+				case "op":
+					op = l.GetValue()
+				case "outcome":
+					outcome = l.GetValue()
+				}
+			}
+			counts[lp{op, outcome}] = m.GetCounter().GetValue()
+		}
+	}
+	for _, tc := range []struct{ op, outcome string }{
+		{"magic_verify", "ok"},
+		{"session_recheck", "error"},
+	} {
+		if got := counts[lp{tc.op, tc.outcome}]; got != 1 {
+			t.Errorf("op=%s outcome=%s: want 1, got %.0f (family=%v)", tc.op, tc.outcome, got, counts)
 		}
 	}
 }

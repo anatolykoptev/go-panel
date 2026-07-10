@@ -13,8 +13,9 @@ import (
 
 // fakeStore is an in-memory AccountStore for authenticator unit tests.
 type fakeStore struct {
-	byEmail map[string]*auth.Account
-	byID    map[string]*auth.Account
+	byEmail         map[string]*auth.Account
+	byID            map[string]*auth.Account
+	forceGetByIDErr error // when set, GetByID returns this error unconditionally
 }
 
 func newFakeStore() *fakeStore {
@@ -38,6 +39,13 @@ func (f *fakeStore) deactivate(id string) {
 	f.byEmail[cp.Email] = &cp
 }
 
+// simulateTransientErr makes every subsequent GetByID call return err — models
+// a transient store outage (e.g. a dropped DB connection) independent of
+// auth.ErrAccountNotFound.
+func (f *fakeStore) simulateTransientErr(err error) {
+	f.forceGetByIDErr = err
+}
+
 func (f *fakeStore) GetByEmail(_ context.Context, email string) (*auth.Account, error) {
 	a, ok := f.byEmail[email]
 	if !ok || !a.Active || a.PasswordHash == "" {
@@ -48,6 +56,9 @@ func (f *fakeStore) GetByEmail(_ context.Context, email string) (*auth.Account, 
 }
 
 func (f *fakeStore) GetByID(_ context.Context, id string) (*auth.Account, error) {
+	if f.forceGetByIDErr != nil {
+		return nil, f.forceGetByIDErr
+	}
 	a, ok := f.byID[id]
 	if !ok {
 		return nil, auth.ErrAccountNotFound
