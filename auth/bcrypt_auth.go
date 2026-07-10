@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,9 +21,9 @@ import (
 )
 
 // BcryptTOTPAuth is a multi-user, bcrypt-password session authenticator backed by
-// an AccountStore. It implements Authenticator. TOTP second-factor and login
-// rate-limiting are planned and not yet wired; the type name reflects the target
-// shape. Ported in design from oxpulse-admin/internal/admin/auth.go.
+// an AccountStore. It implements Authenticator. TOTP second-factor is planned and
+// not yet wired; the type name reflects the target shape. Ported in design from
+// oxpulse-admin/internal/admin/auth.go.
 type BcryptTOTPAuth struct {
 	store                AccountStore
 	hmacKey              []byte
@@ -32,6 +34,9 @@ type BcryptTOTPAuth struct {
 	loginTempl           func(errMsg string) http.Handler
 	observer             Observer
 	revocationFailClosed bool
+	rateLimiter          RateLimiter
+	loginRate            RateRule
+	clientIP             func(*http.Request) string
 }
 
 // BcryptConfig configures BcryptTOTPAuth.
@@ -50,9 +55,10 @@ type BcryptConfig struct {
 	Secure bool
 	// LoginTempl optionally overrides the login page.
 	LoginTempl func(errMsg string) http.Handler
-	// Observer receives auth-op observations (session-recheck degrade today;
-	// later phases add login outcomes). Nil defaults to NopObserver — wiring
-	// an Observer is purely additive and never changes auth behavior. Pass
+	// Observer receives auth-op observations: the session-recheck degrade and,
+	// since Phase 2, login outcomes (OpBcryptLogin — rate-limited, invalid
+	// credentials, or OK). Nil defaults to NopObserver — wiring an Observer is
+	// purely additive and never changes auth behavior. Pass
 	// identity/promobs.Observer.AsAuthObserver() to share one Prometheus
 	// observer with the identity package's seam.
 	Observer Observer
@@ -65,16 +71,43 @@ type BcryptConfig struct {
 	// (fail closed) — trading availability for immediate revocation under a
 	// degraded store. Either way the degrade is always observed via Observer.
 	RevocationFailClosed bool
+	// RateLimiter throttles LoginHandler's POST branch. Nil (default) means
+	// no throttling — behavior is byte-for-byte identical to before Phase 2.
+	// When set, LoginRate must also be set (non-zero Limit and Window) or
+	// NewBcryptTOTPAuth panics at setup — a configured-but-toothless limiter
+	// is a fail-closed misconfiguration, not a silent no-op. Checked
+	// FAIL-CLOSED: both an over-quota deny and a limiter error (e.g. a Redis
+	// outage) reject the attempt with 429 before the bcrypt compare runs, so
+	// this money-path admin login fails at least as safe as identity's
+	// magic-link (identity/handlers.go's allowStart convention). Pass an
+	// existing identity Redis limiter directly — RateLimiter's signature
+	// matches identity.RateLimiter verbatim (see ratelimit.go), so no adapter
+	// or second limiter implementation is needed.
+	RateLimiter RateLimiter
+	// LoginRate is the (limit, window) rule applied when RateLimiter is set.
+	// Ignored (and may be left zero) when RateLimiter is nil.
+	LoginRate RateRule
+	// ClientIP extracts the client IP used to key the login rate limit. It
+	// defaults to r.RemoteAddr's host. DEPLOYERS BEHIND A REVERSE PROXY MUST
+	// override this with a trusted-hop X-Forwarded-For parser — otherwise
+	// every request carries the proxy's IP and the per-IP limit collapses
+	// into one shared bucket (ineffective throttle / accidental site-wide
+	// DoS). Mirrors identity.Config.ClientIP. Ignored when RateLimiter is nil.
+	ClientIP func(*http.Request) string
 }
 
 // NewBcryptTOTPAuth validates cfg and returns a BcryptTOTPAuth. Panics on a nil
-// Store or a short/empty HMACKey (fail-closed configuration).
+// Store, a short/empty HMACKey, or a RateLimiter set without a usable LoginRate
+// (fail-closed configuration).
 func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 	if cfg.Store == nil {
 		panic("auth.NewBcryptTOTPAuth: Store must not be nil")
 	}
 	if len(cfg.HMACKey) < minHMACKeyLen {
 		panic(fmt.Sprintf("auth.NewBcryptTOTPAuth: HMACKey must be at least %d bytes, got %d", minHMACKeyLen, len(cfg.HMACKey)))
+	}
+	if cfg.RateLimiter != nil && (cfg.LoginRate.Limit <= 0 || cfg.LoginRate.Window <= 0) {
+		panic("auth.NewBcryptTOTPAuth: LoginRate must be set (Limit > 0, Window > 0) when RateLimiter is configured")
 	}
 	name := cfg.CookieName
 	if name == "" {
@@ -92,6 +125,10 @@ func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 	if obs == nil {
 		obs = NopObserver{}
 	}
+	clientIPFn := cfg.ClientIP
+	if clientIPFn == nil {
+		clientIPFn = defaultClientIP
+	}
 	return &BcryptTOTPAuth{
 		store:                cfg.Store,
 		hmacKey:              cfg.HMACKey,
@@ -102,6 +139,9 @@ func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 		loginTempl:           cfg.LoginTempl,
 		observer:             obs,
 		revocationFailClosed: cfg.RevocationFailClosed,
+		rateLimiter:          cfg.RateLimiter,
+		loginRate:            cfg.LoginRate,
+		clientIP:             clientIPFn,
 	}
 }
 
@@ -109,6 +149,22 @@ var _ Authenticator = (*BcryptTOTPAuth)(nil)
 
 // RoleOwner is the super-role that RequireRole always permits.
 const RoleOwner = "owner"
+
+// rlLoginIPPrefix namespaces the login rate-limit key so it can't collide
+// with another RateLimiter consumer sharing the same backing store (e.g.
+// identity's magic_start:ip: keys on the same Redis instance).
+const rlLoginIPPrefix = "bcrypt_login:ip:"
+
+// defaultClientIP extracts the request's remote IP by stripping the port from
+// r.RemoteAddr. Mirrors identity's default resolver (identity/handlers.go's
+// clientIP) — see BcryptConfig.ClientIP's doc for the reverse-proxy caveat.
+func defaultClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
 
 // dummyPasswordHash equalizes login timing: on the unknown/inactive-email path
 // we compare against it so a non-existent account costs the same bcrypt work as
@@ -223,8 +279,11 @@ func (a *BcryptTOTPAuth) renderLogin(ctx context.Context, w http.ResponseWriter,
 	}
 }
 
-// LoginHandler implements Authenticator: GET renders the form, POST checks
-// email + bcrypt password and issues a session cookie.
+// LoginHandler implements Authenticator: GET renders the form, POST runs the
+// login pipeline as named steps — checkRateLimit, verifyPassword, issueSession
+// — each a single-purpose, independently testable unit. A future MFA phase
+// slots dispatchMFA between verifyPassword and issueSession (not implemented
+// here); the seam is this ordering.
 func (a *BcryptTOTPAuth) LoginHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -239,44 +298,126 @@ func (a *BcryptTOTPAuth) LoginHandler() http.Handler {
 		const maxLoginBodyBytes = 4096
 		r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
 		_ = r.ParseForm()
-		email := r.FormValue("email")
-		password := r.FormValue("password")
 
-		// Generic error on both unknown-user and bad-password to avoid user enumeration.
-		acct, err := a.store.GetByEmail(r.Context(), email)
-		if err != nil {
-			// Equalize timing with the verify path: an unknown/inactive email must
-			// cost the same bcrypt work as a wrong password (no enumeration oracle).
-			_ = VerifyPassword(password, dummyPasswordHash)
-			w.WriteHeader(http.StatusUnauthorized)
-			a.renderLogin(r.Context(), w, "Invalid email or password")
+		if !a.checkRateLimit(w, r) {
 			return
 		}
-		if !VerifyPassword(password, acct.PasswordHash) {
-			w.WriteHeader(http.StatusUnauthorized)
-			a.renderLogin(r.Context(), w, "Invalid email or password")
+
+		acct, ok := a.verifyPassword(w, r, r.FormValue("email"), r.FormValue("password"))
+		if !ok {
 			return
 		}
-		tok, err := a.makeToken(acct.ID, acct.Role)
-		if err != nil {
-			slog.Error("auth: failed to generate session token", "err", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		http.SetCookie(w, &http.Cookie{
-			Name:     a.cookieName,
-			Value:    tok,
-			Path:     a.basePath,
-			MaxAge:   int(a.sessionTTL.Seconds()),
-			HttpOnly: true,
-			Secure:   a.secure,
-			SameSite: http.SameSiteLaxMode,
-		})
-		if err := a.store.UpdateLastLogin(r.Context(), acct.ID); err != nil {
-			slog.Warn("auth: update last login failed", "err", err)
-		}
-		http.Redirect(w, r, a.basePath+"/", http.StatusSeeOther)
+
+		// P5 (MFA login step) inserts dispatchMFA(w, r, acct) here: for
+		// acct.TOTPEnabled it mints a structurally-distinct mfa_pending
+		// interstitial instead of issuing a full session. Not implemented yet
+		// — every account issues a session directly, unchanged from before P2.
+
+		a.issueSession(w, r, acct)
 	})
+}
+
+// checkRateLimit enforces BcryptConfig.RateLimiter/LoginRate against the
+// request's client IP. Nil-safe: with no RateLimiter configured (the
+// default) it always returns true and imposes no throttle — the
+// pre-Phase-2 behavior is unchanged byte-for-byte. FAIL-CLOSED when a
+// limiter IS configured: both an over-quota deny (Allow returns false) and a
+// limiter error (e.g. a Redis outage) reject the attempt with 429 +
+// Retry-After before the bcrypt compare ever runs, matching identity's
+// tested convention (identity/handlers.go's allowStart). On denial this
+// writes the full response and observes the terminal outcome; the caller
+// must stop processing the request when it returns false.
+func (a *BcryptTOTPAuth) checkRateLimit(w http.ResponseWriter, r *http.Request) bool {
+	if a.rateLimiter == nil {
+		return true
+	}
+	start := time.Now()
+	key := rlLoginIPPrefix + a.clientIP(r)
+	allowed, err := a.rateLimiter.Allow(r.Context(), key, a.loginRate.Limit, a.loginRate.Window)
+	if err != nil {
+		slog.Error("auth: login rate-limit error — denying (fail-closed)", "err", err)
+		a.observer.Observe(OpBcryptLogin, OutcomeLimiterError, time.Since(start))
+		a.rejectThrottled(w, r)
+		return false
+	}
+	if !allowed {
+		a.observer.Observe(OpBcryptLogin, OutcomeRateLimited, time.Since(start))
+		a.rejectThrottled(w, r)
+		return false
+	}
+	return true
+}
+
+// rejectThrottled writes the 429 response shared by both checkRateLimit
+// denial branches: a Retry-After hint sized to the configured window
+// (floored at 1 second, so a sub-second Window never renders "0" — a
+// nonsensical "retry immediately" hint), and the login form re-rendered
+// with a throttle message.
+func (a *BcryptTOTPAuth) rejectThrottled(w http.ResponseWriter, r *http.Request) {
+	retryAfter := max(1, int(a.loginRate.Window.Seconds()))
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	w.WriteHeader(http.StatusTooManyRequests)
+	a.renderLogin(r.Context(), w, "Too many login attempts. Please try again later.")
+}
+
+// verifyPassword checks email+password against the store. Preserves the
+// exact pre-Phase-2 anti-enumeration timing equalization: an unknown or
+// inactive email costs the same bcrypt work as a wrong password
+// (dummyPasswordHash), so a timing side-channel can't distinguish the two
+// failure classes. On failure it writes the 401 response, observes
+// OutcomeInvalidCredentials, and returns (nil, false) — the caller must stop
+// processing the request. On success it returns the account without writing
+// a response, leaving session issuance (or, in a later phase, MFA dispatch)
+// to the caller.
+func (a *BcryptTOTPAuth) verifyPassword(w http.ResponseWriter, r *http.Request, email, password string) (*Account, bool) {
+	start := time.Now()
+	acct, err := a.store.GetByEmail(r.Context(), email)
+	if err != nil {
+		// Equalize timing with the verify path: an unknown/inactive email must
+		// cost the same bcrypt work as a wrong password (no enumeration oracle).
+		_ = VerifyPassword(password, dummyPasswordHash)
+		a.observer.Observe(OpBcryptLogin, OutcomeInvalidCredentials, time.Since(start))
+		w.WriteHeader(http.StatusUnauthorized)
+		a.renderLogin(r.Context(), w, "Invalid email or password")
+		return nil, false
+	}
+	if !VerifyPassword(password, acct.PasswordHash) {
+		a.observer.Observe(OpBcryptLogin, OutcomeInvalidCredentials, time.Since(start))
+		w.WriteHeader(http.StatusUnauthorized)
+		a.renderLogin(r.Context(), w, "Invalid email or password")
+		return nil, false
+	}
+	return acct, true
+}
+
+// issueSession mints the session token, sets the session cookie, best-effort
+// records UpdateLastLogin, observes the terminal outcome, and redirects to
+// the admin root. Terminal step of the login pipeline for every account
+// today (the P5 MFA step will instead route TOTPEnabled accounts through
+// dispatchMFA before ever reaching here).
+func (a *BcryptTOTPAuth) issueSession(w http.ResponseWriter, r *http.Request, acct *Account) {
+	start := time.Now()
+	tok, err := a.makeToken(acct.ID, acct.Role)
+	if err != nil {
+		slog.Error("auth: failed to generate session token", "err", err)
+		a.observer.Observe(OpBcryptLogin, OutcomeError, time.Since(start))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.cookieName,
+		Value:    tok,
+		Path:     a.basePath,
+		MaxAge:   int(a.sessionTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   a.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	if err := a.store.UpdateLastLogin(r.Context(), acct.ID); err != nil {
+		slog.Warn("auth: update last login failed", "err", err)
+	}
+	a.observer.Observe(OpBcryptLogin, OutcomeOK, time.Since(start))
+	http.Redirect(w, r, a.basePath+"/", http.StatusSeeOther)
 }
 
 // LogoutHandler implements Authenticator.
