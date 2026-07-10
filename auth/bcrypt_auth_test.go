@@ -16,6 +16,7 @@ type fakeStore struct {
 	byEmail         map[string]*auth.Account
 	byID            map[string]*auth.Account
 	forceGetByIDErr error // when set, GetByID returns this error unconditionally
+	getByEmailCalls int   // counts GetByEmail invocations, e.g. to prove a rate-limit deny short-circuits before bcrypt
 }
 
 func newFakeStore() *fakeStore {
@@ -47,6 +48,7 @@ func (f *fakeStore) simulateTransientErr(err error) {
 }
 
 func (f *fakeStore) GetByEmail(_ context.Context, email string) (*auth.Account, error) {
+	f.getByEmailCalls++
 	a, ok := f.byEmail[email]
 	if !ok || !a.Active || a.PasswordHash == "" {
 		return nil, auth.ErrAccountNotFound

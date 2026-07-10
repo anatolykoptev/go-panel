@@ -15,9 +15,9 @@ const (
 	// OpSessionRecheck is the per-request liveSession revocation recheck
 	// (Require -> liveSession -> AccountStore.GetByID).
 	OpSessionRecheck Op = iota + 1
-	// OpBcryptLogin is the LoginHandler POST branch (email + password check).
-	// Wired in a later phase; the value is reserved now so the enum does not
-	// churn across phases.
+	// OpBcryptLogin is the LoginHandler POST branch: checkRateLimit,
+	// verifyPassword, and issueSession each observe under this Op. Emitted
+	// since Phase 2 (login-outcome instrumentation).
 	OpBcryptLogin
 )
 
@@ -25,27 +25,32 @@ const (
 type Outcome uint8
 
 const (
-	// OutcomeOK means the operation completed successfully.
+	// OutcomeOK means the operation completed successfully. For
+	// OpBcryptLogin this means issueSession minted and set the session
+	// cookie. OpSessionRecheck never emits OutcomeOK — only its transient-
+	// error degrade is observed (see OutcomeError).
 	OutcomeOK Outcome = iota + 1
 	// OutcomeInvalidCredentials means a login attempt or a session's live
 	// revocation check was denied for a reason the caller controls (unknown
 	// email, wrong password, a revoked/deactivated account, role drift) — as
-	// opposed to an infrastructure failure (OutcomeError). Reserved: this
-	// phase does not emit it anywhere yet. liveSession's revocation-deny
-	// branches (ErrAccountNotFound, !Active, role change) return nil without
-	// observing, and LoginHandler is not yet instrumented — wiring both is
-	// Phase 2 (auth-outcome instrumentation) scope. Only OpSessionRecheck /
-	// OutcomeError (the transient-store-error degrade) is emitted today.
+	// opposed to an infrastructure failure (OutcomeError). Emitted by
+	// LoginHandler's verifyPassword step (OpBcryptLogin) since Phase 2.
+	// liveSession's revocation-deny branches (ErrAccountNotFound, !Active,
+	// role change) still return nil without observing — unchanged from
+	// Phase 1, out of this phase's scope.
 	OutcomeInvalidCredentials
 	// OutcomeError means an infrastructure failure occurred (e.g. the
 	// AccountStore returned a transient, non-not-found error).
 	OutcomeError
-	// OutcomeRateLimited means the attempt was rejected by the rate limiter
-	// as over-quota. Reserved for the RateLimiter hook phase.
+	// OutcomeRateLimited means the login attempt was rejected by
+	// BcryptConfig.RateLimiter as over-quota (Allow returned false). Emitted
+	// by checkRateLimit (OpBcryptLogin) since Phase 2.
 	OutcomeRateLimited
 	// OutcomeLimiterError means the RateLimiter itself failed (e.g. a Redis
 	// outage) — distinct from OutcomeRateLimited, which means the limiter
-	// answered and denied the attempt. Reserved for the RateLimiter hook phase.
+	// answered and denied the attempt. Both are treated fail-closed (429 +
+	// Retry-After, bcrypt never reached). Emitted by checkRateLimit
+	// (OpBcryptLogin) since Phase 2.
 	OutcomeLimiterError
 )
 

@@ -39,6 +39,15 @@ func (s *spyObserver) snapshot() []observation {
 	return out
 }
 
+// reset discards recorded calls — used to isolate a later phase of a test
+// (e.g. the liveSession recheck) from an earlier phase's own Observe calls
+// (e.g. the login that minted the session cookie).
+func (s *spyObserver) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = nil
+}
+
 // liveSessionCfg builds a BcryptConfig sharing the fixed test HMACKey/BasePath/
 // SessionTTL used across this package's tests, with the observer + revocation
 // policy under test layered on top.
@@ -84,6 +93,9 @@ func TestBcrypt_RevocationFailClosed_DeniesOnTransientError(t *testing.T) {
 	spy := &spyObserver{}
 	a := auth.NewBcryptTOTPAuth(liveSessionCfg(store, spy, true))
 	c := sessionCookieFor(t, a, "op@example.com", "s3cret")
+	// Since Phase 2, login itself observes (OpBcryptLogin, OutcomeOK); reset
+	// so the assertions below isolate the liveSession recheck degrade only.
+	spy.reset()
 
 	store.simulateTransientErr(errors.New("connection reset"))
 
@@ -113,6 +125,9 @@ func TestBcrypt_DefaultFailOpen_AllowsButRecordsDegrade(t *testing.T) {
 	// store error.
 	a := auth.NewBcryptTOTPAuth(liveSessionCfg(store, spy, false))
 	c := sessionCookieFor(t, a, "op@example.com", "s3cret")
+	// Since Phase 2, login itself observes (OpBcryptLogin, OutcomeOK); reset
+	// so the assertions below isolate the liveSession recheck degrade only.
+	spy.reset()
 
 	store.simulateTransientErr(errors.New("connection reset"))
 
