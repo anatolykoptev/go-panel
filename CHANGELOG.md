@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/anatolykoptev/go-panel/compare/v0.16.0...v0.17.0) (2026-07-10)
+
+
+### Features
+
+* **resource:** typed SaveError surfaces domain Save failures as form validation ([#75](https://github.com/anatolykoptev/go-panel/issues/75)) ([671133d](https://github.com/anatolykoptev/go-panel/commit/671133d5e3675131b83287d4a17abea6cb91f108))
+
 ## [0.16.0](https://github.com/anatolykoptev/go-panel/compare/v0.15.0...v0.16.0) (2026-07-08)
 
 
