@@ -94,11 +94,29 @@ type BcryptConfig struct {
 	// into one shared bucket (ineffective throttle / accidental site-wide
 	// DoS). Mirrors identity.Config.ClientIP. Ignored when RateLimiter is nil.
 	ClientIP func(*http.Request) string
+	// TOTPEncryptionKey is the AES-256-GCM key that encrypts a TOTP secret
+	// at rest (EncryptTOTPSecret/DecryptTOTPSecret) before it is written to
+	// AccountStore's totp_secret column. Must be exactly
+	// TOTPEncryptionKeyLen (32) bytes when Store implements TOTPStore —
+	// NewBcryptTOTPAuth panics at setup otherwise, the same fail-closed
+	// convention as a short HMACKey.
+	//
+	// Deliberately INDEPENDENT of HMACKey, never derived from it: HMACKey
+	// rotation is the standard incident-response action after a
+	// session-forgery scare, and coupling it to TOTPEncryptionKey would
+	// mean that routine rotation permanently destroys every enrolled
+	// operator's 2FA secret fleet-wide. Two independent security controls,
+	// two independent rotation roots — losing TOTPEncryptionKey makes
+	// enrolled secrets undecryptable (operators must re-enroll); it does
+	// NOT affect session validity, and rotating HMACKey does not affect
+	// TOTP secrets either.
+	TOTPEncryptionKey []byte
 }
 
 // NewBcryptTOTPAuth validates cfg and returns a BcryptTOTPAuth. Panics on a nil
-// Store, a short/empty HMACKey, or a RateLimiter set without a usable LoginRate
-// (fail-closed configuration).
+// Store, a short/empty HMACKey, a RateLimiter set without a usable LoginRate
+// (fail-closed configuration), or a Store that implements TOTPStore without a
+// valid (exactly TOTPEncryptionKeyLen bytes) TOTPEncryptionKey.
 func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 	if cfg.Store == nil {
 		panic("auth.NewBcryptTOTPAuth: Store must not be nil")
@@ -108,6 +126,9 @@ func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 	}
 	if cfg.RateLimiter != nil && (cfg.LoginRate.Limit <= 0 || cfg.LoginRate.Window <= 0) {
 		panic("auth.NewBcryptTOTPAuth: LoginRate must be set (Limit > 0, Window > 0) when RateLimiter is configured")
+	}
+	if _, ok := cfg.Store.(TOTPStore); ok && len(cfg.TOTPEncryptionKey) != TOTPEncryptionKeyLen {
+		panic(fmt.Sprintf("auth.NewBcryptTOTPAuth: Store implements TOTPStore, so TOTPEncryptionKey must be exactly %d bytes, got %d", TOTPEncryptionKeyLen, len(cfg.TOTPEncryptionKey)))
 	}
 	name := cfg.CookieName
 	if name == "" {

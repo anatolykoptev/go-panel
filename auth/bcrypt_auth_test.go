@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -86,6 +87,34 @@ func (f *fakeStore) UpdatePasswordHash(_ context.Context, id, hash string) error
 func (f *fakeStore) CreateAccount(context.Context, string, string, string, string) (string, bool, error) {
 	return "", false, nil
 }
+
+// fakeTOTPStore embeds fakeStore (reusing its whole AccountStore
+// implementation unchanged) and adds no-op TOTPStore methods, so it
+// satisfies `store.(auth.TOTPStore)` — exactly what NewBcryptTOTPAuth's
+// setup panic type-asserts against. The method bodies are unused by the
+// panic-wiring tests below (which never call them); PgxAccountStore's own
+// DB-backed tests in account_test.go cover real TOTPStore behavior.
+type fakeTOTPStore struct {
+	*fakeStore
+}
+
+func newFakeTOTPStore() *fakeTOTPStore {
+	return &fakeTOTPStore{fakeStore: newFakeStore()}
+}
+
+func (*fakeTOTPStore) SetPendingTOTPSecret(context.Context, string, []byte) error { return nil }
+func (*fakeTOTPStore) ConfirmTOTPEnrollment(context.Context, string) error        { return nil }
+func (*fakeTOTPStore) GetTOTPSecret(context.Context, string) ([]byte, error)      { return nil, nil }
+func (*fakeTOTPStore) DisableTOTP(context.Context, string) error                  { return nil }
+func (*fakeTOTPStore) ConsumeTOTPStep(context.Context, string, int64) (bool, error) {
+	return false, nil
+}
+func (*fakeTOTPStore) StoreRecoveryCodes(context.Context, string, [][]byte) error { return nil }
+func (*fakeTOTPStore) ConsumeRecoveryCode(context.Context, string, []byte) (bool, error) {
+	return false, nil
+}
+
+var _ auth.TOTPStore = (*fakeTOTPStore)(nil)
 
 func newBcryptAuth(t *testing.T, store auth.AccountStore) *auth.BcryptTOTPAuth {
 	t.Helper()
@@ -278,5 +307,75 @@ func TestBcrypt_HasRole(t *testing.T) {
 	// no session on ctx — false, never panics.
 	if a.HasRole(context.Background(), "editor") {
 		t.Error("HasRole with no session must return false")
+	}
+}
+
+func TestNewBcryptTOTPAuth_PanicsWhenTOTPStoreWithoutKey(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected a panic when Store implements TOTPStore but TOTPEncryptionKey is nil")
+		}
+	}()
+	auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:   newFakeTOTPStore(),
+		HMACKey: []byte("test-hmac-key-32-bytes-long-here"),
+		// TOTPEncryptionKey intentionally omitted.
+	})
+}
+
+func TestNewBcryptTOTPAuth_PanicsWhenTOTPStoreWithShortKey(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected a panic when TOTPEncryptionKey is shorter than 32 bytes")
+		}
+	}()
+	auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:             newFakeTOTPStore(),
+		HMACKey:           []byte("test-hmac-key-32-bytes-long-here"),
+		TOTPEncryptionKey: []byte("too-short-16-byt"), // 16 bytes, AES-128 size, not AES-256
+	})
+}
+
+// TestNewBcryptTOTPAuth_PanicsWhenTOTPStoreWithLongKey locks in the
+// exact-32-bytes reading (not merely ">= 32"): AES-256-GCM requires a
+// PRECISE 256-bit key, so a longer key is rejected too rather than
+// silently truncated -- silent truncation would let an operator believe a
+// 64-byte key is in use when only the first 32 bytes are load-bearing.
+func TestNewBcryptTOTPAuth_PanicsWhenTOTPStoreWithLongKey(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected a panic when TOTPEncryptionKey is longer than 32 bytes")
+		}
+	}()
+	auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:             newFakeTOTPStore(),
+		HMACKey:           []byte("test-hmac-key-32-bytes-long-here"),
+		TOTPEncryptionKey: bytes.Repeat([]byte("k"), 64),
+	})
+}
+
+func TestNewBcryptTOTPAuth_NoPanicWhenTOTPStoreWithValidKey(t *testing.T) {
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:             newFakeTOTPStore(),
+		HMACKey:           []byte("test-hmac-key-32-bytes-long-here"),
+		TOTPEncryptionKey: bytes.Repeat([]byte("k"), auth.TOTPEncryptionKeyLen),
+	})
+	if a == nil {
+		t.Fatal("expected a non-nil BcryptTOTPAuth with a valid 32-byte TOTPEncryptionKey")
+	}
+}
+
+// TestNewBcryptTOTPAuth_NoPanicWhenStoreDoesNotImplementTOTPStore proves
+// the panic is conditional on TOTPStore support, not unconditional: a
+// plain AccountStore (no TOTP methods) must construct fine with no
+// TOTPEncryptionKey at all — TOTP wiring stays fully additive for
+// consumers who never opt in.
+func TestNewBcryptTOTPAuth_NoPanicWhenStoreDoesNotImplementTOTPStore(t *testing.T) {
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:   newFakeStore(), // no TOTPStore methods
+		HMACKey: []byte("test-hmac-key-32-bytes-long-here"),
+	})
+	if a == nil {
+		t.Fatal("expected a non-nil BcryptTOTPAuth when Store does not implement TOTPStore")
 	}
 }

@@ -1,0 +1,9 @@
+# gitleaks false positives, classified — not real secrets.
+#
+# auth/totp_test.go:26 — the RFC 6238 Appendix B / RFC 4226 Appendix D
+# published TOTP known-answer test vector: base32("12345678901234567890"),
+# the RFC authors' own placeholder seed, reproduced verbatim in
+# pquerna/otp's own docs. Zero sensitivity — publicly documented, used only
+# to pin our ValidateTOTPCodeAt against an independent, external ground
+# truth.
+auth/totp_test.go:generic-api-key:26
