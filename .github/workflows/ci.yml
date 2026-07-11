@@ -30,6 +30,19 @@ jobs:
           git diff --exit-code
       - run: go vet ./...
       - run: go test -race ./...
+      # auth/account_test.go's TestPgxAccountStore_RoundTrip (Postgres-backed)
+      # is gated on TEST_DATABASE_URL and was SKIPPED here always — no step
+      # ever set that var, so it never ran in CI (silent coverage gap since
+      # PR #34). `make preflight-db` (scripts/preflight-db.sh) provisions an
+      # ephemeral Postgres (docker-assigned port, torn down via trap on exit)
+      # and sets TEST_DATABASE_URL for a run-set DERIVED from the actual
+      # TEST_DATABASE_URL references in ./auth/*_test.go, not the whole
+      # ./auth/... package — see the script for why running the whole
+      # package isn't optional-but-nicer on this runner, it times out.
+      # Invoked via the Makefile target (not the script path directly) so
+      # local dev and CI can never silently diverge on how this runs.
+      - name: DB-gated tests (auth, ephemeral Postgres)
+        run: make preflight-db
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.11.4

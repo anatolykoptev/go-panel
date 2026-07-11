@@ -1,6 +1,6 @@
 # go-panel — developer quality gate. `make check` is the pre-merge contract.
 .RECIPEPREFIX = >
-.PHONY: check build vet test race lint vuln gen
+.PHONY: check build vet test race lint vuln gen preflight-db
 
 # GOWORK=off — this repo must build standalone (krolik has a stray ~/go.work).
 export GOWORK = off
@@ -31,3 +31,12 @@ vuln:
 # Requires: go tool templ (tool directive in go.mod, resolved via go mod tidy).
 gen:
 > go tool templ generate ./...
+
+# preflight-db: provisions an ephemeral Postgres (docker) and runs auth's
+# TEST_DATABASE_URL-gated tests against it — see scripts/preflight-db.sh.
+# Not part of `check`: the build/vet/race/lint/vuln gate above runs anywhere
+# with no external service; this one needs docker and is invoked as its own
+# CI step for the same reason (a red DB step should not masquerade as a
+# generic build/test failure).
+preflight-db:
+> ./scripts/preflight-db.sh
