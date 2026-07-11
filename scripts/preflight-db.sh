@@ -86,7 +86,7 @@ echo "--- Postgres ready ---"
 
 TEST_DSN="postgres://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}?sslmode=disable"
 
-# Scoped to the TestPgxAccountStore_* tests, not the whole ./auth/... package.
+# Scoped to a derived set of tests, not the whole ./auth/... package.
 # Measured live on this runner (2026-07-10): setting TEST_DATABASE_URL to any
 # new value invalidates Go's test cache for the WHOLE package (confirmed
 # empirically — it is not tracked per-test), so a plain `go test ./auth/...`
@@ -99,30 +99,55 @@ TEST_DSN="postgres://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}?sslm
 # cgroup on a contended shared box — it did, on the first real CI run of this
 # script (job 29133254017: "panic: test timed out after 10m0s", mid
 # TestBcrypt_RevocationFailClosed_DeniesOnTransientError, not even a
-# DB-touching test). Every TestPgxAccountStore_* test in this package tests
-# PgxAccountStore specifically and is Postgres-backed by construction
-# (verified against both main and the in-flight TOTP branch,
-# feat/auth-totp-crypto: RoundTrip today, plus TOTPEnrollmentLifecycle /
-# ConsumeTOTPStep_ReplayGuard / RecoveryCodes_SingleUse /
-# StoreRecoveryCodes_ReplacesPriorSet / DisableTOTP_ClearsRecoveryCodes /
-# TOTPStore_UnknownAccountNotFound once it merges) — filtering to that prefix
-# runs exactly the tests this script exists for, at a fraction of the cost,
-# and leaves the OTHER ~30 non-DB auth tests to the existing
-# `go test -race ./...` step, which already covers them.
+# DB-touching test).
 #
-# Guard against the filter silently going stale (a future DB-gated test added
-# under a different name would otherwise skip here with nothing to say so):
-# `go test -list` enumerates matching test names without running them, same
-# spirit as go-grad's preflight-db.sh refusing to silently run zero packages.
-matched=$(GOWORK=off go test -list '^TestPgxAccountStore_' ./auth/... 2>/dev/null | grep -c '^TestPgxAccountStore_' || true)
-if [ "$matched" -eq 0 ]; then
-	echo "FATAL: -run '^TestPgxAccountStore_' matched zero tests in ./auth/... — the" >&2
-	echo "filter no longer matches anything (renamed? convention changed?)." >&2
+# The run-set is DERIVED from the actual TEST_DATABASE_URL gating token in
+# source, never a hardcoded name prefix — same philosophy as go-grad's own
+# preflight-db.sh, which derives its package list via
+# `grep -rlE '(FEEDSTORE|VECSTORE|...)_TEST_DSN' --include=*_test.go .`
+# specifically so a differently-named future DB-gated test is picked up
+# automatically instead of silently skipped (an earlier version of this
+# script hardcoded `-run '^TestPgxAccountStore_'` with a guard that only
+# checked "does a test matching that literal prefix still exist" — a
+# tautology that could never catch a NEW test gated on TEST_DATABASE_URL
+# under a DIFFERENT name; caught in review, fixed here).
+#
+# File-granularity, not per-function: several of the TOTP tests share a
+# setup helper in account_test.go that itself checks TEST_DATABASE_URL,
+# rather than every test checking it inline — a per-function text match on
+# "does THIS func's own body mention TEST_DATABASE_URL" would miss those
+# (the reference is in the helper's body, not the caller's). Collecting
+# every top-level `func Test*` declared in any *_test.go file under ./auth
+# that mentions TEST_DATABASE_URL anywhere cannot miss that indirection —
+# the failure mode left is strictly over-inclusion (a non-DB test sharing a
+# file with a DB-gated one also gets run), never a silently-skipped DB test.
+db_files=$(grep -rl 'TEST_DATABASE_URL' --include='*_test.go' ./auth || true)
+db_funcs=$(printf '%s\n' "$db_files" | xargs -r grep -hoE '^func (Test[A-Za-z0-9_]+)' | awk '{print $2}' | sort -u)
+if [ -z "$db_funcs" ]; then
+	echo "FATAL: no ./auth/*_test.go file references TEST_DATABASE_URL, so" >&2
+	echo "there is nothing to derive a run-set from. Either the gating" >&2
+	echo "convention was renamed (update this script to match the new name)" >&2
+	echo "or DB-gated coverage genuinely dropped to zero. Refusing to" >&2
+	echo "silently report success while running zero DB-gated tests." >&2
+	exit 1
+fi
+run_pattern="^($(printf '%s' "$db_funcs" | paste -sd'|'))\$"
+
+# go test -list is the staleness oracle, not another hardcoded assumption:
+# it only sees what actually BUILDS and uses the same regex dialect as
+# -run, so a zero match here means either the pattern built above is wrong
+# or ./auth has a compile error (this script redirects -list's stderr to
+# /dev/null, so a build failure would otherwise fail silently rather than
+# with a clear signal) — not just "someone renamed a test".
+listed=$(GOWORK=off go test -list "$run_pattern" ./auth/... 2>/dev/null | grep -c '^Test' || true)
+if [ "$listed" -eq 0 ]; then
+	echo "FATAL: derived pattern '${run_pattern}' (from: $(printf '%s' "$db_funcs" | tr '\n' ' ')) matched zero tests via 'go test -list ./auth/...', even though grep found the TEST_DATABASE_URL reference(s) in source." >&2
+	echo "Most likely a compile error in ./auth (stderr is suppressed on the -list call above) — run 'go build ./auth/...' directly to see it. Could also mean the derived names above don't actually exist as runnable tests." >&2
 	echo "Refusing to silently report success while running zero DB-gated tests." >&2
 	exit 1
 fi
 
-echo "=== auth (${matched} TestPgxAccountStore_* test(s), live Postgres) ==="
+echo "=== auth (${listed} test(s) referencing TEST_DATABASE_URL, live Postgres) ==="
 GOWORK=off \
 	TEST_DATABASE_URL="$TEST_DSN" \
-	go test -race -count=1 -timeout=15m -run '^TestPgxAccountStore_' ./auth/...
+	go test -race -count=1 -timeout=15m -run "$run_pattern" ./auth/...
