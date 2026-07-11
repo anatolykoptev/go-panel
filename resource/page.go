@@ -30,6 +30,22 @@ type PageSpec struct {
 	// handler (e.g. []string{"overview"} mounts GET {basePath}/overview).
 	// Aliases are exact matches — no {$} pattern, no trailing-slash redirect.
 	Aliases []string
+
+	// Method is the HTTP method the route (Path and every Alias) is
+	// registered for. Empty ("") defaults to GET — the sole behavior before
+	// this field existed, so every pre-existing MountPage caller registers
+	// byte-identical patterns to before. Set to a specific method (e.g.
+	// http.MethodPost) to mount a state-changing action page — a form POST
+	// target — that must not be reachable via GET.
+	//
+	// A GET-form + POST-action pair at the SAME Path is two separate
+	// MountPage calls (Method:"" then Method:http.MethodPost): net/http's
+	// ServeMux treats "GET path" and "POST path" as distinct patterns, so
+	// both coexist without a duplicate-registration panic.
+	//
+	// Path:"" (the index override) must leave Method empty — MountPage
+	// panics otherwise; the index route is always GET-navigated.
+	Method string
 }
 
 // MountPage registers a custom admin page into the Panel's own mux, wrapped
@@ -58,15 +74,19 @@ func (p *Panel) MountPage(spec PageSpec) {
 	// the authenticator can't back a non-empty role, rather than failing open
 	// at request time.
 	guarded := p.guard(spec.RequiredRole, spec.Handler)
+	method := mountMethod(spec.Method)
 
 	suffix := strings.Trim(spec.Path, "/")
 	if suffix == "" {
+		if spec.Method != "" {
+			panic(`resource: MountPage Path:"" (index) must not set Method — the index route is always GET`)
+		}
 		if p.indexOverride != nil {
 			panic(`resource: MountPage called with Path:"" twice — only one page may be the index`)
 		}
 		p.indexOverride = guarded
 	} else {
-		p.mux.HandleFunc("GET "+p.basePath+"/"+suffix+"/{$}", guarded)
+		p.mux.HandleFunc(method+" "+p.basePath+"/"+suffix+"/{$}", guarded)
 	}
 
 	for _, alias := range spec.Aliases {
@@ -74,8 +94,18 @@ func (p *Panel) MountPage(spec PageSpec) {
 		if a == "" {
 			panic("resource: MountPage alias must not be empty")
 		}
-		p.mux.HandleFunc("GET "+p.basePath+"/"+a, guarded)
+		p.mux.HandleFunc(method+" "+p.basePath+"/"+a, guarded)
 	}
+}
+
+// mountMethod returns method, defaulting to GET when empty — see
+// PageSpec.Method's doc for why the default preserves every pre-existing
+// MountPage caller byte-for-byte.
+func mountMethod(method string) string {
+	if method == "" {
+		return http.MethodGet
+	}
+	return method
 }
 
 // finalize mounts the index route exactly once: the MountPage-supplied
