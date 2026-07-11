@@ -1,8 +1,10 @@
 package resource_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -453,5 +455,365 @@ func TestGuard_RoleGatedResource_RoutesThroughRequireRole(t *testing.T) {
 	// testResource mounts list + rows (no Detailer, no Writer) -> 2 RequireRole calls.
 	if gated < 2 {
 		t.Fatalf("expected the list+rows routes gated via RequireRole(%q), got %d gated calls: %v", "admin", gated, ra.gated)
+	}
+}
+
+// --- P1a tenant-resolution test suite ---
+//
+// Extends the TestListPage_TenantScopeApplied harness (newTestPanel + HMAC
+// login + Lister-capture) to cover: tenant.PathResolver wired at
+// Panel.Handler(), the fail-closed TenantAuthorizer seam composed by guard,
+// and the 2026-06-11 marker-guard regression class re-verified at the
+// Handler level (not just tenant.PathResolver in isolation).
+
+// newTenantTestPanel builds a Panel with the given TenantAuthorizer (nil ->
+// the fail-closed GlobalOnlyAuthorizer default) for the P1a suite. Mirrors
+// newTestPanel/newWriterPanel's HMAC auth shape so the shared
+// loginAndGetCookie helper works against it; carries CSRFKey so a Writer
+// route can also be mounted (TestHandler_MarkerGuard_NewFormPathResolvesGlobal).
+func newTenantTestPanel(authz tenant.Authorizer) *resource.Panel {
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath: "/admin",
+		Secure:   false,
+	})
+	return resource.New(resource.Config{
+		Title:            "Test Panel",
+		BasePath:         "/admin",
+		Auth:             a,
+		CSRFKey:          testCSRFKey,
+		TenantAuthorizer: authz,
+	})
+}
+
+// allowCityAuthorizer allows exactly the named CitySlug and denies every
+// other tenant.
+type allowCityAuthorizer struct{ allowed string }
+
+func (a allowCityAuthorizer) Authorized(_ context.Context, t tenant.Tenant) (bool, error) {
+	return t.CitySlug == a.allowed, nil
+}
+
+// denyAllAuthorizer denies every tenant, including the global default —
+// proves requireTenant enforces whatever the configured Authorizer decides
+// rather than special-casing global itself (GlobalOnlyAuthorizer is the one
+// that bakes in the global special-case, not requireTenant).
+type denyAllAuthorizer struct{}
+
+func (denyAllAuthorizer) Authorized(context.Context, tenant.Tenant) (bool, error) {
+	return false, nil
+}
+
+// erroringAuthorizer returns ok=true alongside a non-nil error — proves
+// requireTenant treats a non-nil error as DENY regardless of the bool
+// (fail-closed on a transient authorizer failure), not merely "deny when
+// ok==false".
+type erroringAuthorizer struct{}
+
+func (erroringAuthorizer) Authorized(context.Context, tenant.Tenant) (bool, error) {
+	return true, errors.New("authorizer: transient store error")
+}
+
+// TestHandler_TenantPrefixed_BindsResolvedCitySlugValue verifies that a
+// /admin/tenant/{slug}/... request binds the RESOLVED slug as the tenant
+// scope ARG — not merely that the scope column appears in WhereConds
+// (TestListPage_TenantScopeApplied only asserts the column name).
+func TestHandler_TenantPrefixed_BindsResolvedCitySlugValue(t *testing.T) {
+	var gotConds string
+	var gotArgs []any
+	p := newTenantTestPanel(allowCityAuthorizer{allowed: "msk"})
+	res := resource.Resource{
+		Name:  "venues",
+		Title: "Venues",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "name", Sortable: true, SQLExpr: "v.name"}},
+			DefaultKey: "name",
+			DefaultDir: admintable.Asc,
+		},
+		Scope: tenant.Scope{Column: "v.city_slug"},
+		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
+			gotConds = q.WhereConds
+			gotArgs = q.WhereArgs
+			return nil, 0, nil
+		},
+	}
+	resource.Register(p, res)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/tenant/msk/venues", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(gotConds, "v.city_slug") {
+		t.Fatalf("expected tenant scope column in WhereConds, got %q", gotConds)
+	}
+	if len(gotArgs) == 0 || gotArgs[len(gotArgs)-1] != "msk" {
+		t.Errorf("expected the bound tenant arg to be %q, got %v", "msk", gotArgs)
+	}
+}
+
+// TestHandler_BarePath_BindsGlobalCitySlugValue verifies backward-compat: a
+// request with no /tenant/{slug} prefix still binds the global "spb" VALUE
+// (not merely that a scope column is present in WhereConds).
+func TestHandler_BarePath_BindsGlobalCitySlugValue(t *testing.T) {
+	var gotArgs []any
+	p := newTenantTestPanel(nil) // nil -> defaults to GlobalOnlyAuthorizer
+	res := resource.Resource{
+		Name:  "listings",
+		Title: "Listings",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "name", Sortable: true, SQLExpr: "l.name"}},
+			DefaultKey: "name",
+			DefaultDir: admintable.Asc,
+		},
+		Scope: tenant.Scope{Column: "l.city_slug"},
+		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
+			gotArgs = q.WhereArgs
+			return nil, 0, nil
+		},
+	}
+	resource.Register(p, res)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/listings", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if len(gotArgs) == 0 || gotArgs[len(gotArgs)-1] != "spb" {
+		t.Errorf("expected the bound tenant arg to be the global %q, got %v", "spb", gotArgs)
+	}
+}
+
+// TestHandler_GlobalOnlyAuthorizer_DeniesNonGlobalTenant verifies the
+// fail-closed default: a /admin/tenant/msk/... request 403s under the
+// default (unconfigured) TenantAuthorizer.
+func TestHandler_GlobalOnlyAuthorizer_DeniesNonGlobalTenant(t *testing.T) {
+	p := newTenantTestPanel(nil)
+	res := resource.Resource{
+		Name:  "listings2",
+		Title: "Listings2",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "name", Sortable: true, SQLExpr: "l.name"}},
+			DefaultKey: "name",
+			DefaultDir: admintable.Asc,
+		},
+		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
+			return nil, 0, nil
+		},
+	}
+	resource.Register(p, res)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/tenant/msk/listings2", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (GlobalOnlyAuthorizer denies non-global), got %d\nbody: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandler_DenyAllAuthorizer_DeniesGlobalTenant verifies requireTenant
+// enforces the configured Authorizer's decision even for the global tenant —
+// it does not special-case global itself.
+func TestHandler_DenyAllAuthorizer_DeniesGlobalTenant(t *testing.T) {
+	p := newTenantTestPanel(denyAllAuthorizer{})
+	res := resource.Resource{
+		Name:  "listings3",
+		Title: "Listings3",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "name", Sortable: true, SQLExpr: "l.name"}},
+			DefaultKey: "name",
+			DefaultDir: admintable.Asc,
+		},
+		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
+			return nil, 0, nil
+		},
+	}
+	resource.Register(p, res)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/listings3", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (deny-all must deny even the global tenant), got %d\nbody: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandler_ErroringAuthorizer_DeniesEvenWhenBoolTrue proves a non-nil
+// Authorizer error is treated as DENY regardless of the bool it accompanies —
+// fail-closed on a transient failure, never fail-open.
+func TestHandler_ErroringAuthorizer_DeniesEvenWhenBoolTrue(t *testing.T) {
+	p := newTenantTestPanel(erroringAuthorizer{})
+	res := resource.Resource{
+		Name:  "listings4",
+		Title: "Listings4",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "name", Sortable: true, SQLExpr: "l.name"}},
+			DefaultKey: "name",
+			DefaultDir: admintable.Asc,
+		},
+		Lister: func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) {
+			return nil, 0, nil
+		},
+	}
+	resource.Register(p, res)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/listings4", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (error must deny even when ok==true), got %d\nbody: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandler_MarkerGuard_NonTenantSegmentsResolveGlobal is the Handler-level
+// twin of tenant.TestPathResolver_IgnoresNonTenantSegments: the 2026-06-11
+// class (a route segment misread as a city slug) must not resurface now that
+// resolution is actually wired into Panel.Handler.
+func TestHandler_MarkerGuard_NonTenantSegmentsResolveGlobal(t *testing.T) {
+	var gotTenant tenant.Tenant
+	p := newTenantTestPanel(nil)
+	res := resource.Resource{
+		Name:  "rating_sponsorships",
+		Title: "Rating Sponsorships",
+		Sort: admintable.Spec{
+			Columns:    []admintable.Column{{Key: "name", Sortable: true, SQLExpr: "r.name"}},
+			DefaultKey: "name",
+			DefaultDir: admintable.Asc,
+		},
+		Scope: tenant.Scope{Column: "r.city_slug"},
+		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
+			gotTenant = q.Tenant
+			return nil, 0, nil
+		},
+	}
+	resource.Register(p, res)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	// "rows" sits at Segment=2 — the exact position tenant.PathResolver reads
+	// for the slug. Pre-marker-guard, this resolved city "rows".
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/rating_sponsorships/rows", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if gotTenant.CitySlug != "spb" {
+		t.Errorf("marker-guard regression: %q misread as a tenant slug, got %q, want global spb",
+			"rows", gotTenant.CitySlug)
+	}
+}
+
+// TestHandler_MarkerGuard_NewFormPathResolvesGlobal covers the literal shape
+// of the 2026-06-11 incident: GET /admin/{resource}/new, where "new" sits at
+// the slug position but the preceding segment is the resource name, not the
+// literal "tenant" marker.
+func TestHandler_MarkerGuard_NewFormPathResolvesGlobal(t *testing.T) {
+	var gotTenant tenant.Tenant
+	p := newTenantTestPanel(nil)
+	r := testResource // Name: "items", already tenant.Scope'd
+	r.Writer = &resource.Writer{
+		Form: resource.FormSpec{
+			Fields: []resource.Field{
+				{
+					Key: "category", Label: "Category", Kind: resource.FieldSelect,
+					OptionsFunc: func(_ context.Context, t tenant.Tenant) ([]resource.Option, error) {
+						gotTenant = t
+						return []resource.Option{{Value: "a", Label: "A"}}, nil
+					},
+				},
+			},
+		},
+		Load: func(context.Context, tenant.Tenant, string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		Save: func(context.Context, tenant.Tenant, string, map[string]string) error { return nil },
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items/new", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if gotTenant.CitySlug != "spb" {
+		t.Errorf("marker-guard regression: %q misread as a tenant slug on the /new route, got %q, want global spb",
+			"new", gotTenant.CitySlug)
+	}
+}
+
+// TestNew_WarnsWhenTenantAuthorizerDefaults verifies the construction-time
+// signal: when Config.TenantAuthorizer is left nil (defaulting to
+// GlobalOnlyAuthorizer), New emits a greppable slog.Warn — the only runtime
+// signal against a future silent cross-tenant exposure per the ADR.
+func TestNew_WarnsWhenTenantAuthorizerDefaults(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath: "/admin",
+		Secure:   false,
+	})
+	resource.New(resource.Config{Title: "Test Panel", BasePath: "/admin", Auth: a})
+
+	if !strings.Contains(buf.String(), "tenant authorization not configured") {
+		t.Errorf("expected a construction-time WARN naming the unconfigured tenant authorization, got log output: %s", buf.String())
+	}
+}
+
+// TestNew_NoWarnWhenTenantAuthorizerConfigured is the falsification pair for
+// the above: an explicitly configured TenantAuthorizer must NOT trigger the
+// default-in-use warning.
+func TestNew_NoWarnWhenTenantAuthorizerConfigured(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username: "admin",
+		Password: "secret",
+		HMACKey:  []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath: "/admin",
+		Secure:   false,
+	})
+	resource.New(resource.Config{
+		Title:            "Test Panel",
+		BasePath:         "/admin",
+		Auth:             a,
+		TenantAuthorizer: tenant.GlobalOnlyAuthorizer{},
+	})
+
+	if strings.Contains(buf.String(), "tenant authorization not configured") {
+		t.Errorf("did not expect the default-authorizer WARN when TenantAuthorizer is explicitly set, got: %s", buf.String())
 	}
 }

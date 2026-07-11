@@ -5,6 +5,16 @@
 // "Single instance + city slug" (KudaGo runs 17 cities this way).
 // Anything heavier (per-tenant DB, per-tenant schema) is out of scope.
 //
+// Routing mutation: PathResolver.StripPrefix is the one function in this
+// package that is NOT pure-read — it rewrites a request path, removing the
+// /tenant/{slug} segment pair the marker guard requires, so the underlying
+// mux pattern (e.g. "GET /admin/{name}") can match. Callers must invoke it
+// exactly once, before mux dispatch (resource.Panel.Handler does this via its
+// withTenantResolution wrap) — calling it later, or from more than one
+// composition point, risks stripping a segment the mux has already routed
+// on. StripPrefix itself never mutates a shared *http.Request/*url.URL; the
+// caller owns cloning before assigning the rewritten path back.
+//
 // Usage:
 //
 //	// At request entry (via Middleware):
@@ -120,6 +130,31 @@ func (pr PathResolver) Resolve(r *http.Request) Tenant {
 		}
 	}
 	return global
+}
+
+// StripPrefix removes the /tenant/{slug} segment pair from path, using the
+// SAME Segment field and tenantPathMarker guard as Resolve — so resolution
+// and stripping share one source of truth and cannot diverge by
+// construction.
+//
+// Returns (path, false) unchanged — byte-for-byte, not merely equivalent —
+// whenever the marker segment is absent at Segment-1 or the slug segment is
+// empty, mirroring Resolve's own fallback-to-global guard exactly. Returns
+// (rewritten, true) when the pair is removed.
+//
+// Pure: StripPrefix never mutates a shared *http.Request or *url.URL. The
+// caller (resource.Panel's withTenantResolution) is responsible for cloning
+// before assigning the returned path back onto a request — see the package
+// doc's routing-mutation note.
+func (pr PathResolver) StripPrefix(path string) (string, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if pr.Segment >= 1 && pr.Segment < len(parts) && parts[pr.Segment-1] == tenantPathMarker {
+		if parts[pr.Segment] != "" {
+			rest := append(append([]string{}, parts[:pr.Segment-1]...), parts[pr.Segment+1:]...)
+			return "/" + strings.Join(rest, "/"), true
+		}
+	}
+	return path, false
 }
 
 // SubdomainResolver resolves a Tenant from the Host header subdomain:
