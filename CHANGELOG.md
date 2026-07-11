@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.0](https://github.com/anatolykoptev/go-panel/compare/v0.18.0...v0.19.0) (2026-07-11)
+
+
+### Features
+
+* **auth:** fail-closed login RateLimiter hook + LoginHandler decomposition + login-outcome metrics ([#82](https://github.com/anatolykoptev/go-panel/issues/82)) ([f00d338](https://github.com/anatolykoptev/go-panel/commit/f00d3386c75d3110fbe01e89d45f5c35fc9f0548))
+* **auth:** observable session-recheck degrade + RevocationFailClosed opt-in ([#80](https://github.com/anatolykoptev/go-panel/issues/80)) ([890606a](https://github.com/anatolykoptev/go-panel/commit/890606ad90749a8078c036a1d44f31e81bc6a346))
+* **auth:** server-rendered TOTP enrollment UI (enroll/QR/confirm/disable/regen) ([#85](https://github.com/anatolykoptev/go-panel/issues/85)) ([00404bf](https://github.com/anatolykoptev/go-panel/commit/00404bfb4cd98aa88e1dec6087dc479eaeb58a9f))
+* **tenant:** wire tenant resolution + fail-closed authz seam (P1a) ([#86](https://github.com/anatolykoptev/go-panel/issues/86)) ([b8da0b2](https://github.com/anatolykoptev/go-panel/commit/b8da0b2c2eeb4793b102a0c404889a2d6608cb99))
+
 ## [0.18.0](https://github.com/anatolykoptev/go-panel/compare/v0.17.0...v0.18.0) (2026-07-10)
 
 
