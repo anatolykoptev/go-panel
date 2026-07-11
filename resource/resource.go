@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +57,12 @@ const (
 	// request. It is rejected with 404 on detail/edit routes (which require an
 	// existing record) and treated as a create signal by the save handler.
 	idNew = "new"
+	// tenantAuthzDefaultWarning is the stable, greppable message New logs
+	// once at construction when Config.TenantAuthorizer is left nil
+	// (defaulting to tenant.GlobalOnlyAuthorizer) — the only runtime signal
+	// against a silent cross-tenant exposure once a second tenant becomes
+	// resolvable. Keep this string stable: Loki/dozor alerting keys off it.
+	tenantAuthzDefaultWarning = "panel: tenant authorization not configured, defaulting to GlobalOnlyAuthorizer"
 )
 
 // Cell is one table cell value.
@@ -188,13 +195,21 @@ type Panel struct {
 		LoginHandler() http.Handler
 		LogoutHandler() http.Handler
 	}
-	resolver   tenant.Resolver
-	basePath   string
-	nav        []shell.NavItem
-	title      string
-	csrfKey    []byte
-	locales    locale.Set          // configured i18n locales; zero value = single-locale
-	profileCfg shell.ProfileConfig // static defaults for the sidebar profile block
+	// resolver resolves the per-request Tenant; read by withTenantResolution
+	// in Handler() — the one place tenant resolution happens (see the tenant
+	// package doc's routing-mutation note).
+	resolver tenant.Resolver
+	// tenantAuthz decides whether the resolved Tenant may be accessed by the
+	// current session; composed into every guarded route via requireTenant.
+	// Never nil after New() — defaults to tenant.GlobalOnlyAuthorizer{}
+	// (fail-closed: allow the global tenant, deny every other one).
+	tenantAuthz tenant.Authorizer
+	basePath    string
+	nav         []shell.NavItem
+	title       string
+	csrfKey     []byte
+	locales     locale.Set          // configured i18n locales; zero value = single-locale
+	profileCfg  shell.ProfileConfig // static defaults for the sidebar profile block
 
 	// indexOverride is set once via MountPage(PageSpec{Path: ""}) before the
 	// mux is finalized; it replaces the default handleIndex at GET {basePath}/{$}.
@@ -255,6 +270,15 @@ type Config struct {
 		LogoutHandler() http.Handler
 	}
 	Resolver tenant.Resolver // nil = PathResolver{Segment:2}
+	// TenantAuthorizer decides whether a resolved Tenant may be accessed by
+	// the current session. nil (the default) resolves to
+	// tenant.GlobalOnlyAuthorizer{} — fail-closed: allows the global tenant
+	// (today's only reachable one) and denies every other tenant. New logs a
+	// construction-time WARN when this defaults (see
+	// tenantAuthzDefaultWarning) — the only runtime signal against a
+	// silently permissive state once a second tenant becomes resolvable. A
+	// real multi-tenant deployment must configure an explicit Authorizer.
+	TenantAuthorizer tenant.Authorizer
 	// CSRFKey is the HMAC signing key for CSRF double-submit tokens.
 	// Required when any Resource has a non-nil Writer; omitting it causes
 	// a panic at Register time (fail-closed configuration).
@@ -284,14 +308,26 @@ func New(cfg Config) *Panel {
 	if resolver == nil {
 		resolver = tenant.PathResolver{Segment: 2}
 	}
+	tenantAuthz := cfg.TenantAuthorizer
+	if tenantAuthz == nil {
+		tenantAuthz = tenant.GlobalOnlyAuthorizer{}
+		// resolver is always set above (defaulted to PathResolver{Segment:2}
+		// when unconfigured), and every Resolver this repo ships can
+		// plausibly resolve a non-global tenant — there is no "resolver
+		// incapable of non-global" case to gate on, so an unconfigured
+		// TenantAuthorizer is loud unconditionally rather than only for some
+		// resolver configurations.
+		slog.Warn(tenantAuthzDefaultWarning, "resolver", fmt.Sprintf("%T", resolver))
+	}
 	p := &Panel{
-		mux:      http.NewServeMux(),
-		auth:     cfg.Auth,
-		resolver: resolver,
-		basePath: bp,
-		title:    title,
-		csrfKey:  cfg.CSRFKey,
-		locales:  cfg.Locales,
+		mux:         http.NewServeMux(),
+		auth:        cfg.Auth,
+		resolver:    resolver,
+		tenantAuthz: tenantAuthz,
+		basePath:    bp,
+		title:       title,
+		csrfKey:     cfg.CSRFKey,
+		locales:     cfg.Locales,
 	}
 	// Mount standard routes.
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
@@ -311,9 +347,75 @@ func New(cfg Config) *Panel {
 // The first call finalizes the mux: it mounts the index route (a MountPage
 // custom index if one was registered via PageSpec{Path: ""}, otherwise the
 // default handleIndex). MountPage calls after Handler() has been called panic.
+//
+// The returned handler is wrapped with withTenantResolution — the single
+// composition point where p.resolver actually runs (see the tenant package
+// doc's routing-mutation note). Tenant AUTHORIZATION is enforced separately,
+// per-route, by guard (via requireTenant); resolution here only decides which
+// tenant a request names.
 func (p *Panel) Handler() http.Handler {
 	p.finalize()
-	return p.mux
+	return withTenantResolution(p.resolver, p.mux)
+}
+
+// withTenantResolution wraps next with the panel's single tenant-resolution
+// composition point: resolve a Tenant from the request via resolver, strip a
+// concrete tenant.PathResolver's /tenant/{slug} marker pair from the path so
+// the mux can match the underlying resource route (mirrors the
+// http.StripPrefix idiom used for the static-asset mount in New — shallow-copy
+// the request and URL rather than mutate the caller's), store the resolved
+// Tenant on the request context via tenant.WithTenant, then serve.
+//
+// Resolve runs BEFORE strip, on the UNSTRIPPED path, which makes this
+// idempotent: wrapping an already-resolved request a second time (e.g.
+// go-grad's outer tenant.Middleware during the Phase 1a/1b rollout interim)
+// re-derives the identical Tenant from the same marker-guarded path shape,
+// and the second strip is a no-op on the already-stripped path.
+//
+// Only a concrete tenant.PathResolver is stripped — a type-switch, not a new
+// exported interface, since exactly two Resolver implementations exist
+// repo-wide (see the P1a ADR). tenant.SubdomainResolver carries no path
+// prefix to remove.
+//
+// Matches both tenant.PathResolver and *tenant.PathResolver: Resolve has a
+// value receiver, so a config-time &tenant.PathResolver{...} also satisfies
+// tenant.Resolver and is a realistic construction — matching the value form
+// only would silently skip the strip step for it (tenant-prefixed routes
+// would 404 at mux dispatch instead of matching; fail-closed, but a latent
+// footgun worth avoiding outright).
+func withTenantResolution(resolver tenant.Resolver, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t := resolver.Resolve(r)
+		ctx := tenant.WithTenant(r.Context(), t)
+
+		var pr tenant.PathResolver
+		switch v := resolver.(type) {
+		case tenant.PathResolver:
+			pr = v
+		case *tenant.PathResolver:
+			if v == nil {
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			pr = *v
+		default:
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		stripped, changed := pr.StripPrefix(r.URL.Path)
+		if !changed {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		// Shallow-copy r and r.URL before rewriting Path — never mutate the
+		// caller's *http.Request (mirrors net/http.StripPrefix).
+		r2 := new(http.Request)
+		*r2 = *r
+		r2.URL = new(url.URL)
+		*r2.URL = *r.URL
+		r2.URL.Path = stripped
+		next.ServeHTTP(w, r2.WithContext(ctx))
+	})
 }
 
 // handleIndex serves GET {basePath}/{$} (the bare base path).
@@ -480,8 +582,9 @@ func validateRoleConfig(p *Panel, r Resource) {
 
 // guard wraps h with the panel's authentication and, when requiredRole is
 // non-empty, additionally enforces the role via the RoleAuthenticator
-// capability. For an empty role it is exactly p.auth.Require — no behaviour
-// change for resources that declare no RequiredRole.
+// capability. For an empty role it is exactly p.auth.Require(requireTenant(h))
+// — no auth-flow behaviour change for resources that declare no RequiredRole,
+// tenant-authz composed identically for every route regardless of role.
 //
 // A non-empty role requires p.auth to implement RoleAuthenticator. guard has
 // two callers: Register, which pre-validates this via validateRoleConfig (so
@@ -489,7 +592,19 @@ func validateRoleConfig(p *Panel, r Resource) {
 // was bypassed), and MountPage, which has no separate pre-check and relies on
 // guard itself to validate eagerly at mount time. Either way we fail closed
 // (panic at mount) rather than fail open.
+//
+// requireTenant is composed here as the innermost wrap around h — the LAST
+// check before the resource handler runs. For an empty role it runs right
+// after auth.Require's session check (there is no role check). For a
+// role-gated route it runs AFTER the role check too: guard hands
+// requireTenant(h) to RequireRole as RequireRole's OWN "next", so
+// RequireRole's session+role checks execute first and only reach
+// requireTenant (then h) once both pass. A single straight-line call —
+// deliberately not inlined — so guard's own cyclomatic complexity is
+// unchanged by tenant-authz; mirrors how role-gating is delegated to a
+// separate RequireRole call rather than inlined branching.
 func (p *Panel) guard(requiredRole string, h http.HandlerFunc) http.HandlerFunc {
+	h = p.requireTenant(h)
 	if requiredRole == "" {
 		return p.auth.Require(h)
 	}
@@ -498,6 +613,33 @@ func (p *Panel) guard(requiredRole string, h http.HandlerFunc) http.HandlerFunc 
 		panic(fmt.Sprintf("resource: guard called with role %q but the authenticator does not implement RoleAuthenticator (fail-closed)", requiredRole))
 	}
 	return ra.RequireRole(requiredRole, h)
+}
+
+// requireTenant returns a handler that enforces p.tenantAuthz against the
+// Tenant resolved onto the request context (by withTenantResolution, which
+// runs before mux dispatch — see Handler), denying with 403 when Authorized
+// returns false OR a non-nil error. The two are treated identically: a
+// transient authorizer failure must fail closed, never fail open.
+//
+// Composed by guard for every route (list/detail/rows-fragment/new/edit/save)
+// regardless of RequiredRole — tenant-authz and role-authz are orthogonal
+// gates, both must pass.
+func (p *Panel) requireTenant(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		t := tenant.From(r.Context())
+		ok, err := p.tenantAuthz.Authorized(r.Context(), t)
+		if err != nil || !ok {
+			slog.WarnContext(r.Context(), "resource: tenant-denied",
+				"tenant", t.CitySlug,
+				"path", r.URL.Path,
+				"method", r.Method,
+				"err", err,
+			)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
 }
 
 // ErrDetailNotFound may be returned by Detailer to signal a 404.

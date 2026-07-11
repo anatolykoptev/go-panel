@@ -107,3 +107,99 @@ func TestPathResolver_IgnoresNonTenantSegments(t *testing.T) {
 		}
 	}
 }
+
+// TestPathResolver_StripPrefix_RemovesMarkerAndSlug verifies the happy path:
+// the /tenant/{slug} segment pair is removed, leaving the rest of the path
+// intact.
+func TestPathResolver_StripPrefix_RemovesMarkerAndSlug(t *testing.T) {
+	pr := tenant.PathResolver{Segment: 2}
+	got, changed := pr.StripPrefix("/admin/tenant/msk/entities")
+	if !changed {
+		t.Fatal("expected changed=true when the marker+slug are present")
+	}
+	if got != "/admin/entities" {
+		t.Errorf("got %q, want /admin/entities", got)
+	}
+}
+
+// TestPathResolver_StripPrefix_MinimalPath verifies stripping when the slug
+// is the last segment (nothing follows it).
+func TestPathResolver_StripPrefix_MinimalPath(t *testing.T) {
+	pr := tenant.PathResolver{Segment: 2}
+	got, changed := pr.StripPrefix("/admin/tenant/msk")
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	if got != "/admin" {
+		t.Errorf("got %q, want /admin", got)
+	}
+}
+
+// TestPathResolver_StripPrefix_PreservesPathUnchangedWhenMarkerAbsent proves
+// the no-op branch returns the ORIGINAL path byte-for-byte (not a trimmed or
+// otherwise normalised version) — StripPrefix must never mutate what it does
+// not own.
+func TestPathResolver_StripPrefix_PreservesPathUnchangedWhenMarkerAbsent(t *testing.T) {
+	pr := tenant.PathResolver{Segment: 2}
+	const in = "/admin/entities/"
+	got, changed := pr.StripPrefix(in)
+	if changed {
+		t.Fatal("expected changed=false when no /tenant/{slug} marker is present")
+	}
+	if got != in {
+		t.Errorf("got %q, want the input unchanged %q", got, in)
+	}
+}
+
+// TestPathResolver_StripPrefix_EmptySlugFallsBack mirrors Resolve's own
+// slug!="" guard: a marker with an empty slug segment must not strip.
+func TestPathResolver_StripPrefix_EmptySlugFallsBack(t *testing.T) {
+	pr := tenant.PathResolver{Segment: 2}
+	const in = "/admin/tenant//entities"
+	got, changed := pr.StripPrefix(in)
+	if changed {
+		t.Fatal("expected changed=false for an empty slug segment")
+	}
+	if got != in {
+		t.Errorf("got %q, want the input unchanged %q", got, in)
+	}
+}
+
+// TestPathResolver_StripPrefix_IgnoresNonTenantSegments is the StripPrefix
+// twin of TestPathResolver_IgnoresNonTenantSegments: the exact same 2026-06-11
+// path shapes must no-op at the strip level too, proving Resolve and
+// StripPrefix share one marker guard by construction rather than two
+// independently-maintained checks that could drift apart.
+func TestPathResolver_StripPrefix_IgnoresNonTenantSegments(t *testing.T) {
+	pr := tenant.PathResolver{Segment: 2}
+	for _, path := range []string{
+		"/admin/rating_sponsorships/new",
+		"/admin/rating_segments/5/edit",
+		"/admin/rating_segments/5/save",
+		"/admin/places/rows",
+	} {
+		got, changed := pr.StripPrefix(path)
+		if changed || got != path {
+			t.Errorf("%s: expected no-op (changed=false, path unchanged), got (%q, %v)", path, got, changed)
+		}
+	}
+}
+
+// TestPathResolver_StripPrefix_IdempotentOnAlreadyStrippedPath verifies that
+// calling StripPrefix on its own output is a no-op — required for the
+// Handler-level wrap to be safely idempotent under the Phase 1a/1b rollout
+// interim (see tenant package doc).
+func TestPathResolver_StripPrefix_IdempotentOnAlreadyStrippedPath(t *testing.T) {
+	pr := tenant.PathResolver{Segment: 2}
+	once, changed := pr.StripPrefix("/admin/tenant/msk/entities")
+	if !changed {
+		t.Fatal("first strip should have changed the path")
+	}
+	twice, changedAgain := pr.StripPrefix(once)
+	if changedAgain {
+		t.Fatal("second strip on already-stripped path should be a no-op")
+	}
+	if twice != once {
+		t.Errorf("got %q, want %q unchanged", twice, once)
+	}
+}
