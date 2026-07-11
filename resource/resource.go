@@ -376,13 +376,29 @@ func (p *Panel) Handler() http.Handler {
 // exported interface, since exactly two Resolver implementations exist
 // repo-wide (see the P1a ADR). tenant.SubdomainResolver carries no path
 // prefix to remove.
+//
+// Matches both tenant.PathResolver and *tenant.PathResolver: Resolve has a
+// value receiver, so a config-time &tenant.PathResolver{...} also satisfies
+// tenant.Resolver and is a realistic construction — matching the value form
+// only would silently skip the strip step for it (tenant-prefixed routes
+// would 404 at mux dispatch instead of matching; fail-closed, but a latent
+// footgun worth avoiding outright).
 func withTenantResolution(resolver tenant.Resolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t := resolver.Resolve(r)
 		ctx := tenant.WithTenant(r.Context(), t)
 
-		pr, ok := resolver.(tenant.PathResolver)
-		if !ok {
+		var pr tenant.PathResolver
+		switch v := resolver.(type) {
+		case tenant.PathResolver:
+			pr = v
+		case *tenant.PathResolver:
+			if v == nil {
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			pr = *v
+		default:
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -577,11 +593,16 @@ func validateRoleConfig(p *Panel, r Resource) {
 // guard itself to validate eagerly at mount time. Either way we fail closed
 // (panic at mount) rather than fail open.
 //
-// requireTenant is composed here (AFTER auth sets the session, BEFORE the
-// role check) as a single straight-line call — deliberately not inlined —
-// so guard's own cyclomatic complexity is unchanged by tenant-authz; mirrors
-// how role-gating is delegated to a separate RequireRole call rather than
-// inlined branching.
+// requireTenant is composed here as the innermost wrap around h — the LAST
+// check before the resource handler runs. For an empty role it runs right
+// after auth.Require's session check (there is no role check). For a
+// role-gated route it runs AFTER the role check too: guard hands
+// requireTenant(h) to RequireRole as RequireRole's OWN "next", so
+// RequireRole's session+role checks execute first and only reach
+// requireTenant (then h) once both pass. A single straight-line call —
+// deliberately not inlined — so guard's own cyclomatic complexity is
+// unchanged by tenant-authz; mirrors how role-gating is delegated to a
+// separate RequireRole call rather than inlined branching.
 func (p *Panel) guard(requiredRole string, h http.HandlerFunc) http.HandlerFunc {
 	h = p.requireTenant(h)
 	if requiredRole == "" {
