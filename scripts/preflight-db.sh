@@ -84,12 +84,45 @@ if [ "$ready" -ne 1 ]; then
 fi
 echo "--- Postgres ready ---"
 
-echo "=== auth ==="
-# GOMAXPROCS=2 (not the default = all cores): krolik is a shared 4-core box
-# also running prod services + other repos' CI — this step must not starve a
-# concurrent build. `-race` already multiplies CPU/memory overhead on its
-# own, so capping cores here matters more than it looks.
-GOMAXPROCS=2 \
-	GOWORK=off \
-	TEST_DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}?sslmode=disable" \
-	go test -race -count=1 ./auth/...
+TEST_DSN="postgres://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}?sslmode=disable"
+
+# Scoped to the TestPgxAccountStore_* tests, not the whole ./auth/... package.
+# Measured live on this runner (2026-07-10): setting TEST_DATABASE_URL to any
+# new value invalidates Go's test cache for the WHOLE package (confirmed
+# empirically — it is not tracked per-test), so a plain `go test ./auth/...`
+# here forces every test in the package to execute fresh, including ~20
+# bcrypt.GenerateFromPassword/CompareHashAndPassword calls at
+# auth.DefaultBcryptCost=12 (each individually measured 10-30s under -race on
+# this ARM box). That is genuinely slow enough on its own (3m41s in an
+# unconstrained interactive shell) to blow Go's default 10m test timeout once
+# this step also runs under actions-runner-go-panel.service's CPUQuota=150%
+# cgroup on a contended shared box — it did, on the first real CI run of this
+# script (job 29133254017: "panic: test timed out after 10m0s", mid
+# TestBcrypt_RevocationFailClosed_DeniesOnTransientError, not even a
+# DB-touching test). Every TestPgxAccountStore_* test in this package tests
+# PgxAccountStore specifically and is Postgres-backed by construction
+# (verified against both main and the in-flight TOTP branch,
+# feat/auth-totp-crypto: RoundTrip today, plus TOTPEnrollmentLifecycle /
+# ConsumeTOTPStep_ReplayGuard / RecoveryCodes_SingleUse /
+# StoreRecoveryCodes_ReplacesPriorSet / DisableTOTP_ClearsRecoveryCodes /
+# TOTPStore_UnknownAccountNotFound once it merges) — filtering to that prefix
+# runs exactly the tests this script exists for, at a fraction of the cost,
+# and leaves the OTHER ~30 non-DB auth tests to the existing
+# `go test -race ./...` step, which already covers them.
+#
+# Guard against the filter silently going stale (a future DB-gated test added
+# under a different name would otherwise skip here with nothing to say so):
+# `go test -list` enumerates matching test names without running them, same
+# spirit as go-grad's preflight-db.sh refusing to silently run zero packages.
+matched=$(GOWORK=off go test -list '^TestPgxAccountStore_' ./auth/... 2>/dev/null | grep -c '^TestPgxAccountStore_' || true)
+if [ "$matched" -eq 0 ]; then
+	echo "FATAL: -run '^TestPgxAccountStore_' matched zero tests in ./auth/... — the" >&2
+	echo "filter no longer matches anything (renamed? convention changed?)." >&2
+	echo "Refusing to silently report success while running zero DB-gated tests." >&2
+	exit 1
+fi
+
+echo "=== auth (${matched} TestPgxAccountStore_* test(s), live Postgres) ==="
+GOWORK=off \
+	TEST_DATABASE_URL="$TEST_DSN" \
+	go test -race -count=1 -timeout=15m -run '^TestPgxAccountStore_' ./auth/...

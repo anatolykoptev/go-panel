@@ -35,9 +35,10 @@ jobs:
       # ever set that var, so it never ran in CI (silent coverage gap since
       # PR #34). scripts/preflight-db.sh provisions an ephemeral Postgres
       # (docker-assigned port, torn down via trap on exit) and sets
-      # TEST_DATABASE_URL for this step only, scoped to ./auth/... (the only
-      # DB-gated package today — see the script for why this stays simpler
-      # than go-grad's per-package-database pattern).
+      # TEST_DATABASE_URL for the TestPgxAccountStore_* tests only (the
+      # DB-gated ones — see the script for why it filters by test name
+      # instead of running the whole ./auth/... package, and why that isn't
+      # optional on this runner).
       - name: DB-gated tests (auth, ephemeral Postgres)
         run: ./scripts/preflight-db.sh
       - uses: golangci/golangci-lint-action@v8
