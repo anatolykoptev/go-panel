@@ -77,16 +77,36 @@ func groupCode(s string, groupSize int) string {
 	return b.String()
 }
 
-// normalizeRecoveryCode uppercases and strips dashes/whitespace so a
-// user-submitted code hashes identically regardless of casing or how they
-// copy/typed the dash grouping.
+// normalizeRecoveryCode uppercases, strips dashes/whitespace, and folds
+// Crockford's documented visually-ambiguous letters to the digit they're
+// meant to represent (https://www.crockford.com/base32.html: "the letter O
+// will be interpreted as zero, the letters I and L will be interpreted as
+// one") — so a user-submitted code hashes identically regardless of
+// casing, dash grouping, OR a misread/mistyped O-for-0 / I-or-L-for-1.
+//
+// This is safe from a collision standpoint, not just convenient: a
+// GENERATED code (recoveryCodeEncoding, see GenerateRecoveryCodes) never
+// contains O, I, or L — the Crockford alphabet excludes all three
+// specifically so they're free to be reinterpreted as their look-alike
+// digit on the way in. Folding them here can only make a mistyped
+// character converge on the ONE digit it could have meant; it can never
+// make two DIFFERENT valid generated codes collide. U is intentionally NOT
+// folded — Crockford excludes U to reduce accidental profanity, not for
+// visual ambiguity with any digit, so there is no digit to fold it to.
 func normalizeRecoveryCode(code string) string {
 	var b strings.Builder
 	for _, r := range code {
 		if r == '-' || unicode.IsSpace(r) {
 			continue
 		}
-		b.WriteRune(unicode.ToUpper(r))
+		r = unicode.ToUpper(r)
+		switch r {
+		case 'O':
+			r = '0'
+		case 'I', 'L':
+			r = '1'
+		}
+		b.WriteRune(r)
 	}
 	return b.String()
 }

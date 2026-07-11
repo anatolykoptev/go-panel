@@ -114,6 +114,44 @@ func TestHashRecoveryCode_NormalizesCaseWhitespaceAndDashes(t *testing.T) {
 	}
 }
 
+// TestHashRecoveryCode_FoldsCrockfordAmbiguousChars falsifies the exact
+// gap a crypto review found: without folding, a user who transcribes '0'
+// as 'O' (or '1' as 'I'/'L' -- both excluded from the Crockford alphabet
+// specifically because they're easy to misread) gets a fail-closed reject
+// against their own correctly-issued code.
+func TestHashRecoveryCode_FoldsCrockfordAmbiguousChars(t *testing.T) {
+	const canonical = "0123-456J-KMNP" // real Crockford digits/letters only
+	want := auth.HashRecoveryCode(canonical)
+
+	cases := []struct {
+		name        string
+		transcribed string
+	}{
+		{"O-for-0_I-for-1", "OI23-456J-KMNP"},
+		{"L-for-1", "0L23-456J-KMNP"},
+		{"lowercase-o-for-0", "o123-456j-kmnp"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := auth.HashRecoveryCode(c.transcribed); !bytes.Equal(got, want) {
+				t.Errorf("HashRecoveryCode(%q) = %x, want %x (Crockford O/I/L must fold to 0/1/1)", c.transcribed, got, want)
+			}
+		})
+	}
+}
+
+// TestHashRecoveryCode_DoesNotFoldU pins the OTHER half of the fix: U is
+// excluded from Crockford's alphabet to avoid accidental profanity, not
+// for visual ambiguity with a digit -- it must NOT fold to anything, or a
+// mistyped code could wrongly match a real one it merely resembles.
+func TestHashRecoveryCode_DoesNotFoldU(t *testing.T) {
+	real := auth.HashRecoveryCode("0123-456J-KMNP")
+	withU := auth.HashRecoveryCode("0123-456J-KMNU")
+	if bytes.Equal(real, withU) {
+		t.Fatal("'U' must not fold to any digit -- a code containing it matched one that doesn't")
+	}
+}
+
 func TestHashRecoveryCode_DifferentCodesHashDifferently(t *testing.T) {
 	h1 := auth.HashRecoveryCode("AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AA")
 	h2 := auth.HashRecoveryCode("BBBB-BBBB-BBBB-BBBB-BBBB-BBBB-BB")

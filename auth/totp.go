@@ -17,6 +17,11 @@ import (
 // matching both pquerna/otp's own totp.Validate default and Google
 // Authenticator's documented tolerance. Values above 1 widen the guessable
 // window and are "likely sketchy" per pquerna/otp's own doc comment.
+//
+// DO NOT use this for a call whose true result feeds
+// TOTPStore.ConsumeTOTPStep (a login or enrollment-confirm verification
+// step) — see ValidateTOTPCode's doc for why pairing skew>0 with the
+// replay guard opens a replay window, and what to pass instead.
 const DefaultTOTPSkew uint = 1
 
 // totpPeriod is the RFC 6238 rotation period in seconds. Left at the
@@ -102,10 +107,33 @@ func GenerateQRPNG(key *otp.Key, width, height int) ([]byte, error) {
 // (verified against the pquerna/otp v1.5.0 source, hotp/hotp.go).
 //
 // This checks CODE VALIDITY ONLY — it does not consult or advance the
-// replay guard (TOTPStore.ConsumeTOTPStep). A caller MUST also call
-// ConsumeTOTPStep (keyed by TOTPStepAt(time.Now())) on a true result
-// before treating the login/confirm as authoritative, or the same code
-// stays usable for the rest of its validity window.
+// replay guard (TOTPStore.ConsumeTOTPStep).
+//
+// # Pairing with ConsumeTOTPStep — READ BEFORE WIRING A VERIFY/LOGIN PATH
+//
+// A caller that treats a true result as authoritative (login, enrollment
+// confirm — anywhere ConsumeTOTPStep is then called to enforce single-use)
+// MUST call with skew=0 and then consume EXACTLY TOTPStepAt(t) (the same t
+// passed here). Do NOT pass DefaultTOTPSkew, or any skew>0, to a call
+// paired with ConsumeTOTPStep(TOTPStepAt(now())) — that pairing is a
+// replay hole, not merely a redundant check:
+//
+// With skew=1, a code is accepted for any of steps {N-1, N, N+1} relative
+// to the CURRENT step N — but the step you'd consume from
+// TOTPStepAt(now()) is always N, regardless of which of the three the
+// submitted code actually matched. Concretely: a code used (and consumed
+// at step N-1) is STILL accepted one period later, because real time has
+// moved to step N and N-1 is back inside the skew=1 window — and
+// ConsumeTOTPStep(N) STILL SUCCEEDS, because N > N-1 looks like forward
+// progress to the monotonic guard. Net effect: the same code is usable
+// twice, up to ~30-60s apart — exactly the property TOTP exists to
+// prevent, on what is a money-path admin login.
+//
+// If wider clock-drift tolerance is genuinely required, the caller must
+// determine WHICH specific step matched — e.g. call ValidateTOTPCodeAt
+// with skew=0 at each of t-Period, t, t+Period in turn — and consume THAT
+// step, never a step derived from t alone when more than one step could
+// have produced the accepted code.
 func ValidateTOTPCode(secret, code string, skew uint) bool {
 	return ValidateTOTPCodeAt(secret, code, skew, time.Now())
 }
@@ -113,7 +141,8 @@ func ValidateTOTPCode(secret, code string, skew uint) bool {
 // ValidateTOTPCodeAt is ValidateTOTPCode with an explicit time, for
 // deterministic tests (RFC 6238 known-answer vectors, skew-window
 // boundaries) and any future caller needing to validate against a
-// non-"now" instant.
+// non-"now" instant. See ValidateTOTPCode's doc for the mandatory skew=0
+// pairing with ConsumeTOTPStep — it applies identically here.
 func ValidateTOTPCodeAt(secret, code string, skew uint, t time.Time) bool {
 	valid, err := totp.ValidateCustom(code, secret, t, totp.ValidateOpts{
 		Period:    totpPeriod,
@@ -132,6 +161,11 @@ func ValidateTOTPCodeAt(secret, code string, skew uint, t time.Time) bool {
 // persists and compares. Exported so a caller derives the step from the
 // SAME period this package validates against (totpPeriod), rather than
 // re-deriving floor(unix/30) itself and risking drift between the two.
+//
+// TOTPStepAt(t) is only the RIGHT step to pass to ConsumeTOTPStep when
+// ValidateTOTPCodeAt was called with skew=0 at that same t — see
+// ValidateTOTPCode's doc for why a skew>0 validation can accept a code
+// belonging to a DIFFERENT step than TOTPStepAt(t) would derive.
 func TOTPStepAt(t time.Time) int64 {
 	return t.Unix() / totpPeriod
 }
