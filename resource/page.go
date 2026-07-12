@@ -45,6 +45,13 @@ type PageSpec struct {
 	//
 	// Path:"" (the index override) must leave Method empty — MountPage
 	// panics otherwise; the index route is always GET-navigated.
+	//
+	// MountPage never verifies CSRF regardless of Method — a
+	// Method:http.MethodPost page's Handler is responsible for its own CSRF
+	// check (see saveHandler in resource.go for the pattern this repo
+	// already uses). For a state-changing route that should get CSRF
+	// verification and form-parsing for free, mount it with MountAction
+	// instead.
 	Method string
 }
 
