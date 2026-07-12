@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/anatolykoptev/go-panel/compare/v0.19.0...v0.19.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* unify pm7-card surface token, scope table link color, drop hardcoded hex ([#87](https://github.com/anatolykoptev/go-panel/issues/87)) ([905c4d6](https://github.com/anatolykoptev/go-panel/commit/905c4d63bcd14e2a8facb167a1cbb79735586833))
+
 ## [0.19.0](https://github.com/anatolykoptev/go-panel/compare/v0.18.0...v0.19.0) (2026-07-11)
 
 
