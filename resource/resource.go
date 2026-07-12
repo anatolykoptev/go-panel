@@ -557,18 +557,42 @@ func Register(p *Panel, r Resource) {
 	}
 }
 
+// validateCSRFConfig panics (fail-closed) unless p is configured for
+// CSRF-protected write routes: Config.CSRFKey at least minCSRFKeyLen bytes,
+// and an authenticator implementing SessionCookieName() (CSRF tokens bind to
+// the session cookie). Shared by validateWriterConfig (Register's Writer
+// path) and MountAction (action.go) — both ran this identical three-check
+// gate, in the identical order, independently before this extraction.
+//
+// label identifies the caller in every panic, already %q-formatted by the
+// caller (e.g. `resource.Register "items"`, `resource: MountAction
+// "widget"`); qualifier is an optional caller-specific lead-in clause
+// ("Writer is set but ", or "" for MountAction, which has no separate
+// Writer concept); purpose completes "set CSRFKey to enable <purpose>"
+// (e.g. "write forms", "actions").
+//
+// MountTOTPEnrollment (totp.go) enforces the same underlying invariant —
+// CSRF needs a real key and a session-bound authenticator — but was written
+// independently, with its own check order (SessionCookieName before key
+// length) and its own message wording; it is intentionally NOT routed
+// through this helper rather than force a shared order/wording onto code
+// that was never actually copy-pasted from either caller here.
+func validateCSRFConfig(p *Panel, label, qualifier, purpose string) {
+	if len(p.csrfKey) == 0 {
+		panic(fmt.Sprintf("%s: %sConfig.CSRFKey is empty — set CSRFKey to enable %s (fail-closed)", label, qualifier, purpose))
+	}
+	if len(p.csrfKey) < minCSRFKeyLen {
+		panic(fmt.Sprintf("%s: Config.CSRFKey must be at least %d bytes, got %d (fail-closed, SEC-CR-001)", label, minCSRFKeyLen, len(p.csrfKey)))
+	}
+	if _, ok := p.auth.(sessionCookier); !ok {
+		panic(fmt.Sprintf("%s: %sthe authenticator does not implement SessionCookieName() — CSRF tokens cannot be bound to the session cookie (fail-closed)", label, qualifier))
+	}
+}
+
 // validateWriterConfig panics if the Writer configuration is invalid.
 // Called at Register time — all checks are fail-closed.
 func validateWriterConfig(p *Panel, r Resource) {
-	if len(p.csrfKey) == 0 {
-		panic(fmt.Sprintf("resource.Register %q: Writer is set but Config.CSRFKey is empty — set CSRFKey to enable write forms (fail-closed)", r.Name))
-	}
-	if len(p.csrfKey) < minCSRFKeyLen {
-		panic(fmt.Sprintf("resource.Register %q: Config.CSRFKey must be at least %d bytes, got %d (fail-closed, SEC-CR-001)", r.Name, minCSRFKeyLen, len(p.csrfKey)))
-	}
-	if _, ok := p.auth.(sessionCookier); !ok {
-		panic(fmt.Sprintf("resource.Register %q: Writer is set but the authenticator does not implement SessionCookieName() — CSRF tokens cannot be bound to the session cookie (fail-closed)", r.Name))
-	}
+	validateCSRFConfig(p, fmt.Sprintf("resource.Register %q", r.Name), "Writer is set but ", "write forms")
 	if err := r.Writer.Form.Valid(); err != nil {
 		panic(fmt.Sprintf("resource.Register %q: invalid Writer.Form: %v", r.Name, err))
 	}
@@ -839,11 +863,7 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 			return
 		}
 
-		// CSRF check — generic error body; detail logged server-side.
-		token := req.FormValue(csrf.FormField)
-		if err := csrf.Verify(p.csrfKey, p.sessionValue(req), token); err != nil {
-			slog.Warn("resource: CSRF verification failed", "resource", r.Name, "err", err)
-			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+		if !p.verifyCSRFToken(w, req, "resource: CSRF verification failed", "resource", r.Name) {
 			return
 		}
 
@@ -966,6 +986,33 @@ func (p *Panel) sessionValue(r *http.Request) string {
 		return ""
 	}
 	return c.Value
+}
+
+// verifyCSRFToken checks r's submitted CSRF token (csrf.FormField) against
+// p.csrfKey and the session bound to r's session cookie — the verification
+// core every write path in the framework shares (saveHandler, MountAction's
+// csrfProtect in action.go, and the TOTP enrollment lifecycle's verifyCSRF
+// in totp_handlers.go). r must already be through a successful ParseForm;
+// callers parse (and cap) the body themselves first — the cap varies
+// (saveHandler and csrfProtect both use a 1MB ceiling; TOTP's parseForm
+// uses the much smaller maxTOTPFormBytes = 4096, deliberately, see its own
+// doc) — so parsing stays each caller's own responsibility.
+//
+// Returns true when the token is valid. On failure it writes the response
+// itself (403, a generic body — detail logged server-side) and returns
+// false; the caller must stop processing immediately. logMsg and logFields
+// let each caller keep its own log identity — e.g. saveHandler logs
+// "resource"=Resource.Name, csrfProtect logs "path"=r.URL.Path, TOTP's logs
+// neither extra field — verifyCSRFToken always appends "err" itself, last,
+// matching every existing call site's field order.
+func (p *Panel) verifyCSRFToken(w http.ResponseWriter, r *http.Request, logMsg string, logFields ...any) bool {
+	token := r.FormValue(csrf.FormField) //nolint:gosec // G120 false positive: every caller (saveHandler, csrfProtect, totpEnrollment.verifyCSRF) already wraps r.Body in http.MaxBytesReader via ParseForm/parseForm before calling verifyCSRFToken; gosec's check doesn't trace through the caller
+	if err := csrf.Verify(p.csrfKey, p.sessionValue(r), token); err != nil {
+		slog.WarnContext(r.Context(), logMsg, append(logFields, "err", err)...)
+		http.Error(w, "invalid CSRF token", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 // navItemsFor returns the context-filtered, active-marked nav list for rendering.

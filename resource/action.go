@@ -2,11 +2,9 @@ package resource
 
 import (
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
-	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/shell"
 )
 
@@ -63,11 +61,11 @@ type ActionSpec struct {
 //
 // MountAction requires Config.CSRFKey to be configured (>=32 bytes) and the
 // authenticator to implement SessionCookieName(), both checked EAGERLY here
-// (fail-closed) — mirroring Register's validateWriterConfig. Unlike
-// MountPage (which never touches CSRF), MountAction always verifies it, so a
-// misconfiguration must fail at mount time, not panic on the first
-// production POST (p.sessionValue asserts p.auth.(sessionCookier) without a
-// comma-ok check).
+// (fail-closed) via the same validateCSRFConfig helper Register's
+// validateWriterConfig calls. Unlike MountPage (which never touches CSRF),
+// MountAction always verifies it, so a misconfiguration must fail at mount
+// time, not panic on the first production POST (p.sessionValue asserts
+// p.auth.(sessionCookier) without a comma-ok check).
 func (p *Panel) MountAction(spec ActionSpec) {
 	if p.finalized {
 		panic("resource: MountAction called after Handler() — actions must be mounted before the mux is finalized")
@@ -79,15 +77,7 @@ func (p *Panel) MountAction(spec ActionSpec) {
 	if suffix == "" {
 		panic("resource: MountAction requires a non-empty Path")
 	}
-	if len(p.csrfKey) == 0 {
-		panic(fmt.Sprintf("resource: MountAction %q: Config.CSRFKey is empty — set CSRFKey to enable actions (fail-closed)", spec.Path))
-	}
-	if len(p.csrfKey) < minCSRFKeyLen {
-		panic(fmt.Sprintf("resource: MountAction %q: Config.CSRFKey must be at least %d bytes, got %d (fail-closed, SEC-CR-001)", spec.Path, minCSRFKeyLen, len(p.csrfKey)))
-	}
-	if _, ok := p.auth.(sessionCookier); !ok {
-		panic(fmt.Sprintf("resource: MountAction %q: the authenticator does not implement SessionCookieName() — CSRF tokens cannot be bound to the session cookie (fail-closed)", spec.Path))
-	}
+	validateCSRFConfig(p, fmt.Sprintf("resource: MountAction %q", spec.Path), "", "actions")
 
 	guarded := p.guard(spec.RequiredRole, p.csrfProtect(spec.Handler))
 	// No trailing "/{$}" — unlike MountPage's navigable GET pages, an action
@@ -115,10 +105,7 @@ func (p *Panel) csrfProtect(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		token := r.FormValue(csrf.FormField)
-		if err := csrf.Verify(p.csrfKey, p.sessionValue(r), token); err != nil {
-			slog.WarnContext(r.Context(), "resource: MountAction CSRF verification failed", "path", r.URL.Path, "err", err)
-			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+		if !p.verifyCSRFToken(w, r, "resource: MountAction CSRF verification failed", "path", r.URL.Path) {
 			return
 		}
 
