@@ -7,26 +7,21 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-panel/auth"
-	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/shell"
 )
 
 // verifyCSRF parses the request form (capped, see parseForm) and verifies
 // its CSRF token against the panel's key and the request's session cookie
 // value -- the EXACT mechanism protecting every other write route in the
-// framework (resource.go's saveHandler). Writes the appropriate error
-// response and returns false on any failure; callers must stop processing.
+// framework, via the shared Panel.verifyCSRFToken (resource.go) that also
+// backs saveHandler and MountAction's csrfProtect. Writes the appropriate
+// error response and returns false on any failure; callers must stop
+// processing.
 func (e *totpEnrollment) verifyCSRF(w http.ResponseWriter, r *http.Request) bool {
 	if !e.parseForm(w, r) {
 		return false
 	}
-	token := r.FormValue(csrf.FormField) //nolint:gosec // G120 false positive: parseForm (line above) already wraps r.Body in http.MaxBytesReader before any FormValue read; gosec's check doesn't trace through the helper call
-	if err := csrf.Verify(e.panel.csrfKey, e.panel.sessionValue(r), token); err != nil {
-		slog.WarnContext(r.Context(), "resource: totp CSRF verification failed", "err", err)
-		http.Error(w, "invalid CSRF token", http.StatusForbidden)
-		return false
-	}
-	return true
+	return e.panel.verifyCSRFToken(w, r, "resource: totp CSRF verification failed")
 }
 
 // enrollStart serves GET {prefix}/enroll: generates (once) or redisplays the

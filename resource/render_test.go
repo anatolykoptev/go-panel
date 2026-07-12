@@ -1,6 +1,11 @@
 package resource_test
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -212,5 +217,98 @@ func TestRenderPage_ExpandedWithoutCookie(t *testing.T) {
 	}
 	if !strings.Contains(body, `class="sidebar"`) {
 		t.Fatal("expanded sidebar missing expected class=\"sidebar\"")
+	}
+}
+
+// TestRenderError_Success verifies RenderError writes the buffered body in
+// one shot on a successful render: Content-Type set, the panel chrome
+// (built from the caller-supplied nav) and content both present.
+func TestRenderError_Success(t *testing.T) {
+	p := newTestPanel()
+	w := httptest.NewRecorder()
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x"}}
+
+	p.RenderError(context.Background(), w, "Admin", nav, templ.Raw("<p>hello from RenderError</p>"), "test-label", "render failed")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on a successful render, got %d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "hello from RenderError") {
+		t.Error("response does not contain the supplied content")
+	}
+	if !strings.Contains(body, `class="sidebar"`) {
+		t.Error("response does not contain the panel chrome (shell.Layout)")
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("expected Content-Type text/html; charset=utf-8, got %q", ct)
+	}
+}
+
+// TestRenderError_UsesProvidedNav verifies RenderError renders EXACTLY the
+// nav slice passed in, not p's own configured/registered nav — faithful to
+// go-grad's cabinet/overview.go renderLayoutPage, which takes nav as a
+// parameter (its caller computes nav independently via its own closure).
+// Falsification: swap the nav argument for p.navItemsFor(ctx, "") internally
+// -> this nav item (never registered via p.AddNav) disappears from the
+// response.
+func TestRenderError_UsesProvidedNav(t *testing.T) {
+	p := newTestPanel() // deliberately no AddNav calls
+	w := httptest.NewRecorder()
+	nav := []shell.NavItem{{ID: "caller-only", Label: "Caller-Only-Nav-Item", URL: "/admin/x"}}
+
+	p.RenderError(context.Background(), w, "Admin", nav, templ.Raw(""), "test-label", "render failed")
+
+	if !strings.Contains(w.Body.String(), "Caller-Only-Nav-Item") {
+		t.Error("expected the caller-supplied nav item to render — RenderError must not substitute its own nav computation")
+	}
+}
+
+// TestRenderError_FailureLogsAndWritesGenericMessage verifies the extraction
+// of go-grad's cabinet/overview.go renderLayoutPage error branch: a Render
+// failure is logged server-side (label + err detail) and the client
+// receives ONLY the caller-supplied message at 500 — never err's detail
+// (no internal detail leak), and never any partial body a direct
+// (unbuffered) render would already have flushed before the error surfaced.
+// Falsification: render content directly to w instead of buffering first ->
+// the PARTIAL-CONTENT-LEAK marker (written by failingContent before it
+// errors) would appear in w.Body ahead of/alongside the 500 body.
+func TestRenderError_FailureLogsAndWritesGenericMessage(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	defer slog.SetDefault(prev)
+
+	p := newTestPanel()
+	w := httptest.NewRecorder()
+	nav := []shell.NavItem{{ID: "x", Label: "X", URL: "/admin/x"}}
+
+	const secretDetail = "pgx: connection refused on host 10.0.0.9"
+	failingContent := templ.ComponentFunc(func(_ context.Context, cw io.Writer) error {
+		_, _ = io.WriteString(cw, "PARTIAL-CONTENT-LEAK")
+		return errors.New(secretDetail)
+	})
+
+	p.RenderError(context.Background(), w, "Admin", nav, failingContent, "overview-render", "Ошибка отрисовки страницы.")
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+	respBody := w.Body.String()
+	if strings.TrimSpace(respBody) != "Ошибка отрисовки страницы." {
+		t.Errorf("expected the exact caller-supplied message, got %q", respBody)
+	}
+	if strings.Contains(respBody, "PARTIAL-CONTENT-LEAK") {
+		t.Error("response contains partially-rendered content — RenderError must buffer, never write before Render succeeds")
+	}
+	if strings.Contains(respBody, secretDetail) {
+		t.Error("response leaks the internal render error detail to the client")
+	}
+	logOut := logBuf.String()
+	if !strings.Contains(logOut, "overview-render") {
+		t.Error("server-side log is missing the label")
+	}
+	if !strings.Contains(logOut, secretDetail) {
+		t.Error("server-side log is missing the render error detail")
 	}
 }
