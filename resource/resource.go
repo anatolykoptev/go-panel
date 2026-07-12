@@ -190,11 +190,7 @@ type Panel struct {
 	// except via Handler(); a future accessor handing out p.mux directly
 	// (without routing through Handler()) would serve a 404 at the index.
 	mux  *http.ServeMux
-	auth interface {
-		Require(http.HandlerFunc) http.HandlerFunc
-		LoginHandler() http.Handler
-		LogoutHandler() http.Handler
-	}
+	auth baseAuthenticator
 	// resolver resolves the per-request Tenant; read by withTenantResolution
 	// in Handler() — the one place tenant resolution happens (see the tenant
 	// package doc's routing-mutation note).
@@ -235,6 +231,21 @@ func (p *Panel) SetProfile(cfg shell.ProfileConfig) {
 	p.profileCfg = cfg
 }
 
+// baseAuthenticator is the minimal session-auth contract Panel.auth and
+// Config.Auth require: Require gates a handler behind a valid session,
+// LoginHandler/LogoutHandler are mounted directly onto the panel mux in
+// New() (cfg.Auth.LoginHandler() / cfg.Auth.LogoutHandler()). It is
+// deliberately NOT auth.Authenticator — a 4-method superset that also
+// demands Verified — because widening Config.Auth to that shape would
+// silently reject any implementation (real or test double) that only
+// provides these 3 methods. Keep this exactly 3 methods: New()'s mux-dispatch
+// mount and guard()'s p.auth.Require() call depend on this shape resolving.
+type baseAuthenticator interface {
+	Require(http.HandlerFunc) http.HandlerFunc
+	LoginHandler() http.Handler
+	LogoutHandler() http.Handler
+}
+
 // sessionCookier is the optional interface implemented by authenticators that
 // expose their session cookie name, used for CSRF double-submit binding.
 type sessionCookier interface {
@@ -264,11 +275,7 @@ type RoleAuthenticator interface {
 type Config struct {
 	Title    string
 	BasePath string // e.g. "/admin". Defaults to "/admin".
-	Auth     interface {
-		Require(http.HandlerFunc) http.HandlerFunc
-		LoginHandler() http.Handler
-		LogoutHandler() http.Handler
-	}
+	Auth     baseAuthenticator
 	Resolver tenant.Resolver // nil = PathResolver{Segment:2}
 	// TenantAuthorizer decides whether a resolved Tenant may be accessed by
 	// the current session. nil (the default) resolves to
