@@ -30,6 +30,21 @@ is green.
   - `identity/promobs` (Prometheus observer) — client_golang.
 - A host implements exactly one seam itself: `identity.UserStore` (over its DB).
 
+## Panics vs errors
+
+- **Setup-time constructors panic on programmer/config error.** `resource.New`,
+  `resource.Register`, `Panel.MountPage`, `resource.MountTOTPEnrollment`,
+  `auth.NewHMACAuth`, `auth.NewBcryptTOTPAuth`, and `semantic.New` all panic on
+  a nil dependency, short key, or invalid spec — deliberate fail-closed-at-setup
+  behavior, the same convention `net/http.ServeMux.Handle` uses for a duplicate
+  route registration. A misconfiguration is a bug to fix in code, not a runtime
+  condition callers branch on, and it only fires during setup, never per-request.
+- **`identity.New` is the one deliberate exception** — it returns `error`
+  instead, because go-grad already handles that error on its money-path. Do not
+  retrofit it to panic, and do not add a `Build() (Panel, error)` alternative to
+  the panic-based constructors above; both were evaluated and rejected as churn
+  without a safety benefit (repo-review-council audit, 2026-07-10).
+
 ## Worktrees
 
 Do feature work in a `git worktree`, never on the main checkout. One PR per change.
