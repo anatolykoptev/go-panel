@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.20.1](https://github.com/anatolykoptev/go-panel/compare/v0.20.0...v0.20.1) (2026-07-14)
+
+
+### Fixed
+
+* **auth,identity,shell,resource:** harden security and fix gaps found in review ([0feec32](https://github.com/anatolykoptev/go-panel/commit/0feec32e3ab00a034a3749aa7c0318174179bbc7))
+* **auth,identity,shell,resource:** security hardening from review ([7738187](https://github.com/anatolykoptev/go-panel/commit/7738187b7e4401411b373b3c5550f69db86d92d3))
+* **auth:** avoid gosec G120 by using r.Form.Get in verifyMFA ([809c9a9](https://github.com/anatolykoptev/go-panel/commit/809c9a90b855da70f3d6f7d55603b061baf7f66e))
+
 ## [0.20.0](https://github.com/anatolykoptev/go-panel/compare/v0.19.1...v0.20.0) (2026-07-14)
 
 
