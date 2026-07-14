@@ -342,6 +342,12 @@ func safeReturnURL(raw, host string) string {
 	}
 	if u.IsAbs() || u.Host != "" {
 		if u.Host == host {
+			// Same-host absolute URLs can still produce protocol-relative or
+			// scheme-bearing paths (e.g. https://host//evil or
+			// https://host/http://evil). Reject those as well.
+			if strings.HasPrefix(u.Path, "//") || strings.Contains(u.Path, "://") {
+				return rootPath
+			}
 			return u.RequestURI()
 		}
 		return rootPath

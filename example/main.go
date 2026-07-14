@@ -60,7 +60,8 @@ func main() {
 
 	hmacKey := os.Getenv("ADMIN_HMAC_KEY")
 	if hmacKey == "" {
-		hmacKey = "dev-only-key-change-in-production!"
+		logger.Error("ADMIN_HMAC_KEY environment variable is required; example refusing to start with a hardcoded key")
+		os.Exit(1)
 	}
 	username := "admin"
 	password := "demo"

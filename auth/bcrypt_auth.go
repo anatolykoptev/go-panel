@@ -25,23 +25,23 @@ import (
 // accounts where Account.TOTPEnabled is true. Ported in design from
 // oxpulse-admin/internal/admin/auth.go.
 type BcryptTOTPAuth struct {
-	store                AccountStore
-	totpStore            TOTPStore
-	totpEncKey           []byte
-	hmacKey              []byte
-	basePath             string
-	cookieName           string
-	mfaCookieName        string
-	sessionTTL           time.Duration
-	mfaPendingTTL        time.Duration
-	secure               bool
-	loginTempl           func(errMsg string) http.Handler
-	observer             Observer
-	revocationFailClosed bool
-	rateLimiter          RateLimiter
-	loginRate            RateRule
-	totpRate             RateRule
-	clientIP             func(*http.Request) string
+	store              AccountStore
+	totpStore          TOTPStore
+	totpEncKey         []byte
+	hmacKey            []byte
+	basePath           string
+	cookieName         string
+	mfaCookieName      string
+	sessionTTL         time.Duration
+	mfaPendingTTL      time.Duration
+	secure             bool
+	loginTempl         func(errMsg string) http.Handler
+	observer           Observer
+	revocationFailOpen bool
+	rateLimiter        RateLimiter
+	loginRate          RateRule
+	totpRate           RateRule
+	clientIP           func(*http.Request) string
 }
 
 // BcryptConfig configures BcryptTOTPAuth.
@@ -67,15 +67,15 @@ type BcryptConfig struct {
 	// identity/promobs.Observer.AsAuthObserver() to share one Prometheus
 	// observer with the identity package's seam.
 	Observer Observer
-	// RevocationFailClosed controls liveSession's behavior when the
+	// RevocationFailOpen controls liveSession's behavior when the
 	// AccountStore.GetByID revocation recheck fails with a transient
-	// (non-ErrAccountNotFound) error. Default false preserves today's
-	// behavior: the crypto-valid session is still honored (fail open), so a
-	// revoked/role-dropped operator keeps access until SessionTTL during a DB
-	// outage. Set true to instead deny the request on that transient error
-	// (fail closed) — trading availability for immediate revocation under a
-	// degraded store. Either way the degrade is always observed via Observer.
-	RevocationFailClosed bool
+	// (non-ErrAccountNotFound) error. Default false means the request is
+	// denied (fail closed) on that transient error, so a revoked/role-dropped
+	// operator does not keep access during a DB outage. Set true to instead
+	// honor the crypto-valid session until SessionTTL (fail open) — trading
+	// immediate revocation for availability under a degraded store. Either way
+	// the degrade is always observed via Observer.
+	RevocationFailOpen bool
 	// RateLimiter throttles LoginHandler's POST branch. Nil (default) means
 	// no throttling — behavior is byte-for-byte identical to before Phase 2.
 	// When set, LoginRate must also be set (non-zero Limit and Window) or
@@ -151,23 +151,23 @@ func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 		clientIPFn = defaultClientIP
 	}
 	return &BcryptTOTPAuth{
-		store:                cfg.Store,
-		totpStore:            totpStore,
-		totpEncKey:           cfg.TOTPEncryptionKey,
-		hmacKey:              cfg.HMACKey,
-		basePath:             bp,
-		cookieName:           name,
-		mfaCookieName:        name + "_mfa",
-		sessionTTL:           ttl,
-		mfaPendingTTL:        defaultMfaPendingTTL,
-		secure:               cfg.Secure,
-		loginTempl:           cfg.LoginTempl,
-		observer:             obs,
-		revocationFailClosed: cfg.RevocationFailClosed,
-		rateLimiter:          cfg.RateLimiter,
-		loginRate:            cfg.LoginRate,
-		totpRate:             cfg.TOTPRate,
-		clientIP:             clientIPFn,
+		store:              cfg.Store,
+		totpStore:          totpStore,
+		totpEncKey:         cfg.TOTPEncryptionKey,
+		hmacKey:            cfg.HMACKey,
+		basePath:           bp,
+		cookieName:         name,
+		mfaCookieName:      name + "_mfa",
+		sessionTTL:         ttl,
+		mfaPendingTTL:      defaultMfaPendingTTL,
+		secure:             cfg.Secure,
+		loginTempl:         cfg.LoginTempl,
+		observer:           obs,
+		revocationFailOpen: cfg.RevocationFailOpen,
+		rateLimiter:        cfg.RateLimiter,
+		loginRate:          cfg.LoginRate,
+		totpRate:           cfg.TOTPRate,
+		clientIP:           clientIPFn,
 	}
 }
 
@@ -709,7 +709,7 @@ func (a *BcryptTOTPAuth) LogoutHandler() http.Handler {
 // account against the store, so a deactivated / deleted / role-changed account
 // loses access on the next request (instant revocation). Behavior on a
 // transient store error during that recheck is controlled by
-// BcryptConfig.RevocationFailClosed — see liveSession. Fail-closed on
+// BcryptConfig.RevocationFailOpen — see liveSession. Fail-closed on
 // not-found / inactive / role drift regardless.
 func (a *BcryptTOTPAuth) Require(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -728,9 +728,9 @@ func (a *BcryptTOTPAuth) Require(next http.HandlerFunc) http.HandlerFunc {
 // On a transient (non-ErrAccountNotFound) AccountStore.GetByID error, the
 // degrade is always reported via a.observer (OpSessionRecheck,
 // OutcomeError) so the outage is observable regardless of policy. The
-// response to that error is then governed by a.revocationFailClosed:
-// false (default, non-breaking) keeps the crypto-valid session live for up
-// to SessionTTL; true rejects the request immediately, trading availability
+// response to that error is then governed by a.revocationFailOpen:
+// false (default) rejects the request immediately; true keeps the
+// crypto-valid session live for up to SessionTTL, trading availability
 // for instant revocation under a degraded store.
 func (a *BcryptTOTPAuth) liveSession(r *http.Request) *sessionData {
 	c, err := r.Cookie(a.cookieName)
@@ -748,12 +748,12 @@ func (a *BcryptTOTPAuth) liveSession(r *http.Request) *sessionData {
 			return nil // account deleted -> revoke
 		}
 		a.observer.Observe(OpSessionRecheck, OutcomeError, time.Since(start))
-		if a.revocationFailClosed {
-			slog.Warn("auth: session recheck DB error — denying (RevocationFailClosed)", "err", err)
-			return nil // fail closed on transient DB error
+		if a.revocationFailOpen {
+			slog.Warn("auth: session recheck DB error — allowing crypto-valid token (RevocationFailOpen)", "err", err)
+			return sd // fail open only when explicitly requested
 		}
-		slog.Warn("auth: session recheck DB error — allowing crypto-valid token", "err", err)
-		return sd // fail open on transient DB error (default)
+		slog.Warn("auth: session recheck DB error — denying (fail-closed)", "err", err)
+		return nil // fail closed on transient DB error (default)
 	}
 	if !acct.Active || acct.Role != sd.Role {
 		return nil // deactivated or role changed -> revoke
