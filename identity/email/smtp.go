@@ -180,16 +180,18 @@ func (s *SMTPSender) headerFrom() string {
 
 // fromDomain extracts the From address domain for the Message-ID right-hand
 // side; from may be a bare address or a display-name form. Falls back to
-// "localhost" rather than failing the send over a cosmetic header part.
+// fallbackDomain rather than failing the send over a cosmetic header part.
+const fallbackDomain = "localhost"
+
 func fromDomain(from string) string {
 	a, err := mail.ParseAddress(from)
 	if err != nil {
-		return "localhost"
+		return fallbackDomain
 	}
 	if i := strings.LastIndex(a.Address, "@"); i >= 0 && i+1 < len(a.Address) {
 		return a.Address[i+1:]
 	}
-	return "localhost"
+	return fallbackDomain
 }
 
 // boundaryBytes is the entropy of the MIME multipart boundary.

@@ -51,14 +51,14 @@ func (s *spyObserver) reset() {
 // liveSessionCfg builds a BcryptConfig sharing the fixed test HMACKey/BasePath/
 // SessionTTL used across this package's tests, with the observer + revocation
 // policy under test layered on top.
-func liveSessionCfg(store auth.AccountStore, obs auth.Observer, failClosed bool) auth.BcryptConfig {
+func liveSessionCfg(store auth.AccountStore, obs auth.Observer, failOpen bool) auth.BcryptConfig {
 	return auth.BcryptConfig{
-		Store:                store,
-		HMACKey:              []byte("test-hmac-key-32-bytes-long-here"),
-		BasePath:             "/admin",
-		SessionTTL:           time.Hour,
-		Observer:             obs,
-		RevocationFailClosed: failClosed,
+		Store:              store,
+		HMACKey:            []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:           "/admin",
+		SessionTTL:         time.Hour,
+		Observer:           obs,
+		RevocationFailOpen: failOpen,
 	}
 }
 
@@ -87,11 +87,13 @@ func requireHandlerCalled(a *auth.BcryptTOTPAuth, c *http.Cookie) (called bool, 
 	return called, w.Code
 }
 
-func TestBcrypt_RevocationFailClosed_DeniesOnTransientError(t *testing.T) {
+func TestBcrypt_DefaultFailClosed_DeniesOnTransientError(t *testing.T) {
 	store := newFakeStore()
 	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
 	spy := &spyObserver{}
-	a := auth.NewBcryptTOTPAuth(liveSessionCfg(store, spy, true))
+	// RevocationFailOpen is omitted here (zero value false) — the default must
+	// deny a crypto-valid session when the store is degraded.
+	a := auth.NewBcryptTOTPAuth(liveSessionCfg(store, spy, false))
 	c := sessionCookieFor(t, a, "op@example.com", "s3cret")
 	// Since Phase 2, login itself observes (OpBcryptLogin, OutcomeOK); reset
 	// so the assertions below isolate the liveSession recheck degrade only.
@@ -101,7 +103,7 @@ func TestBcrypt_RevocationFailClosed_DeniesOnTransientError(t *testing.T) {
 
 	called, code := requireHandlerCalled(a, c)
 	if called {
-		t.Fatal("RevocationFailClosed=true: handler must NOT run on a transient GetByID error")
+		t.Fatal("default fail-closed: handler must NOT run on a transient GetByID error")
 	}
 	if code != http.StatusSeeOther {
 		t.Fatalf("expected a login redirect (session rejected), got %d", code)
@@ -116,14 +118,11 @@ func TestBcrypt_RevocationFailClosed_DeniesOnTransientError(t *testing.T) {
 	}
 }
 
-func TestBcrypt_DefaultFailOpen_AllowsButRecordsDegrade(t *testing.T) {
+func TestBcrypt_RevocationFailOpen_AllowsButRecordsDegrade(t *testing.T) {
 	store := newFakeStore()
 	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
 	spy := &spyObserver{}
-	// RevocationFailClosed left at its zero value (false) — must match today's
-	// default behavior exactly: the crypto-valid session survives a transient
-	// store error.
-	a := auth.NewBcryptTOTPAuth(liveSessionCfg(store, spy, false))
+	a := auth.NewBcryptTOTPAuth(liveSessionCfg(store, spy, true))
 	c := sessionCookieFor(t, a, "op@example.com", "s3cret")
 	// Since Phase 2, login itself observes (OpBcryptLogin, OutcomeOK); reset
 	// so the assertions below isolate the liveSession recheck degrade only.
@@ -133,7 +132,7 @@ func TestBcrypt_DefaultFailOpen_AllowsButRecordsDegrade(t *testing.T) {
 
 	called, code := requireHandlerCalled(a, c)
 	if !called || code != http.StatusOK {
-		t.Fatalf("default fail-open must still allow the crypto-valid session, got called=%v code=%d", called, code)
+		t.Fatalf("RevocationFailOpen=true must allow the crypto-valid session, got called=%v code=%d", called, code)
 	}
 
 	calls := spy.snapshot()
@@ -155,7 +154,7 @@ func TestBcrypt_NilObserver_NoPanic(t *testing.T) {
 	store.simulateTransientErr(errors.New("connection reset"))
 
 	called, code := requireHandlerCalled(a, c)
-	if !called || code != http.StatusOK {
-		t.Fatalf("nil Observer must not change fail-open behavior, got called=%v code=%d", called, code)
+	if called || code != http.StatusSeeOther {
+		t.Fatalf("nil Observer must not change fail-closed behavior, got called=%v code=%d", called, code)
 	}
 }
