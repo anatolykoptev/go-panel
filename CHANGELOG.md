@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.20.0](https://github.com/anatolykoptev/go-panel/compare/v0.19.1...v0.20.0) (2026-07-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **auth:** fail-closed session recheck, harden safeReturnURL, no hardcoded example key
+* **auth:** NewBcryptTOTPAuth now requires a RateLimiter and a usable TOTPRate when Store implements TOTPStore, and a usable LoginRate whenever RateLimiter is configured.
+* render.Component is removed. It had no callers in go-panel or its pinned consumers (go-grad v0.19.1, go-job v0.16.0) at the time of removal — this only matters the next time either bumps its go-panel dependency past this release.
+
+### Added
+
+* **auth:** wire MFA login (Arc A P5) ([46b5b08](https://github.com/anatolykoptev/go-panel/commit/46b5b08e981500e9562573a356c5d2c382589b1d))
+* Panel.MountAction + Panel.RenderError, dedup CSRF helpers ([#91](https://github.com/anatolykoptev/go-panel/issues/91)) ([a355d06](https://github.com/anatolykoptev/go-panel/commit/a355d065626b6a6a89932788503f9e03fe032a3a))
+
+
+### Fixed
+
+* **auth:** fail-closed session recheck, harden safeReturnURL, no hardcoded example key ([0f0d1d9](https://github.com/anatolykoptev/go-panel/commit/0f0d1d910fd231d1b45a6d063f47013f28d6d7d3))
+
+
+### Changed
+
+* Arc C API cleanliness — baseAuthenticator, panic docs, Example tests, drop render.Component ([#89](https://github.com/anatolykoptev/go-panel/issues/89)) ([409e481](https://github.com/anatolykoptev/go-panel/commit/409e481abd2dc0112683e8c5ab6271e48138b865))
+
 ## [0.19.1](https://github.com/anatolykoptev/go-panel/compare/v0.19.0...v0.19.1) (2026-07-12)
 
 
