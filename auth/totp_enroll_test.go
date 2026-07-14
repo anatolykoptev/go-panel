@@ -93,6 +93,20 @@ func (s *domainTOTPStore) ConfirmTOTPEnrollment(_ context.Context, id string) er
 	return nil
 }
 
+func (s *domainTOTPStore) ConfirmTOTPEnrollmentWithRecoveryCodes(_ context.Context, id string, hashedCodes [][]byte) error {
+	a, ok := s.accounts[id]
+	if !ok {
+		return auth.ErrAccountNotFound
+	}
+	a.TOTPEnabled = true
+	m := map[string]bool{}
+	for _, h := range hashedCodes {
+		m[string(h)] = true
+	}
+	s.recovery[id] = m
+	return nil
+}
+
 func (s *domainTOTPStore) GetTOTPSecret(_ context.Context, id string) ([]byte, error) {
 	if _, ok := s.accounts[id]; !ok {
 		return nil, auth.ErrAccountNotFound
@@ -437,6 +451,7 @@ func TestDisableTOTPWithReauth_CorrectPassword_Disables(t *testing.T) {
 func TestRegenerateRecoveryCodesWithReauth_WrongPassword_KeepsOldCodes(t *testing.T) {
 	store := newDomainTOTPStore()
 	acct := store.seed(t, "u1", "op@example.com", "correct-pw", "admin")
+	acct.TOTPEnabled = true
 	ctx := context.Background()
 	store.recovery[acct.ID] = map[string]bool{"original-hash": false}
 
@@ -452,6 +467,7 @@ func TestRegenerateRecoveryCodesWithReauth_WrongPassword_KeepsOldCodes(t *testin
 func TestRegenerateRecoveryCodesWithReauth_CorrectPassword_ReplacesCodes(t *testing.T) {
 	store := newDomainTOTPStore()
 	acct := store.seed(t, "u1", "op@example.com", "correct-pw", "admin")
+	acct.TOTPEnabled = true
 	ctx := context.Background()
 	store.recovery[acct.ID] = map[string]bool{"original-hash": false}
 

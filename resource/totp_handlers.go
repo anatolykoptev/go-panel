@@ -163,6 +163,10 @@ func (e *totpEnrollment) regenerate(w http.ResponseWriter, r *http.Request) {
 		e.renderReauthForm(w, r, "regenerate", "Regenerate Recovery Codes", "Regenerate Codes", "Incorrect password.")
 		return
 	}
+	if errors.Is(err, auth.ErrTOTPNotEnabled) {
+		http.Error(w, "Two-factor authentication is not enabled", http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		slog.ErrorContext(r.Context(), "resource: regenerate totp recovery codes", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

@@ -112,7 +112,7 @@ func TestHMACAuth_Require_HTMXReturns401WithHeader(t *testing.T) {
 
 func TestHMACAuth_Logout_ClearsCookie(t *testing.T) {
 	a := newTestAuth()
-	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/logout", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/logout", nil)
 	w := httptest.NewRecorder()
 
 	a.LogoutHandler().ServeHTTP(w, r)
@@ -123,6 +123,21 @@ func TestHMACAuth_Logout_ClearsCookie(t *testing.T) {
 	setCookie := w.Header().Get("Set-Cookie")
 	if !strings.Contains(setCookie, "Max-Age=0") {
 		t.Errorf("expected Max-Age=0 for logout, got %q", setCookie)
+	}
+}
+
+func TestHMACAuth_Logout_RejectsGET(t *testing.T) {
+	a := newTestAuth()
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/logout", nil)
+	w := httptest.NewRecorder()
+
+	a.LogoutHandler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for GET logout, got %d", w.Code)
+	}
+	if got := w.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("expected Allow=POST, got %q", got)
 	}
 }
 

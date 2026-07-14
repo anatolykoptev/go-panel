@@ -129,6 +129,20 @@ func (f *fakeTOTPStore) ConfirmTOTPEnrollment(_ context.Context, id string) erro
 	return nil
 }
 
+func (f *fakeTOTPStore) ConfirmTOTPEnrollmentWithRecoveryCodes(_ context.Context, id string, hashedCodes [][]byte) error {
+	a, ok := f.byID[id]
+	if !ok {
+		return auth.ErrAccountNotFound
+	}
+	a.TOTPEnabled = true
+	m := map[string]bool{}
+	for _, h := range hashedCodes {
+		m[string(h)] = true
+	}
+	f.recovery[id] = m
+	return nil
+}
+
 func (f *fakeTOTPStore) GetTOTPSecret(_ context.Context, id string) ([]byte, error) {
 	if _, ok := f.byID[id]; !ok {
 		return nil, auth.ErrAccountNotFound

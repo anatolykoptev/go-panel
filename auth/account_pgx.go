@@ -181,6 +181,40 @@ UPDATE panel_accounts SET totp_enabled = true, totp_enrolled_at = now() WHERE id
 	return nil
 }
 
+// ConfirmTOTPEnrollmentWithRecoveryCodes implements TOTPStore atomically:
+// the enrollment is confirmed and the recovery codes are replaced in one
+// transaction, so an enabled account can never be left without codes.
+func (s *PgxAccountStore) ConfirmTOTPEnrollmentWithRecoveryCodes(ctx context.Context, accountID string, hashedCodes [][]byte) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("auth: confirm totp enrollment with recovery codes: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	ct, err := tx.Exec(ctx, `
+UPDATE panel_accounts SET totp_enabled = true, totp_enrolled_at = now() WHERE id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("auth: confirm totp enrollment with recovery codes: update account: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrAccountNotFound
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM panel_totp_recovery_codes WHERE account_id = $1`, accountID); err != nil {
+		return fmt.Errorf("auth: confirm totp enrollment with recovery codes: clear existing: %w", err)
+	}
+	for _, h := range hashedCodes {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO panel_totp_recovery_codes (account_id, code_hash) VALUES ($1, $2)`, accountID, h); err != nil {
+			return fmt.Errorf("auth: confirm totp enrollment with recovery codes: insert: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("auth: confirm totp enrollment with recovery codes: commit: %w", err)
+	}
+	return nil
+}
+
 // GetTOTPSecret implements TOTPStore.
 func (s *PgxAccountStore) GetTOTPSecret(ctx context.Context, accountID string) ([]byte, error) {
 	var encoded *string

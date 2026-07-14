@@ -388,6 +388,11 @@ func (a *BcryptTOTPAuth) clearMFACookie(w http.ResponseWriter) {
 // a full session is issued.
 func (a *BcryptTOTPAuth) LoginHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.Method != http.MethodPost {
 			if a.Verified(r) {
@@ -403,7 +408,10 @@ func (a *BcryptTOTPAuth) LoginHandler() http.Handler {
 		}
 		const maxLoginBodyBytes = 4096
 		r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
-		_ = r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 
 		if mfa, ok := a.mfaFromRequest(r); ok {
 			a.verifyMFA(w, r, mfa)
@@ -583,7 +591,9 @@ func (a *BcryptTOTPAuth) verifyMFA(w http.ResponseWriter, r *http.Request, mfa *
 // (nil, false).
 func (a *BcryptTOTPAuth) verifyMFAAccount(w http.ResponseWriter, r *http.Request, mfa *sessionData, start time.Time) (*Account, bool) {
 	acct, err := a.store.GetByID(r.Context(), mfa.UserID)
-	if err != nil || !acct.Active || acct.Role != mfa.Role || !acct.TOTPEnabled {
+	// Defensive: treat a nil account (store contract violation) as a not-found /
+	// invalid-credentials outcome rather than allowing a downstream panic.
+	if err != nil || acct == nil || !acct.Active || acct.Role != mfa.Role || !acct.TOTPEnabled {
 		a.clearMFACookie(w)
 		w.WriteHeader(http.StatusUnauthorized)
 		a.renderLogin(r.Context(), w, "Invalid session or account")
@@ -689,8 +699,15 @@ func (a *BcryptTOTPAuth) issueSession(w http.ResponseWriter, r *http.Request, ac
 }
 
 // LogoutHandler implements Authenticator.
+// Logout is POST-only to prevent cross-site GET (e.g. clickjacked link) from
+// terminating a user's session via a cookie still sent with SameSite=Lax.
 func (a *BcryptTOTPAuth) LogoutHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		//nolint:gosec // Secure is configured per-environment; logout only deletes the cookie.
 		http.SetCookie(w, &http.Cookie{
 			Name:     a.cookieName,
@@ -755,8 +772,8 @@ func (a *BcryptTOTPAuth) liveSession(r *http.Request) *sessionData {
 		slog.Warn("auth: session recheck DB error — denying (fail-closed)", "err", err)
 		return nil // fail closed on transient DB error (default)
 	}
-	if !acct.Active || acct.Role != sd.Role {
-		return nil // deactivated or role changed -> revoke
+	if acct == nil || !acct.Active || acct.Role != sd.Role {
+		return nil // deactivated, role changed, or store contract violation -> revoke
 	}
 	return sd
 }

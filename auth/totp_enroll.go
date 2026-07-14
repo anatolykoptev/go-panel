@@ -179,20 +179,15 @@ func ConfirmTOTPEnrollment(ctx context.Context, store TOTPStore, encKey []byte, 
 	return confirmWithFreshRecoveryCodes(ctx, store, acct)
 }
 
-// confirmWithFreshRecoveryCodes performs the two commit-point writes
-// (StoreRecoveryCodes then ConfirmTOTPEnrollment, in that order -- see
-// ConfirmTOTPEnrollment's doc for why) once code validation has already
-// succeeded.
+// confirmWithFreshRecoveryCodes atomically confirms enrollment and stores the
+// freshly generated recovery codes once code validation has already succeeded.
 func confirmWithFreshRecoveryCodes(ctx context.Context, store TOTPStore, acct *Account) ([]string, error) {
 	codes, hashes, err := GenerateRecoveryCodes(RecoveryCodeCount)
 	if err != nil {
 		return nil, fmt.Errorf("auth: generate recovery codes: %w", err)
 	}
-	if err := store.StoreRecoveryCodes(ctx, acct.ID, hashes); err != nil {
-		return nil, fmt.Errorf("auth: store recovery codes: %w", err)
-	}
-	if err := store.ConfirmTOTPEnrollment(ctx, acct.ID); err != nil {
-		return nil, fmt.Errorf("auth: confirm totp enrollment: %w", err)
+	if err := store.ConfirmTOTPEnrollmentWithRecoveryCodes(ctx, acct.ID, hashes); err != nil {
+		return nil, fmt.Errorf("auth: confirm totp enrollment with recovery codes: %w", err)
 	}
 	return codes, nil
 }
@@ -234,6 +229,9 @@ func DisableTOTPWithReauth(ctx context.Context, accountStore AccountStore, totpS
 // new codes IN PLAINTEXT for exactly-once display; see
 // ConfirmTOTPEnrollment's doc for the same one-time-display contract.
 func RegenerateRecoveryCodesWithReauth(ctx context.Context, accountStore AccountStore, totpStore TOTPStore, acct *Account, password string) ([]string, error) {
+	if !acct.TOTPEnabled {
+		return nil, ErrTOTPNotEnabled
+	}
 	if !VerifyAccountPassword(ctx, accountStore, acct.Email, password) {
 		return nil, ErrReauthFailed
 	}
