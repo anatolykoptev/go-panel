@@ -20,12 +20,20 @@ import (
 )
 
 // staticItems is the in-memory dataset for the demo resource.
+const (
+	placeTypeCafe       = "cafe"
+	placeTypeRestaurant = "restaurant"
+	placeTypeBar        = "bar"
+	statusPublished     = "published"
+	statusDraft         = "draft"
+)
+
 var staticItems = []resource.Row{
-	{ID: "1", Cells: []resource.Cell{{Value: "Кофейня Симпл"}, {Value: "cafe"}, {Value: "published"}}, Href: "/admin/places/1"},
-	{ID: "2", Cells: []resource.Cell{{Value: "Хинкальная Дарьял"}, {Value: "restaurant"}, {Value: "published"}}, Href: "/admin/places/2"},
-	{ID: "3", Cells: []resource.Cell{{Value: "Бар Голубка"}, {Value: "bar"}, {Value: "draft"}}},
-	{ID: "4", Cells: []resource.Cell{{Value: "Пиццерия Дио Мио"}, {Value: "restaurant"}, {Value: "published"}}},
-	{ID: "5", Cells: []resource.Cell{{Value: "Кафе-бар Street Food"}, {Value: "cafe"}, {Value: "published"}}},
+	{ID: "1", Cells: []resource.Cell{{Value: "Кофейня Симпл"}, {Value: placeTypeCafe}, {Value: statusPublished}}, Href: "/admin/places/1"},
+	{ID: "2", Cells: []resource.Cell{{Value: "Хинкальная Дарьял"}, {Value: placeTypeRestaurant}, {Value: statusPublished}}, Href: "/admin/places/2"},
+	{ID: "3", Cells: []resource.Cell{{Value: "Бар Голубка"}, {Value: placeTypeBar}, {Value: statusDraft}}},
+	{ID: "4", Cells: []resource.Cell{{Value: "Пиццерия Дио Мио"}, {Value: placeTypeRestaurant}, {Value: statusPublished}}},
+	{ID: "5", Cells: []resource.Cell{{Value: "Кафе-бар Street Food"}, {Value: placeTypeCafe}, {Value: statusPublished}}},
 }
 
 func placesLister(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {

@@ -102,7 +102,7 @@ func TestStatCardView_TrendNone(t *testing.T) {
 // subtests fail.
 func TestStatCardView_TrendVariants(t *testing.T) {
 	cases := []struct {
-		trend    components.Trend
+		trend     components.Trend
 		wantClass string
 	}{
 		{components.TrendUp, "delta-up"},

@@ -200,6 +200,7 @@ func (a *HMACAuth) LoginHandler() http.Handler {
 					http.Error(w, "internal server error", http.StatusInternalServerError)
 					return
 				}
+				//nolint:gosec // Secure is configured per-environment via HMACAuthConfig.Secure.
 				http.SetCookie(w, &http.Cookie{
 					Name:     a.cookieName,
 					Value:    tok,
@@ -227,7 +228,15 @@ func (a *HMACAuth) LoginHandler() http.Handler {
 // LogoutHandler returns an http.Handler for GET /admin/logout.
 func (a *HMACAuth) LogoutHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.SetCookie(w, &http.Cookie{Name: a.cookieName, Path: a.basePath, MaxAge: -1})
+		//nolint:gosec // Secure is configured per-environment; logout only deletes the cookie.
+		http.SetCookie(w, &http.Cookie{
+			Name:     a.cookieName,
+			Path:     a.basePath,
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   a.cfg.Secure,
+			SameSite: http.SameSiteLaxMode,
+		})
 		http.Redirect(w, r, a.basePath+"/login", http.StatusSeeOther)
 	})
 }

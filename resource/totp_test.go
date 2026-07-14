@@ -122,6 +122,14 @@ const (
 var totpTestEncKey = bytes.Repeat([]byte("k"), auth.TOTPEncryptionKeyLen)
 var totpTestCSRFKey = bytes.Repeat([]byte("c"), 32)
 
+type testRL struct{}
+
+func (testRL) Allow(context.Context, string, int, time.Duration) (bool, error) { return true, nil }
+
+var testRateLimiter = testRL{}
+var testTOTPRate = auth.RateRule{Limit: 10, Window: time.Minute}
+var testLoginRate = auth.RateRule{Limit: 10, Window: time.Minute}
+
 // newTOTPTestPanel builds a BcryptTOTPAuth-backed Panel with
 // MountTOTPEnrollment wired -- unlike newBcryptPanelWithStore
 // (nav_filter_test.go), this ALSO sets Config.CSRFKey (required by
@@ -138,6 +146,9 @@ func newTOTPTestPanel(store *totpTestStore) (*resource.Panel, *auth.BcryptTOTPAu
 		BasePath:          "/admin",
 		SessionTTL:        time.Hour,
 		TOTPEncryptionKey: totpTestEncKey,
+		RateLimiter:       testRateLimiter,
+		LoginRate:         testLoginRate,
+		TOTPRate:          testTOTPRate,
 	})
 	p := resource.New(resource.Config{
 		Title:    "Test Panel",
@@ -362,9 +373,9 @@ func TestTOTPConfirm_ReplayedCode_SecondAttemptRejected(t *testing.T) {
 func TestTOTPDisable_WithoutReauth_StaysEnabled(t *testing.T) {
 	store := newTOTPTestStore()
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
-	store.byID["u1"].TOTPEnabled = true
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
+	store.byID["u1"].TOTPEnabled = true
 
 	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/disable/", url.Values{
 		"current_password": {"totally-wrong"},
@@ -381,11 +392,11 @@ func TestTOTPDisable_WithoutReauth_StaysEnabled(t *testing.T) {
 func TestTOTPDisable_WithCorrectReauth_Disables(t *testing.T) {
 	store := newTOTPTestStore()
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
+	p, a := newTOTPTestPanel(store)
+	cookie := bcryptLogin(t, a, "op@example.com", "pw")
 	store.byID["u1"].TOTPEnabled = true
 	store.pending["u1"] = []byte("some-encrypted-secret")
 	store.recovery["u1"] = map[string]bool{"h": false}
-	p, a := newTOTPTestPanel(store)
-	cookie := bcryptLogin(t, a, "op@example.com", "pw")
 
 	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/disable/", url.Values{
 		"current_password": {"pw"},
@@ -405,10 +416,10 @@ func TestTOTPDisable_WithCorrectReauth_Disables(t *testing.T) {
 func TestTOTPRegenerate_WrongPassword_KeepsOldCodes(t *testing.T) {
 	store := newTOTPTestStore()
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
-	store.byID["u1"].TOTPEnabled = true
-	store.recovery["u1"] = map[string]bool{"original-hash": false}
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
+	store.byID["u1"].TOTPEnabled = true
+	store.recovery["u1"] = map[string]bool{"original-hash": false}
 
 	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/regenerate/", url.Values{
 		"current_password": {"totally-wrong"},
@@ -425,10 +436,10 @@ func TestTOTPRegenerate_WrongPassword_KeepsOldCodes(t *testing.T) {
 func TestTOTPRegenerate_WithCorrectReauth_ReplacesCodesAndShowsThemOnce(t *testing.T) {
 	store := newTOTPTestStore()
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
-	store.byID["u1"].TOTPEnabled = true
-	store.recovery["u1"] = map[string]bool{"original-hash": false}
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
+	store.byID["u1"].TOTPEnabled = true
+	store.recovery["u1"] = map[string]bool{"original-hash": false}
 
 	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/regenerate/", url.Values{
 		"current_password": {"pw"},
@@ -451,9 +462,9 @@ func TestTOTPRegenerate_WithCorrectReauth_ReplacesCodesAndShowsThemOnce(t *testi
 func TestTOTPDisable_GET_ShowsFormButDoesNotDisable(t *testing.T) {
 	store := newTOTPTestStore()
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
-	store.byID["u1"].TOTPEnabled = true
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
+	store.byID["u1"].TOTPEnabled = true
 
 	w := totpGet(t, p, cookie, "/admin/"+totpTestPrefix+"/disable/")
 	if w.Code != http.StatusOK {

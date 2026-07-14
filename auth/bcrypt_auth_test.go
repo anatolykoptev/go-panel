@@ -3,6 +3,7 @@ package auth_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-panel/auth"
+	"github.com/pquerna/otp/totp"
 )
 
 // fakeStore is an in-memory AccountStore for authenticator unit tests.
@@ -89,41 +91,151 @@ func (f *fakeStore) CreateAccount(context.Context, string, string, string, strin
 }
 
 // fakeTOTPStore embeds fakeStore (reusing its whole AccountStore
-// implementation unchanged) and adds no-op TOTPStore methods, so it
-// satisfies `store.(auth.TOTPStore)` — exactly what NewBcryptTOTPAuth's
-// setup panic type-asserts against. The method bodies are unused by the
-// panic-wiring tests below (which never call them); PgxAccountStore's own
-// DB-backed tests in account_test.go cover real TOTPStore behavior.
+// implementation) and adds in-memory TOTPStore methods for authenticator
+// unit tests. PgxAccountStore's own DB-backed tests in account_test.go
+// cover real TOTPStore behavior.
 type fakeTOTPStore struct {
 	*fakeStore
+	pending  map[string][]byte
+	lastStep map[string]int64
+	recovery map[string]map[string]bool
 }
 
 func newFakeTOTPStore() *fakeTOTPStore {
-	return &fakeTOTPStore{fakeStore: newFakeStore()}
+	return &fakeTOTPStore{
+		fakeStore: newFakeStore(),
+		pending:   map[string][]byte{},
+		lastStep:  map[string]int64{},
+		recovery:  map[string]map[string]bool{},
+	}
 }
 
-func (*fakeTOTPStore) SetPendingTOTPSecret(context.Context, string, []byte) error { return nil }
-func (*fakeTOTPStore) ConfirmTOTPEnrollment(context.Context, string) error        { return nil }
-func (*fakeTOTPStore) GetTOTPSecret(context.Context, string) ([]byte, error)      { return nil, nil }
-func (*fakeTOTPStore) DisableTOTP(context.Context, string) error                  { return nil }
-func (*fakeTOTPStore) ConsumeTOTPStep(context.Context, string, int64) (bool, error) {
-	return false, nil
+func (f *fakeTOTPStore) SetPendingTOTPSecret(_ context.Context, id string, encrypted []byte) error {
+	a, ok := f.byID[id]
+	if !ok {
+		return auth.ErrAccountNotFound
+	}
+	f.pending[id] = encrypted
+	a.TOTPEnabled = false
+	return nil
 }
-func (*fakeTOTPStore) StoreRecoveryCodes(context.Context, string, [][]byte) error { return nil }
-func (*fakeTOTPStore) ConsumeRecoveryCode(context.Context, string, []byte) (bool, error) {
-	return false, nil
+
+func (f *fakeTOTPStore) ConfirmTOTPEnrollment(_ context.Context, id string) error {
+	a, ok := f.byID[id]
+	if !ok {
+		return auth.ErrAccountNotFound
+	}
+	a.TOTPEnabled = true
+	return nil
+}
+
+func (f *fakeTOTPStore) GetTOTPSecret(_ context.Context, id string) ([]byte, error) {
+	if _, ok := f.byID[id]; !ok {
+		return nil, auth.ErrAccountNotFound
+	}
+	enc, ok := f.pending[id]
+	if !ok {
+		return nil, auth.ErrTOTPNotEnrolled
+	}
+	return enc, nil
+}
+
+func (f *fakeTOTPStore) DisableTOTP(_ context.Context, id string) error {
+	a, ok := f.byID[id]
+	if !ok {
+		return auth.ErrAccountNotFound
+	}
+	delete(f.pending, id)
+	delete(f.lastStep, id)
+	delete(f.recovery, id)
+	a.TOTPEnabled = false
+	return nil
+}
+
+func (f *fakeTOTPStore) ConsumeTOTPStep(_ context.Context, id string, step int64) (bool, error) {
+	if _, ok := f.byID[id]; !ok {
+		return false, auth.ErrAccountNotFound
+	}
+	if last, ok := f.lastStep[id]; ok && step <= last {
+		return false, nil
+	}
+	f.lastStep[id] = step
+	return true, nil
+}
+
+func (f *fakeTOTPStore) StoreRecoveryCodes(_ context.Context, id string, hashedCodes [][]byte) error {
+	if _, ok := f.byID[id]; !ok {
+		return auth.ErrAccountNotFound
+	}
+	m := map[string]bool{}
+	for _, h := range hashedCodes {
+		m[string(h)] = true
+	}
+	f.recovery[id] = m
+	return nil
+}
+
+func (f *fakeTOTPStore) ConsumeRecoveryCode(_ context.Context, id string, hashedCode []byte) (bool, error) {
+	if _, ok := f.byID[id]; !ok {
+		return false, auth.ErrAccountNotFound
+	}
+	m, ok := f.recovery[id]
+	if !ok {
+		return false, nil
+	}
+	key := string(hashedCode)
+	if !m[key] {
+		return false, nil
+	}
+	delete(m, key)
+	return true, nil
 }
 
 var _ auth.TOTPStore = (*fakeTOTPStore)(nil)
 
+// test helpers for TOTP-backed authenticator tests.
+var (
+	testTOTPEncKey  = bytes.Repeat([]byte("k"), auth.TOTPEncryptionKeyLen)
+	testRateLimiter = &fakeTOTPStoreRateLimiter{}
+	testLoginRate   = auth.RateRule{Limit: 10, Window: time.Minute}
+	testTOTPRate    = auth.RateRule{Limit: 10, Window: time.Minute}
+)
+
+type fakeTOTPStoreRateLimiter struct{}
+
+func (fakeTOTPStoreRateLimiter) Allow(context.Context, string, int, time.Duration) (bool, error) {
+	return true, nil
+}
+
+type fakeRateLimiter struct {
+	allow bool
+	err   error
+}
+
+func (f *fakeRateLimiter) Allow(context.Context, string, int, time.Duration) (bool, error) {
+	return f.allow, f.err
+}
+
+func (f *fakeRateLimiter) Set(allow bool, err error) {
+	f.allow = allow
+	f.err = err
+}
+
 func newBcryptAuth(t *testing.T, store auth.AccountStore) *auth.BcryptTOTPAuth {
 	t.Helper()
-	return auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+	cfg := auth.BcryptConfig{
 		Store:      store,
 		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
 		BasePath:   "/admin",
 		SessionTTL: time.Hour,
-	})
+	}
+	if _, ok := store.(auth.TOTPStore); ok {
+		cfg.TOTPEncryptionKey = testTOTPEncKey
+		cfg.RateLimiter = testRateLimiter
+		cfg.LoginRate = testLoginRate
+		cfg.TOTPRate = testTOTPRate
+	}
+	return auth.NewBcryptTOTPAuth(cfg)
 }
 
 func seedAccount(t *testing.T, store *fakeStore, id, email, pw, role string, active bool) {
@@ -359,6 +471,9 @@ func TestNewBcryptTOTPAuth_NoPanicWhenTOTPStoreWithValidKey(t *testing.T) {
 		Store:             newFakeTOTPStore(),
 		HMACKey:           []byte("test-hmac-key-32-bytes-long-here"),
 		TOTPEncryptionKey: bytes.Repeat([]byte("k"), auth.TOTPEncryptionKeyLen),
+		RateLimiter:       testRateLimiter,
+		LoginRate:         testLoginRate,
+		TOTPRate:          testTOTPRate,
 	})
 	if a == nil {
 		t.Fatal("expected a non-nil BcryptTOTPAuth with a valid 32-byte TOTPEncryptionKey")
@@ -378,4 +493,305 @@ func TestNewBcryptTOTPAuth_NoPanicWhenStoreDoesNotImplementTOTPStore(t *testing.
 	if a == nil {
 		t.Fatal("expected a non-nil BcryptTOTPAuth when Store does not implement TOTPStore")
 	}
+}
+
+func mfaCookie(w *httptest.ResponseRecorder) *http.Cookie {
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "panel_admin_mfa" && c.MaxAge >= 0 {
+			return c
+		}
+	}
+	return nil
+}
+
+func enrollTOTP(t *testing.T, store *fakeTOTPStore, id, email, pw, role string) string {
+	t.Helper()
+	seedAccount(t, store.fakeStore, id, email, pw, role, true)
+	key, err := auth.GenerateTOTPSecret("go-panel-test", email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := key.Secret()
+	enc, err := auth.EncryptTOTPSecret([]byte(secret), testTOTPEncKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPendingTOTPSecret(context.Background(), id, enc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ConfirmTOTPEnrollment(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	return secret
+}
+
+func mfaLoginPost(a *auth.BcryptTOTPAuth, mfaCookie *http.Cookie, code string) *httptest.ResponseRecorder {
+	body := strings.NewReader("code=" + code)
+	r := httptest.NewRequest(http.MethodPost, "/admin/login", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if mfaCookie != nil {
+		r.AddCookie(mfaCookie)
+	}
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+	return w
+}
+
+func requireUnauthorized(t *testing.T, a *auth.BcryptTOTPAuth, cookie *http.Cookie) {
+	t.Helper()
+	h := a.Require(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	r := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect for unauthenticated/mfa-pending cookie, got %d", w.Code)
+	}
+}
+
+func TestBcrypt_MFA_TOTPEnabled(t *testing.T) {
+	store := newFakeTOTPStore()
+	secret := enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	a := newBcryptAuth(t, store)
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected MFA page 200, got %d", w.Code)
+	}
+	mfa := mfaCookie(w)
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+	if sessionCookie(w) != nil {
+		t.Fatal("mfa-pending response must not issue a session cookie")
+	}
+	requireUnauthorized(t, a, mfa)
+
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w2 := mfaLoginPost(a, mfa, code)
+	if w2.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect after valid MFA, got %d", w2.Code)
+	}
+	sess := sessionCookie(w2)
+	if sess == nil {
+		t.Fatal("expected session cookie after valid MFA")
+	}
+	if mfaCookie(w2) != nil {
+		t.Fatal("mfa_pending cookie must be cleared after successful MFA")
+	}
+
+	called := false
+	h := a.Require(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	r := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	r.AddCookie(sess)
+	w3 := httptest.NewRecorder()
+	h(w3, r)
+	if !called || w3.Code != http.StatusOK {
+		t.Fatalf("expected authenticated request after MFA, called=%v code=%d", called, w3.Code)
+	}
+}
+
+func TestBcrypt_MFA_WrongCode(t *testing.T) {
+	store := newFakeTOTPStore()
+	_ = enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	a := newBcryptAuth(t, store)
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+	mfa := mfaCookie(w)
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+
+	w2 := mfaLoginPost(a, mfa, "000000")
+	if w2.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong TOTP code, got %d", w2.Code)
+	}
+	if sessionCookie(w2) != nil {
+		t.Fatal("wrong MFA code must not issue session cookie")
+	}
+}
+
+func TestBcrypt_MFA_ReplayRejected(t *testing.T) {
+	store := newFakeTOTPStore()
+	secret := enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	a := newBcryptAuth(t, store)
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+	mfa := mfaCookie(w)
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w2 := mfaLoginPost(a, mfa, code)
+	if w2.Code != http.StatusSeeOther {
+		t.Fatalf("first correct code should succeed, got %d", w2.Code)
+	}
+
+	w3 := mfaLoginPost(a, mfa, code)
+	if w3.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed code should fail, got %d", w3.Code)
+	}
+}
+
+func TestBcrypt_MFA_RecoveryCode(t *testing.T) {
+	store := newFakeTOTPStore()
+	_ = enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	a := newBcryptAuth(t, store)
+
+	// Seed recovery codes.
+	codes, hashes, err := auth.GenerateRecoveryCodes(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StoreRecoveryCodes(context.Background(), "u1", hashes); err != nil {
+		t.Fatal(err)
+	}
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+	mfa := mfaCookie(w)
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+
+	w2 := mfaLoginPost(a, mfa, codes[0])
+	if w2.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect after recovery code, got %d", w2.Code)
+	}
+	if sessionCookie(w2) == nil {
+		t.Fatal("expected session cookie after recovery code")
+	}
+
+	// Same recovery code must not work again.
+	w3 := mfaLoginPost(a, mfa, codes[0])
+	if w3.Code != http.StatusUnauthorized {
+		t.Fatalf("reused recovery code should fail, got %d", w3.Code)
+	}
+}
+
+func TestBcrypt_MFA_CrossCookiePasteRejected(t *testing.T) {
+	store := newFakeTOTPStore()
+	_ = enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	a := newBcryptAuth(t, store)
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+	mfa := mfaCookie(w)
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+
+	// A session cookie should not accept the mfa_pending token value.
+	r := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: mfa.Value, Path: "/admin"})
+	if a.Verified(r) {
+		t.Fatal("mfa_pending token value must not be accepted as a session cookie")
+	}
+
+	// A session token value pasted into the mfa_pending slot must not pass
+	// the mfa interstitial. We mint a real session token with the same key.
+	// (This is a white-box test: makeTokenWithDomain is not exported, but
+	// we can drive the public surface by making the HMAC key known and the
+	// mfa token simply invalid for the session slot.)
+	// Instead, prove that the MFA page with the session cookie as mfa value
+	// does not issue a session: the first POST will fail rate limit because
+	// it is treated as a fresh login (no mfa cookie) and the password is not
+	// supplied. Simpler: call verifyMFA-style POST with a session-formatted
+	// token in the mfa cookie slot.
+	w2 := mfaLoginPost(a, &http.Cookie{Name: "panel_admin_mfa", Value: mfa.Value + "tampered", Path: "/admin"}, "000000")
+	if w2.Code != http.StatusUnauthorized {
+		t.Fatalf("tampered mfa token should fail, got %d", w2.Code)
+	}
+}
+
+func TestBcrypt_MFA_TOTPRateLimiterRequired(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when TOTPStore is configured without RateLimiter")
+		}
+	}()
+	auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:             newFakeTOTPStore(),
+		HMACKey:           []byte("test-hmac-key-32-bytes-long-here"),
+		TOTPEncryptionKey: testTOTPEncKey,
+		TOTPRate:          testTOTPRate,
+	})
+}
+
+func TestBcrypt_MFA_TOTPRateRequired(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when TOTPStore is configured without TOTPRate")
+		}
+	}()
+	auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:             newFakeTOTPStore(),
+		HMACKey:           []byte("test-hmac-key-32-bytes-long-here"),
+		TOTPEncryptionKey: testTOTPEncKey,
+		RateLimiter:       testRateLimiter,
+		LoginRate:         testLoginRate,
+	})
+}
+
+func TestBcrypt_MFA_TOTPRate_LimitDenies(t *testing.T) {
+	store := newFakeTOTPStore()
+	_ = enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	rl := &fakeRateLimiter{allow: true}
+	a := newBcryptAuthWithRateLimiter(t, store, rl)
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+	mfa := mfaCookie(w)
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+
+	rl.Set(false, nil)
+	w2 := mfaLoginPost(a, mfa, "000000")
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 when TOTP rate limit denies, got %d", w2.Code)
+	}
+}
+
+func TestBcrypt_MFA_TOTPRate_LimiterErrorFailsClosed(t *testing.T) {
+	store := newFakeTOTPStore()
+	_ = enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	rl := &fakeRateLimiter{allow: true}
+	a := newBcryptAuthWithRateLimiter(t, store, rl)
+
+	w := loginPOST(a, "op@example.com", "s3cret")
+	mfa := mfaCookie(w)
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+
+	rl.Set(false, errors.New("redis down"))
+	w2 := mfaLoginPost(a, mfa, "000000")
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 when TOTP rate limiter errors, got %d", w2.Code)
+	}
+}
+
+func newBcryptAuthWithRateLimiter(t *testing.T, store auth.AccountStore, rl auth.RateLimiter) *auth.BcryptTOTPAuth {
+	t.Helper()
+	cfg := auth.BcryptConfig{
+		Store:       store,
+		HMACKey:     []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:    "/admin",
+		SessionTTL:  time.Hour,
+		RateLimiter: rl,
+		LoginRate:   testLoginRate,
+	}
+	if _, ok := store.(auth.TOTPStore); ok {
+		cfg.TOTPEncryptionKey = testTOTPEncKey
+		cfg.TOTPRate = testTOTPRate
+	}
+	return auth.NewBcryptTOTPAuth(cfg)
 }

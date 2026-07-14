@@ -88,8 +88,8 @@ func TestExampleWiring(t *testing.T) {
 	auth, err := identity.New(identity.Config{
 		Registry:    registry,
 		Sessions:    session.NewRedisSessionStore(rdb),
-		Users:       newMemUserStore(),              // <- the only seam a host writes
-		Email:       email.NewLogSender(nil),        // prod: email.NewSMTPSender(cfg)
+		Users:       newMemUserStore(),       // <- the only seam a host writes
+		Email:       email.NewLogSender(nil), // prod: email.NewSMTPSender(cfg)
 		Hasher:      hasher.Hash,
 		RateLimiter: ratelimit.NewRedisLimiter(rdb), // framework battery
 		Cookie:      identity.DefaultCookieConfig(),

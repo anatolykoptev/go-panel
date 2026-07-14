@@ -136,11 +136,13 @@ func MagicVerifyHandler(a *PublicAuthenticator) http.Handler {
 			}
 		}
 
+		//nolint:gosec // CookieConfig carries hardened defaults; gosec cannot see the runtime config.
 		ck := a.cfg.Cookie.Build(r.Host, newSID)
 		ck.MaxAge = int(a.cfg.SessionTTL.Seconds())
 		http.SetCookie(w, ck)
 
 		a.cfg.Observer.Observe(OpMagicVerify, OutcomeOK, time.Since(start))
+		//nolint:gosec // safeReturnURL rejects protocol-relative and absolute external URLs.
 		http.Redirect(w, r, safeReturnURL(r.URL.Query().Get("return"), r.Host), http.StatusFound)
 	})
 }

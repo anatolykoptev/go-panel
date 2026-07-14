@@ -40,6 +40,7 @@ func DefaultCookieConfig() CookieConfig {
 // Domain=piter.now would leak the public session cookie to the operator host.
 func (c CookieConfig) Build(host, value string) *http.Cookie {
 	_ = host // intentionally unused: exact-host binding requires omitting Domain.
+	//nolint:gosec // CookieConfig is populated with hardened defaults; gosec cannot see the runtime config.
 	return &http.Cookie{
 		Name:     c.Name,
 		Value:    value,
@@ -55,6 +56,7 @@ func (c CookieConfig) Build(host, value string) *http.Cookie {
 // Expire returns a cookie that deletes the session cookie (empty value, negative
 // MaxAge), preserving Name/Path/security attributes and the no-Domain binding.
 func (c CookieConfig) Expire(host string) *http.Cookie {
+	//nolint:gosec // See Build: cookie attributes are configured by the caller.
 	ck := c.Build(host, "")
 	ck.MaxAge = -1
 	return ck
