@@ -18,6 +18,11 @@ var ErrAccountNotFound = errors.New("auth: account not found")
 // account") and from a transport/decryption error.
 var ErrTOTPNotEnrolled = errors.New("auth: no totp secret set for account")
 
+// ErrTOTPNotEnabled is returned by recovery-code management helpers when an
+// operation requires an already-confirmed TOTP enrollment but the account's
+// totp_enabled flag is false.
+var ErrTOTPNotEnabled = errors.New("auth: totp is not enabled for account")
+
 // Account is a panel operator account for multi-user auth. Ported in shape from
 // oxpulse-admin's accounts row. PasswordHash is a bcrypt hash, never plaintext;
 // it is only populated by lookups that select it (GetByEmail), left empty otherwise.
@@ -77,7 +82,16 @@ type TOTPStore interface {
 	// TOTP code (ValidateTOTPCode) AND consumed its step (ConsumeTOTPStep)
 	// before calling this — it performs no code verification itself.
 	// ErrAccountNotFound if id doesn't exist.
+	//
+	// Deprecated: use ConfirmTOTPEnrollmentWithRecoveryCodes to atomically
+	// confirm enrollment and store recovery codes in one transaction.
 	ConfirmTOTPEnrollment(ctx context.Context, accountID string) error
+	// ConfirmTOTPEnrollmentWithRecoveryCodes atomically confirms TOTP
+	// enrollment and replaces the account's recovery codes with hashedCodes.
+	// Either both operations succeed or neither is persisted, preventing an
+	// enabled account from being left without usable recovery codes.
+	// ErrAccountNotFound if id doesn't exist.
+	ConfirmTOTPEnrollmentWithRecoveryCodes(ctx context.Context, accountID string, hashedCodes [][]byte) error
 	// GetTOTPSecret returns the stored encrypted secret (pending or
 	// confirmed — callers distinguish via Account.TOTPEnabled) for QR
 	// re-display or code verification. ErrAccountNotFound if id doesn't

@@ -341,21 +341,22 @@ func safeReturnURL(raw, host string) string {
 		return rootPath
 	}
 	if u.IsAbs() || u.Host != "" {
-		if u.Host == host {
-			// Same-host absolute URLs can still produce protocol-relative or
-			// scheme-bearing paths (e.g. https://host//evil or
-			// https://host/http://evil). Reject those as well.
-			if strings.HasPrefix(u.Path, "//") || strings.Contains(u.Path, "://") {
-				return rootPath
-			}
-			return u.RequestURI()
+		if u.Host != host || isUnsafeReturnPath(u.Path) {
+			return rootPath
 		}
-		return rootPath
+		return u.RequestURI()
 	}
 	if strings.HasPrefix(raw, rootPath) {
 		return raw
 	}
 	return rootPath
+}
+
+// isUnsafeReturnPath reports whether an absolute-path string could be
+// interpreted as a protocol-relative URL, an embedded scheme, or a backslash
+// authority separator when used in an HTTP Location header.
+func isUnsafeReturnPath(path string) bool {
+	return strings.HasPrefix(path, "//") || strings.Contains(path, "://") || strings.ContainsRune(path, '\\')
 }
 
 func clientIP(r *http.Request) string {

@@ -184,11 +184,19 @@ func (a *HMACAuth) makeToken() (string, error) {
 // LoginHandler returns an http.Handler for GET + POST /admin/login.
 func (a *HMACAuth) LoginHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.Method == http.MethodPost {
 			const maxLoginBodyBytes = 4096 // 4KB is plenty for a login form
 			r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
-			_ = r.ParseForm()
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
 			// Constant-time on both fields: a byte-wise == short-circuits on the
 			// first mismatch and leaks credential prefixes through timing.
 			userOK := subtle.ConstantTimeCompare([]byte(r.FormValue("username")), []byte(a.cfg.Username)) == 1
@@ -225,9 +233,16 @@ func (a *HMACAuth) LoginHandler() http.Handler {
 	})
 }
 
-// LogoutHandler returns an http.Handler for GET /admin/logout.
+// LogoutHandler returns an http.Handler for POST /admin/logout.
+// POST-only prevents cross-site GET (e.g. clickjacked link) from terminating a
+// user's session via a cookie still sent with SameSite=Lax.
 func (a *HMACAuth) LogoutHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		//nolint:gosec // Secure is configured per-environment; logout only deletes the cookie.
 		http.SetCookie(w, &http.Cookie{
 			Name:     a.cookieName,

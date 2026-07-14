@@ -58,6 +58,20 @@ func (s *totpTestStore) ConfirmTOTPEnrollment(_ context.Context, id string) erro
 	return nil
 }
 
+func (s *totpTestStore) ConfirmTOTPEnrollmentWithRecoveryCodes(_ context.Context, id string, hashes [][]byte) error {
+	a, ok := s.byID[id]
+	if !ok {
+		return auth.ErrAccountNotFound
+	}
+	a.TOTPEnabled = true
+	m := make(map[string]bool, len(hashes))
+	for _, h := range hashes {
+		m[string(h)] = false
+	}
+	s.recovery[id] = m
+	return nil
+}
+
 func (s *totpTestStore) GetTOTPSecret(_ context.Context, id string) ([]byte, error) {
 	if _, ok := s.byID[id]; !ok {
 		return nil, auth.ErrAccountNotFound
