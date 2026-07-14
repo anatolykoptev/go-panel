@@ -573,7 +573,10 @@ func (a *BcryptTOTPAuth) verifyMFA(w http.ResponseWriter, r *http.Request, mfa *
 		return
 	}
 
-	code := strings.TrimSpace(r.FormValue("code"))
+	// r.Form is already parsed by LoginHandler after http.MaxBytesReader; use
+	// r.Form.Get (nil-safe) rather than r.FormValue to avoid gosec G120
+	// re-parsing the body without the size cap visible in the same function.
+	code := strings.TrimSpace(r.Form.Get("code"))
 	if code == "" {
 		a.verifyMFAFail(w, r, start, "Enter a verification code or recovery code")
 		return
