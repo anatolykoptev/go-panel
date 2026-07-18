@@ -49,7 +49,7 @@ oxpulse-admin, go-grad.
 | [`resource`](./resource/) | **Core**: `Resource` declaration → list + CRUD form handlers (`Writer`, `OptionsFunc`) + nav entry + role-gating (`RequiredRole`) | stable |
 | [`shell`](./shell/) | Layout + full sidebar + static assets (htmx, pm7 CSS/JS). See Sidebar below. | stable |
 | [`tenant`](./tenant/) | city_slug scope seam: `Resolver`, `ScopeClause`, `Middleware` | stable |
-| `mcp` | Auto-expose a Resource as MCP read/list tools | planned |
+| [`mcp`](./mcp/) | Auto-expose a Resource as MCP read/list tools via go-mcpserver | stable |
 | `media` | Upload + crop + imgproxy URL | planned |
 | `components` | pm7 widgets: sparkline, badge, pagination | grows with need |
 
