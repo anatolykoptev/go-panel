@@ -90,16 +90,6 @@ func Run(cfg Config) error {
 		logger = slog.Default()
 	}
 
-	server := mcpserver.NewServer(&mcp.Implementation{
-		Name:    "go-panel",
-		Version: "0.1.0",
-	}, mcpserver.Config{
-		KeepAlive:   30 * time.Second,
-		SchemaCache: mcp.NewSchemaCache(),
-	})
-
-	registerResourceTools(server, cfg.Panel.Resources(), logger)
-
 	mcpCfg := mcpserver.Config{
 		Name:                       "go-panel",
 		Version:                    "0.1.0",
@@ -114,7 +104,12 @@ func Run(cfg Config) error {
 		JSONResponse:               true,
 		SessionTimeout:             10 * time.Minute,
 	}
-	return mcpserver.Run(server, mcpCfg)
+	return mcpserver.Serve(&mcp.Implementation{
+		Name:    "go-panel",
+		Version: "0.1.0",
+	}, mcpCfg, func(s *mcp.Server) {
+		registerResourceTools(s, cfg.Panel.Resources(), logger)
+	})
 }
 
 // registerResourceTools creates MCP list/get tools for each Resource.
@@ -137,17 +132,17 @@ type listInput struct {
 }
 
 type listOutput struct {
-	Resource string         `json:"resource"`
-	Rows     []rowJSON      `json:"rows"`
-	Total    int            `json:"total"`
-	Limit    int            `json:"limit"`
-	Offset   int            `json:"offset"`
+	Resource string    `json:"resource"`
+	Rows     []rowJSON `json:"rows"`
+	Total    int       `json:"total"`
+	Limit    int       `json:"limit"`
+	Offset   int       `json:"offset"`
 }
 
 type rowJSON struct {
-	ID    string      `json:"id"`
-	Cells []cellJSON  `json:"cells"`
-	Href  string      `json:"href,omitempty"`
+	ID    string     `json:"id"`
+	Cells []cellJSON `json:"cells"`
+	Href  string     `json:"href,omitempty"`
 }
 
 type cellJSON struct {
@@ -204,15 +199,15 @@ type getInput struct {
 }
 
 type getOutput struct {
-	Resource string           `json:"resource"`
-	ID       string           `json:"id"`
-	Sections []sectionJSON    `json:"sections"`
+	Resource string        `json:"resource"`
+	ID       string        `json:"id"`
+	Sections []sectionJSON `json:"sections"`
 }
 
 type sectionJSON struct {
-	Title   string      `json:"title,omitempty"`
-	Items   []itemJSON  `json:"items,omitempty"`
-	RawHTML string      `json:"raw_html,omitempty"`
+	Title   string     `json:"title,omitempty"`
+	Items   []itemJSON `json:"items,omitempty"`
+	RawHTML string     `json:"raw_html,omitempty"`
 }
 
 type itemJSON struct {
