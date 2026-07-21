@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.20.2](https://github.com/anatolykoptev/go-panel/compare/v0.20.1...v0.20.2) (2026-07-21)
+
+
+### Added
+
+* **mcp:** add mcp package — auto-expose Resources as MCP tools ([957d0ea](https://github.com/anatolykoptev/go-panel/commit/957d0eaac18e282bca2a7b45c217a33affb539d8))
+
+
+### Fixed
+
+* **mcp:** replace invalid jsonschema WORD= tags with descriptions ([#98](https://github.com/anatolykoptev/go-panel/issues/98)) ([e0baac3](https://github.com/anatolykoptev/go-panel/commit/e0baac32cb9f352605bd06130cc42da9c40a3080))
+
+
+### Changed
+
+* adopt go-mcpserver v0.18.0 Serve single-entry API ([#99](https://github.com/anatolykoptev/go-panel/issues/99)) ([9b66acb](https://github.com/anatolykoptev/go-panel/commit/9b66acb1abce0382131ac90cfb8a0f6872e9dca0))
+
 ## [0.20.1](https://github.com/anatolykoptev/go-panel/compare/v0.20.0...v0.20.1) (2026-07-14)
 
 
