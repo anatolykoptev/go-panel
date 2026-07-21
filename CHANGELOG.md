@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.22.1](https://github.com/anatolykoptev/go-panel/compare/v0.22.0...v0.22.1) (2026-07-21)
+
+
+### Added
+
+* **resource:** add Relation struct and resolveRelations (P1 core, TDD) ([#103](https://github.com/anatolykoptev/go-panel/issues/103)) ([ed2838a](https://github.com/anatolykoptev/go-panel/commit/ed2838a8398dd5881d045449e6c437d8b82041ce))
+* **resource:** promote CrossLinkCell with fixed href escaping (XSS) ([#102](https://github.com/anatolykoptev/go-panel/issues/102)) ([5871c4f](https://github.com/anatolykoptev/go-panel/commit/5871c4f6f57be8146ff2f4b2fe6678d35c6fb2ff))
+* **resource:** wire resolveRelations hook in makeListHandler (P1 Phase 3a) ([#104](https://github.com/anatolykoptev/go-panel/issues/104)) ([4fd3d6d](https://github.com/anatolykoptev/go-panel/commit/4fd3d6db39ac08c7c03d0babc2b8f8a0a4b3f3a5))
+
 ## [0.20.2](https://github.com/anatolykoptev/go-panel/compare/v0.20.1...v0.20.2) (2026-07-21)
 
 
