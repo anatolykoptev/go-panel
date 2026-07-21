@@ -55,6 +55,25 @@ func placesLister(_ context.Context, q resource.ListQuery) ([]resource.Row, int,
 	return filtered[start:end], len(filtered), nil
 }
 
+// placesFetchRow fetches a single place by ID for the auto-generated detail
+// page. Demonstrates the FetchRow field: when Detailer is nil but FetchRow is
+// non-nil, go-panel synthesizes a detail page from Sort.Columns + the returned
+// map. This makes the Row.Href cross-links in staticItems work (no 404).
+func placesFetchRow(_ context.Context, id string) (map[string]string, error) {
+	for _, r := range staticItems {
+		if r.ID == id {
+			out := map[string]string{"name": "", "category": "", "status": ""}
+			for i, col := range []string{"name", "category", "status"} {
+				if i < len(r.Cells) {
+					out[col] = r.Cells[i].Value
+				}
+			}
+			return out, nil
+		}
+	}
+	return nil, resource.ErrDetailNotFound
+}
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
@@ -103,6 +122,9 @@ func main() {
 		}},
 		Scope:  tenant.Scope{Column: "p.city_slug"},
 		Lister: placesLister,
+		// FetchRow enables an auto-generated detail page so the Row.Href
+		// cross-links in staticItems work (no 404). See auto_detailer_test.go.
+		FetchRow: placesFetchRow,
 	}
 
 	resource.Register(p, placesResource)

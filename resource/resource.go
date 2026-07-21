@@ -157,6 +157,20 @@ type Resource struct {
 	// See DetailSection / DetailItem for the schema-agnostic shape.
 	Detailer func(ctx context.Context, r *http.Request, id string) ([]DetailSection, error)
 
+	// FetchRow fetches a single row by ID for an auto-generated detail page.
+	// When Detailer is nil but FetchRow is non-nil, Register synthesizes a
+	// Detailer that renders one DetailSection with a DetailItem per Sort.Columns
+	// entry (Label from Column.Label, Value from the returned map keyed by
+	// Column.Key). This lets resources without a hand-written Detailer still
+	// serve /{name}/{id} so cross-link cells work (the cross-resource linking
+	// 404 problem — see go-panel issue #100 / go-grad PR #266).
+	// When both Detailer and FetchRow are nil, no detail route is mounted
+	// (existing behaviour — preserves backward compatibility).
+	// When both are non-nil, Detailer wins (FetchRow ignored).
+	// The closure must be safe to call concurrently (standard Go handler rules).
+	// Return ErrDetailNotFound to signal a 404 (same sentinel as Detailer).
+	FetchRow func(ctx context.Context, id string) (map[string]string, error)
+
 	// Writer enables create/edit forms. Nil = read-only (Phase 1 behaviour, default).
 	// When non-nil, CSRFKey must be set in Config (panic at Register if missing or < 32 bytes — fail-closed).
 	Writer *Writer
@@ -206,7 +220,7 @@ type Panel struct {
 	csrfKey     []byte
 	locales     locale.Set          // configured i18n locales; zero value = single-locale
 	profileCfg  shell.ProfileConfig // static defaults for the sidebar profile block
-	resources   []Resource           // registered Resources, in Register order
+	resources   []Resource          // registered Resources, in Register order
 
 	// indexOverride is set once via MountPage(PageSpec{Path: ""}) before the
 	// mux is finalized; it replaces the default handleIndex at GET {basePath}/{$}.
@@ -557,9 +571,13 @@ func Register(p *Panel, r Resource) {
 		listHandler(w, req, nil, true)
 	}))
 
-	// Detailer route — only mounted when Detailer is configured.
+	// Detailer route — mounted when Detailer OR FetchRow is configured.
+	// If Detailer is nil but FetchRow is non-nil, synthesize an auto-Detailer
+	// from Sort.Columns + FetchRow (see autoDetailer).
 	if r.Detailer != nil {
 		mountDetailRoute(p, r)
+	} else if r.FetchRow != nil {
+		mountDetailRoute(p, withAutoDetailer(r))
 	}
 
 	// Writer routes — only mounted when Writer is configured.
@@ -692,6 +710,47 @@ var ErrDetailNotFound = errors.New("resource: detail not found")
 func mountDetailRoute(p *Panel, r Resource) {
 	detailPath := p.basePath + "/" + r.Name + "/{id}"
 	p.mux.HandleFunc("GET "+detailPath, p.guard(r.RequiredRole, detailHandler(p, r)))
+}
+
+// withAutoDetailer returns a shallow copy of r with a synthesized Detailer
+// built from Sort.Columns + FetchRow. Used when the caller sets FetchRow but
+// not Detailer — the auto-Detailer renders one DetailSection with a DetailItem
+// per column (Label from Column.Label, Value from the FetchRow map keyed by
+// Column.Key). Columns whose key is absent from the map render an empty value.
+// The caller must NOT have set r.Detailer (this helper is only called in the
+// else-branch of Register's Detailer check).
+func withAutoDetailer(r Resource) Resource {
+	r2 := r // shallow copy — closures and specs are shared, only Detailer is new
+	r2.Detailer = func(ctx context.Context, _ *http.Request, id string) ([]DetailSection, error) {
+		row, err := r.FetchRow(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		items := make([]DetailItem, 0, len(r.Sort.Columns))
+		for _, col := range r.Sort.Columns {
+			items = append(items, DetailItem{
+				Label: col.Label,
+				Value: row[col.Key],
+			})
+		}
+		return []DetailSection{{Items: items}}, nil
+	}
+	return r2
+}
+
+// EffectiveDetailer returns r's Detailer, or a synthesized auto-Detailer built
+// from Sort.Columns + FetchRow when Detailer is nil but FetchRow is non-nil.
+// Returns nil when both are nil (no detail page). External callers (e.g. the
+// mcp package) use this to decide whether a resource has a detail page and to
+// invoke it, without duplicating the Detailer-vs-FetchRow precedence logic.
+func EffectiveDetailer(r Resource) func(ctx context.Context, req *http.Request, id string) ([]DetailSection, error) {
+	if r.Detailer != nil {
+		return r.Detailer
+	}
+	if r.FetchRow != nil {
+		return withAutoDetailer(r).Detailer
+	}
+	return nil
 }
 
 // detailHandler returns the handler for GET {basePath}/{name}/{id}.

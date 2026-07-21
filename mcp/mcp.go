@@ -116,7 +116,11 @@ func Run(cfg Config) error {
 func registerResourceTools(server *mcp.Server, resources []resource.Resource, logger *slog.Logger) {
 	for _, r := range resources {
 		registerListTool(server, r, logger)
-		if r.Detailer != nil {
+		// EffectiveDetailer returns the hand-written Detailer OR a synthesized
+		// auto-Detailer built from Sort.Columns + FetchRow. This keeps MCP's
+		// {resource}_get tool in sync with the HTTP detail route (which is
+		// mounted whenever Detailer OR FetchRow is non-nil — see resource.Register).
+		if resource.EffectiveDetailer(r) != nil {
 			registerGetTool(server, r, logger)
 		}
 	}
@@ -230,7 +234,10 @@ func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logge
 		if err != nil {
 			return nil, getOutput{}, fmt.Errorf("%s: internal request build failed: %w", toolName, err)
 		}
-		sections, err := r.Detailer(ctx, req, in.ID)
+		// EffectiveDetailer handles both hand-written Detailer and the
+		// FetchRow-backed auto-Detailer (see resource.EffectiveDetailer).
+		detailer := resource.EffectiveDetailer(r)
+		sections, err := detailer(ctx, req, in.ID)
 		if err != nil {
 			return nil, getOutput{}, fmt.Errorf("%s: detail failed: %w", toolName, err)
 		}
