@@ -193,6 +193,15 @@ type Resource struct {
 	// DB COUNT per render balloons admin-page latency under many resources).
 	// nil = no badge (zero-value safe; existing callers are unaffected).
 	Badge func(ctx context.Context) string
+
+	// Relations declares BelongsTo cross-resource links for this resource's
+	// list cells. Each Relation replaces a foreign-key cell with an XSS-safe
+	// CrossLinkCell anchor pointing at the target resource's detail route.
+	// Zero-value (nil) = no relations (backward compatible). Resolved by
+	// resolveRelations, which is NOT yet wired into makeListHandler (Phase 3).
+	// Register-time validation is self-contained: each Relation.ForeignKey
+	// must match a Sort.Columns[].Key on THIS resource (ADR-6).
+	Relations []Relation
 }
 
 // Panel is the minimal composition root go-panel provides.
@@ -525,6 +534,7 @@ func Register(p *Panel, r Resource) {
 		validateWriterConfig(p, r)
 	}
 	validateRoleConfig(p, r)
+	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
 
 	// Add nav entry.
