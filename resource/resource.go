@@ -1202,6 +1202,18 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			return
 		}
 
+		// Phase 3a: resolve BelongsTo Relations, replacing raw FK cells with
+		// XSS-safe CrossLinkCell anchors. Guarded by len(r.Relations) > 0 so
+		// resources without Relations pay zero cost (backward compatible,
+		// ADR-5). resolveRelations handles per-relation errors internally
+		// (slog.Warn + raw FK per ADR-9); this top-level error is only for
+		// unexpected failures.
+		if len(r.Relations) > 0 {
+			if err := resolveRelations(ctx, p, &r, rows); err != nil {
+				slog.ErrorContext(ctx, "resource: resolveRelations failed", "resource", r.Name, "err", err)
+			}
+		}
+
 		totalPages := max(1, (total+pageSize-1)/pageSize)
 
 		data := listPageData{
