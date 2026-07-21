@@ -32,8 +32,10 @@ func detailerResource(name string, detailer func(context.Context, *http.Request,
 }
 
 // TestDetailer_RouteNotMountedWhenNil asserts that a resource without a Detailer
-// mounts NO /{name}/{id} route — GET /admin/items/42 returns 404 (not found).
-// Falsification: if Detailer-nil no longer blocks the route, this test goes RED.
+// AND without a FetchRow mounts NO /{name}/{id} route — GET /admin/items/42
+// returns 404 (not found). When FetchRow is set (but Detailer is nil), Register
+// synthesizes an auto-Detailer — see TestAutoDetailer_RouteMountedWithFetchRow.
+// Falsification: if Detailer-nil + FetchRow-nil no longer blocks the route, this test goes RED.
 func TestDetailer_RouteNotMountedWhenNil(t *testing.T) {
 	a := newTestAuth()
 	p := resource.New(resource.Config{
