@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"net/url"
+	"strconv"
 )
 
 // CrossLinkCell is the framework's cross-link renderer, promoted from
@@ -35,5 +36,5 @@ func CrossLinkCell(basePath, resourceName, id, label string) string {
 // string form and delegates to CrossLinkCell. Useful for resources whose
 // primary key is numeric.
 func CrossLinkCellInt(basePath, resourceName string, id int64, label string) string {
-	return CrossLinkCell(basePath, resourceName, fmt.Sprintf("%d", id), label)
+	return CrossLinkCell(basePath, resourceName, strconv.FormatInt(id, 10), label)
 }
