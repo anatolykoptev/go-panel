@@ -1586,3 +1586,100 @@ func TestWriterRoutes_RedirectAfterSaveEmptyStringFallsBackToDefault(t *testing.
 		t.Errorf("expected default redirect to /admin/items, got %q", loc)
 	}
 }
+
+// TestWriterRoutes_SingleRowRedirectsToEdit verifies that GET /{name} for a
+// SingleRow resource redirects to /{name}/{id}/edit for the first row.
+func TestWriterRoutes_SingleRowRedirectsToEdit(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{"name": "Profile"}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.SingleRow = true
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/admin/items/1/edit" {
+		t.Errorf("expected redirect to /admin/items/1/edit, got %q", loc)
+	}
+}
+
+// TestWriterRoutes_SingleRowNewRouteNotMounted verifies that GET /{name}/new
+// returns 404 for a SingleRow resource.
+func TestWriterRoutes_SingleRowNewRouteNotMounted(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.SingleRow = true
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items/new", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for /new on SingleRow resource, got %d", w.Code)
+	}
+}
+
+// TestWriterRoutes_SingleRowEditStillWorks verifies that GET /{name}/{id}/edit
+// still works for a SingleRow resource.
+func TestWriterRoutes_SingleRowEditStillWorks(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{"name": "Profile"}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.SingleRow = true
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items/1/edit", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for edit on SingleRow resource, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWriterRoutes_SingleRowRequiresWriter verifies that Register panics when
+// SingleRow is true but Writer is nil.
+func TestWriterRoutes_SingleRowRequiresWriter(t *testing.T) {
+	p := newWriterPanel()
+	r := testResource // no Writer
+	r.SingleRow = true
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for SingleRow without Writer")
+		}
+	}()
+	resource.Register(p, r)
+}

@@ -202,6 +202,15 @@ type Resource struct {
 	// Register-time validation is self-contained: each Relation.ForeignKey
 	// must match a Sort.Columns[].Key on THIS resource (ADR-6).
 	Relations []Relation
+
+	// SingleRow indicates a single-row resource (e.g. a profile, settings).
+	// When true:
+	//   - GET /{name} redirects to /{name}/{id}/edit for the first (only) row.
+	//   - GET /{name}/new is not mounted (no create — the row already exists).
+	//   - Lister is still required (used to find the row ID for the redirect).
+	//   - Writer.Load and Writer.Save are called with that row's ID.
+	// Requires Writer to be non-nil (Register panics otherwise).
+	SingleRow bool
 }
 
 // Panel is the minimal composition root go-panel provides.
@@ -533,6 +542,9 @@ func Register(p *Panel, r Resource) {
 	if r.Writer != nil {
 		validateWriterConfig(p, r)
 	}
+	if r.SingleRow && r.Writer == nil {
+		panic(fmt.Sprintf("resource.Register %q: SingleRow requires Writer to be non-nil", r.Name))
+	}
 	validateRoleConfig(p, r)
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
@@ -569,17 +581,53 @@ func Register(p *Panel, r Resource) {
 	rowsPath := p.basePath + "/" + r.Name + "/rows"
 
 	listHandler := p.makeListHandler(r)
-	p.mux.HandleFunc("GET "+listPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
-		nav := p.activeNav(req.Context(), r.Name)
-		shell.SecurityHeaders(w)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		listHandler(w, req, nav, false)
-	}))
-	p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
-		shell.SecurityHeaders(w)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		listHandler(w, req, nil, true)
-	}))
+	if r.SingleRow {
+		// Single-row resource: GET /{name} redirects to /{name}/{id}/edit
+		// for the first (only) row. The "new" route is not mounted.
+		p.mux.HandleFunc("GET "+listPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
+			ctx := req.Context()
+			t := tenant.From(ctx)
+			rows, _, err := r.Lister(ctx, ListQuery{Tenant: t, Limit: 1})
+			if err != nil {
+				slog.Error("resource: single-row lister failed", "resource", r.Name, "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if len(rows) == 0 {
+				// No row yet — render a message. The consumer should seed the row.
+				nav := p.activeNav(ctx, r.Name)
+				shell.SecurityHeaders(w)
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				listHandler(w, req, nav, false)
+				return
+			}
+			editURL := p.basePath + "/" + r.Name + "/" + rows[0].ID + "/edit"
+			if render.IsHTMX(req) {
+				w.Header().Set("HX-Redirect", editURL)
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			http.Redirect(w, req, editURL, http.StatusSeeOther)
+		}))
+		// /rows still works for htmx fragments if needed.
+		p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
+			shell.SecurityHeaders(w)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			listHandler(w, req, nil, true)
+		}))
+	} else {
+		p.mux.HandleFunc("GET "+listPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
+			nav := p.activeNav(req.Context(), r.Name)
+			shell.SecurityHeaders(w)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			listHandler(w, req, nav, false)
+		}))
+		p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
+			shell.SecurityHeaders(w)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			listHandler(w, req, nil, true)
+		}))
+	}
 
 	// Detailer route — mounted when Detailer OR FetchRow is configured.
 	// If Detailer is nil but FetchRow is non-nil, synthesize an auto-Detailer
@@ -816,11 +864,14 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 // mountWriterRoutes mounts the create/edit/save handler triplet for a Writer-enabled resource.
 // Called only when r.Writer != nil and all pre-conditions (key, session binding) have been verified.
 func mountWriterRoutes(p *Panel, r Resource) {
-	newPath := p.basePath + "/" + r.Name + "/new"
 	editPath := p.basePath + "/" + r.Name + "/{id}/edit"
 	savePath := p.basePath + "/" + r.Name + "/{id}/save"
 
-	p.mux.HandleFunc("GET "+newPath, p.guard(r.RequiredRole, newFormHandler(p, r)))
+	// Single-row resources don't have a "new" route — the row already exists.
+	if !r.SingleRow {
+		newPath := p.basePath + "/" + r.Name + "/new"
+		p.mux.HandleFunc("GET "+newPath, p.guard(r.RequiredRole, newFormHandler(p, r)))
+	}
 	p.mux.HandleFunc("GET "+editPath, p.guard(r.RequiredRole, editFormHandler(p, r)))
 	p.mux.HandleFunc("POST "+savePath, p.guard(r.RequiredRole, saveHandler(p, r)))
 
