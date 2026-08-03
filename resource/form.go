@@ -189,6 +189,13 @@ type Writer struct {
 	// Soft-delete is the consumer's responsibility — set deleted_at instead of
 	// hard-deleting if needed.
 	Delete func(ctx context.Context, t tenant.Tenant, id string) error
+	// PresetValues returns values to inject on create (id==""). These are
+	// merged over form values before Save is called — preset takes precedence.
+	// Use for foreign keys (person_id, org_id) that come from context, not the
+	// form — prevents hidden-field tampering.
+	// Nil = no preset (all values come from the form).
+	// Only called on create; ignored on edit.
+	PresetValues func(ctx context.Context, t tenant.Tenant) (map[string]string, error)
 }
 
 // formErrors holds per-field validation errors.

@@ -987,6 +987,21 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		fields := rr.Writer.Form.localeFields(loc, p.locales.Default, multi)
 		values := collectFormValues(req, fields)
 
+		// On create, merge preset values (foreign keys from context, not the
+		// form). Preset takes precedence over form values — prevents
+		// hidden-field tampering. PresetValues is nil = no preset.
+		if creating && rr.Writer.PresetValues != nil {
+			preset, err := rr.Writer.PresetValues(ctx, t)
+			if err != nil {
+				slog.Error("resource: preset values failed", "resource", r.Name, "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			for k, v := range preset {
+				values[k] = v
+			}
+		}
+
 		// Server-side validation over the active locale's field set.
 		errs := validateFields(fields, values)
 		if errs.hasErrors() {

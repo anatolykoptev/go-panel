@@ -1178,3 +1178,126 @@ func TestWriterRoutes_DeleteErrorReturns500(t *testing.T) {
 		t.Errorf("expected 500 when Delete returns error, got %d", w.Code)
 	}
 }
+
+// TestWriterRoutes_PresetValuesInjectedOnCreate verifies that PresetValues are
+// merged into form values on create (id=="") and take precedence over form values.
+func TestWriterRoutes_PresetValuesInjectedOnCreate(t *testing.T) {
+	p := newWriterPanel()
+	savedValues := map[string]string{}
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, values map[string]string) error {
+			savedValues = values
+			return nil
+		},
+	)
+	r.Writer.PresetValues = func(_ context.Context, _ tenant.Tenant) (map[string]string, error) {
+		return map[string]string{"person_id": "5"}, nil
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{
+		"name":  {"Item"},
+		"_csrf": {tok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if savedValues["person_id"] != "5" {
+		t.Errorf("expected preset person_id=5 in saved values, got %q", savedValues["person_id"])
+	}
+	if savedValues["name"] != "Item" {
+		t.Errorf("expected form name=Item in saved values, got %q", savedValues["name"])
+	}
+}
+
+// TestWriterRoutes_PresetValuesNotCalledOnEdit verifies that PresetValues is
+// only called on create, not on edit.
+func TestWriterRoutes_PresetValuesNotCalledOnEdit(t *testing.T) {
+	p := newWriterPanel()
+	presetCalled := false
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{"name": "Existing"}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.PresetValues = func(_ context.Context, _ tenant.Tenant) (map[string]string, error) {
+		presetCalled = true
+		return map[string]string{"person_id": "5"}, nil
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{
+		"name":  {"Updated"},
+		"_csrf": {tok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/3/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if presetCalled {
+		t.Error("PresetValues should not be called on edit, only on create")
+	}
+}
+
+// TestWriterRoutes_PresetValuesOverrideForm verifies that preset values take
+// precedence over form-submitted values for the same key.
+func TestWriterRoutes_PresetValuesOverrideForm(t *testing.T) {
+	p := newWriterPanel()
+	savedValues := map[string]string{}
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, values map[string]string) error {
+			savedValues = values
+			return nil
+		},
+	)
+	r.Writer.PresetValues = func(_ context.Context, _ tenant.Tenant) (map[string]string, error) {
+		return map[string]string{"name": "PresetName"}, nil
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{
+		"name":  {"FormName"}, // should be overridden by preset
+		"_csrf": {tok},
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/new/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if savedValues["name"] != "PresetName" {
+		t.Errorf("expected preset to override form value, got %q", savedValues["name"])
+	}
+}
