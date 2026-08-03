@@ -184,6 +184,11 @@ type Writer struct {
 	// out the shared columns it never received. Create (id=="") and Default-locale
 	// saves always carry the full field set.
 	Save func(ctx context.Context, t tenant.Tenant, id string, values map[string]string) error
+	// Delete removes the row. id is the row primary key (never empty).
+	// Nil = no delete route mounted (read-only resource).
+	// Soft-delete is the consumer's responsibility — set deleted_at instead of
+	// hard-deleting if needed.
+	Delete func(ctx context.Context, t tenant.Tenant, id string) error
 }
 
 // formErrors holds per-field validation errors.

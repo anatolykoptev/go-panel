@@ -1046,3 +1046,135 @@ func TestHMACAuth_OldCSRFTokenRejectedAfterRelogin(t *testing.T) {
 		t.Errorf("expected 403 when old CSRF token used with new session cookie, got %d", w.Code)
 	}
 }
+
+// TestWriterRoutes_DeleteNotMountedWhenNil verifies that no delete route is
+// mounted when Writer.Delete is nil.
+func TestWriterRoutes_DeleteNotMountedWhenNil(t *testing.T) {
+	p := newWriterPanel()
+	resource.Register(p, writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	))
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/1/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 when Writer.Delete is nil, got %d", w.Code)
+	}
+}
+
+// TestWriterRoutes_DeleteSucceeds verifies that POST /{id}/delete calls
+// Writer.Delete and redirects to the list page.
+func TestWriterRoutes_DeleteSucceeds(t *testing.T) {
+	p := newWriterPanel()
+	deletedID := ""
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.Delete = func(_ context.Context, _ tenant.Tenant, id string) error {
+		deletedID = id
+		return nil
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/42/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if deletedID != "42" {
+		t.Errorf("expected Delete called with id=42, got %q", deletedID)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/admin/items" {
+		t.Errorf("expected redirect to /admin/items, got %q", loc)
+	}
+}
+
+// TestWriterRoutes_DeleteCSRFRequired verifies that POST /{id}/delete without
+// a valid CSRF token returns 403.
+func TestWriterRoutes_DeleteCSRFRequired(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.Delete = func(_ context.Context, _ tenant.Tenant, _ string) error {
+		t.Error("Delete should not be called when CSRF fails")
+		return nil
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	form := url.Values{"_csrf": {"invalid-token"}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/1/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for invalid CSRF on delete, got %d", w.Code)
+	}
+}
+
+// TestWriterRoutes_DeleteErrorReturns500 verifies that a Delete error returns 500.
+func TestWriterRoutes_DeleteErrorReturns500(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.Delete = func(_ context.Context, _ tenant.Tenant, _ string) error {
+		return errors.New("db connection lost")
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/1/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when Delete returns error, got %d", w.Code)
+	}
+}

@@ -798,6 +798,11 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 			Sections: sections,
 			BasePath: p.basePath,
 		}
+		// Issue CSRF token for the delete button when Writer.Delete is configured.
+		if r.Writer != nil && r.Writer.Delete != nil {
+			sessVal := p.sessionValue(req)
+			d.CSRFToken = csrf.Issue(p.csrfKey, sessVal, csrf.DefaultTTL)
+		}
 		content := detailPageContent(d)
 		layoutComp := shell.Layout(p.title, nav, content)
 		renderCtx := shell.ContextWithChrome(req.Context(), p.chromeStateFrom(req))
@@ -818,6 +823,11 @@ func mountWriterRoutes(p *Panel, r Resource) {
 	p.mux.HandleFunc("GET "+newPath, p.guard(r.RequiredRole, newFormHandler(p, r)))
 	p.mux.HandleFunc("GET "+editPath, p.guard(r.RequiredRole, editFormHandler(p, r)))
 	p.mux.HandleFunc("POST "+savePath, p.guard(r.RequiredRole, saveHandler(p, r)))
+
+	if r.Writer.Delete != nil {
+		deletePath := p.basePath + "/" + r.Name + "/{id}/delete"
+		p.mux.HandleFunc("POST "+deletePath, p.guard(r.RequiredRole, deleteHandler(p, r)))
+	}
 }
 
 // withResolvedForm returns a shallow copy of r whose Writer.Form has all
@@ -998,6 +1008,47 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 			}
 			slog.Error("resource: save failed", "resource", r.Name, "err", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+
+		// Redirect to list (PRG pattern).
+		if render.IsHTMX(req) {
+			w.Header().Set("HX-Redirect", p.basePath+"/"+r.Name)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, req, p.basePath+"/"+r.Name, http.StatusSeeOther)
+	}
+}
+
+// deleteHandler returns the handler for POST /{name}/{id}/delete.
+// Only mounted when Writer.Delete is non-nil.
+func deleteHandler(p *Panel, r Resource) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		shell.SecurityHeaders(w)
+		const maxFormBytes = 1 << 20 // 1 MB
+		req.Body = http.MaxBytesReader(w, req.Body, maxFormBytes)
+		if err := req.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if !p.verifyCSRFToken(w, req, "resource: CSRF verification failed on delete", "resource", r.Name) {
+			return
+		}
+
+		id := req.PathValue("id")
+		if id == "" || id == idNew {
+			http.Error(w, "bad id", http.StatusBadRequest)
+			return
+		}
+
+		ctx := req.Context()
+		t := tenant.From(ctx)
+
+		if err := r.Writer.Delete(ctx, t, id); err != nil {
+			slog.Error("resource: delete failed", "resource", r.Name, "id", id, "err", err)
+			http.Error(w, "delete failed", http.StatusInternalServerError)
 			return
 		}
 
