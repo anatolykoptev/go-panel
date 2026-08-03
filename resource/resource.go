@@ -1036,13 +1036,20 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 			rr.Writer.AfterSave(ctx, id, nil)
 		}
 
-		// Redirect to list (PRG pattern).
+		// Redirect (PRG pattern). Custom redirect URL via RedirectAfterSave,
+		// or default to the resource list page.
+		redirectURL := p.basePath + "/" + r.Name
+		if rr.Writer.RedirectAfterSave != nil {
+			if custom := rr.Writer.RedirectAfterSave(ctx, id); custom != "" {
+				redirectURL = custom
+			}
+		}
 		if render.IsHTMX(req) {
-			w.Header().Set("HX-Redirect", p.basePath+"/"+r.Name)
+			w.Header().Set("HX-Redirect", redirectURL)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		http.Redirect(w, req, p.basePath+"/"+r.Name, http.StatusSeeOther)
+		http.Redirect(w, req, redirectURL, http.StatusSeeOther)
 	}
 }
 
@@ -1084,13 +1091,20 @@ func deleteHandler(p *Panel, r Resource) http.HandlerFunc {
 			r.Writer.AfterDelete(ctx, id, nil)
 		}
 
-		// Redirect to list (PRG pattern).
+		// Redirect (PRG pattern). Custom redirect URL via RedirectAfterDelete,
+		// or default to the resource list page.
+		redirectURL := p.basePath + "/" + r.Name
+		if r.Writer.RedirectAfterDelete != nil {
+			if custom := r.Writer.RedirectAfterDelete(ctx, id); custom != "" {
+				redirectURL = custom
+			}
+		}
 		if render.IsHTMX(req) {
-			w.Header().Set("HX-Redirect", p.basePath+"/"+r.Name)
+			w.Header().Set("HX-Redirect", redirectURL)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		http.Redirect(w, req, p.basePath+"/"+r.Name, http.StatusSeeOther)
+		http.Redirect(w, req, redirectURL, http.StatusSeeOther)
 	}
 }
 

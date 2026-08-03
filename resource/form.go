@@ -205,6 +205,13 @@ type Writer struct {
 	// AfterDelete is called after Delete completes, regardless of error.
 	// Same contract as AfterSave. Nil = no hook.
 	AfterDelete func(ctx context.Context, id string, err error)
+	// RedirectAfterSave returns the URL to redirect to after a successful save.
+	// nil = redirect to the resource list page (default behaviour).
+	// Only used on success — error paths (validation, 500) do not redirect.
+	RedirectAfterSave func(ctx context.Context, id string) string
+	// RedirectAfterDelete returns the URL to redirect to after a successful delete.
+	// nil = redirect to the resource list page (default behaviour).
+	RedirectAfterDelete func(ctx context.Context, id string) string
 }
 
 // formErrors holds per-field validation errors.

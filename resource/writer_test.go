@@ -1475,3 +1475,114 @@ func TestWriterRoutes_AfterDeleteCalledOnDeleteError(t *testing.T) {
 		t.Error("expected hook err to be non-nil")
 	}
 }
+
+// TestWriterRoutes_RedirectAfterSave verifies that RedirectAfterSave overrides
+// the default list-page redirect.
+func TestWriterRoutes_RedirectAfterSave(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.RedirectAfterSave = func(_ context.Context, _ string) string {
+		return "/admin/resume/edit"
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"name": {"Item"}, "_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/1/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/admin/resume/edit" {
+		t.Errorf("expected redirect to /admin/resume/edit, got %q", loc)
+	}
+}
+
+// TestWriterRoutes_RedirectAfterDelete verifies that RedirectAfterDelete
+// overrides the default list-page redirect.
+func TestWriterRoutes_RedirectAfterDelete(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.Delete = func(_ context.Context, _ tenant.Tenant, _ string) error {
+		return nil
+	}
+	r.Writer.RedirectAfterDelete = func(_ context.Context, _ string) string {
+		return "/admin/resume/edit"
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/1/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/admin/resume/edit" {
+		t.Errorf("expected redirect to /admin/resume/edit, got %q", loc)
+	}
+}
+
+// TestWriterRoutes_RedirectAfterSaveEmptyStringFallsBackToDefault verifies that
+// returning "" from RedirectAfterSave falls back to the default list redirect.
+func TestWriterRoutes_RedirectAfterSaveEmptyStringFallsBackToDefault(t *testing.T) {
+	p := newWriterPanel()
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.RedirectAfterSave = func(_ context.Context, _ string) string {
+		return "" // empty = fall back to default
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"name": {"Item"}, "_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/1/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/admin/items" {
+		t.Errorf("expected default redirect to /admin/items, got %q", loc)
+	}
+}
