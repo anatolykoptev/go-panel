@@ -196,6 +196,15 @@ type Writer struct {
 	// Nil = no preset (all values come from the form).
 	// Only called on create; ignored on edit.
 	PresetValues func(ctx context.Context, t tenant.Tenant) (map[string]string, error)
+	// AfterSave is called after Save completes, regardless of error.
+	// id is the row ID passed to Save (empty for create). err is nil on success.
+	// Hook errors are logged at Warn level and do NOT affect the HTTP response —
+	// side-effects are best-effort. Use for cache invalidation, vector re-sync,
+	// notifications. Nil = no hook.
+	AfterSave func(ctx context.Context, id string, err error)
+	// AfterDelete is called after Delete completes, regardless of error.
+	// Same contract as AfterSave. Nil = no hook.
+	AfterDelete func(ctx context.Context, id string, err error)
 }
 
 // formErrors holds per-field validation errors.

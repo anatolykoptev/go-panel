@@ -1301,3 +1301,177 @@ func TestWriterRoutes_PresetValuesOverrideForm(t *testing.T) {
 		t.Errorf("expected preset to override form value, got %q", savedValues["name"])
 	}
 }
+
+// TestWriterRoutes_AfterSaveCalledOnSuccess verifies that AfterSave is called
+// with nil error after a successful save.
+func TestWriterRoutes_AfterSaveCalledOnSuccess(t *testing.T) {
+	p := newWriterPanel()
+	hookCalled := false
+	hookID := ""
+	hookErr := error(nil)
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.AfterSave = func(_ context.Context, id string, err error) {
+		hookCalled = true
+		hookID = id
+		hookErr = err
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"name": {"Item"}, "_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/7/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if !hookCalled {
+		t.Error("AfterSave should be called on success")
+	}
+	if hookID != "7" {
+		t.Errorf("expected hook id=7, got %q", hookID)
+	}
+	if hookErr != nil {
+		t.Errorf("expected hook err=nil, got %v", hookErr)
+	}
+}
+
+// TestWriterRoutes_AfterSaveCalledOnSaveError verifies that AfterSave is called
+// with the error when Save fails.
+func TestWriterRoutes_AfterSaveCalledOnSaveError(t *testing.T) {
+	p := newWriterPanel()
+	hookCalled := false
+	hookErr := error(nil)
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return errors.New("db down")
+		},
+	)
+	r.Writer.AfterSave = func(_ context.Context, _ string, err error) {
+		hookCalled = true
+		hookErr = err
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"name": {"Item"}, "_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/7/save",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if !hookCalled {
+		t.Error("AfterSave should be called even on save error")
+	}
+	if hookErr == nil {
+		t.Error("expected hook err to be non-nil")
+	}
+}
+
+// TestWriterRoutes_AfterDeleteCalledOnSuccess verifies that AfterDelete is called
+// with nil error after a successful delete.
+func TestWriterRoutes_AfterDeleteCalledOnSuccess(t *testing.T) {
+	p := newWriterPanel()
+	hookCalled := false
+	hookID := ""
+	hookErr := error(nil)
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.Delete = func(_ context.Context, _ tenant.Tenant, _ string) error {
+		return nil
+	}
+	r.Writer.AfterDelete = func(_ context.Context, id string, err error) {
+		hookCalled = true
+		hookID = id
+		hookErr = err
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/9/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d\nbody: %s", w.Code, w.Body.String())
+	}
+	if !hookCalled {
+		t.Error("AfterDelete should be called on success")
+	}
+	if hookID != "9" {
+		t.Errorf("expected hook id=9, got %q", hookID)
+	}
+	if hookErr != nil {
+		t.Errorf("expected hook err=nil, got %v", hookErr)
+	}
+}
+
+// TestWriterRoutes_AfterDeleteCalledOnDeleteError verifies that AfterDelete is
+// called with the error when Delete fails.
+func TestWriterRoutes_AfterDeleteCalledOnDeleteError(t *testing.T) {
+	p := newWriterPanel()
+	hookCalled := false
+	hookErr := error(nil)
+	r := writerResource(
+		func(_ context.Context, _ tenant.Tenant, _ string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		func(_ context.Context, _ tenant.Tenant, _ string, _ map[string]string) error {
+			return nil
+		},
+	)
+	r.Writer.Delete = func(_ context.Context, _ tenant.Tenant, _ string) error {
+		return errors.New("constraint violation")
+	}
+	r.Writer.AfterDelete = func(_ context.Context, _ string, err error) {
+		hookCalled = true
+		hookErr = err
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+	tok := csrf.Issue(testCSRFKey, cookieVal, csrf.DefaultTTL)
+
+	form := url.Values{"_csrf": {tok}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/admin/items/1/delete",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+
+	if !hookCalled {
+		t.Error("AfterDelete should be called even on delete error")
+	}
+	if hookErr == nil {
+		t.Error("expected hook err to be non-nil")
+	}
+}

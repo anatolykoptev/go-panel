@@ -1015,15 +1015,25 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		// validation above. Any other error is a genuine internal failure —
 		// generic 500 body, detail logged server-side, never masked as a
 		// user error.
-		if err := rr.Writer.Save(ctx, t, id, values); err != nil {
+		saveErr := rr.Writer.Save(ctx, t, id, values)
+		if saveErr != nil {
 			var se *SaveError
-			if errors.As(err, &se) {
+			if errors.As(saveErr, &se) {
+				if rr.Writer.AfterSave != nil {
+					rr.Writer.AfterSave(ctx, id, saveErr)
+				}
 				renderValidationErrors(w, req, p, rr, id, loc, values, formErrors{se.Field: se.Message})
 				return
 			}
-			slog.Error("resource: save failed", "resource", r.Name, "err", err)
+			slog.Error("resource: save failed", "resource", r.Name, "err", saveErr)
+			if rr.Writer.AfterSave != nil {
+				rr.Writer.AfterSave(ctx, id, saveErr)
+			}
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
+		}
+		if rr.Writer.AfterSave != nil {
+			rr.Writer.AfterSave(ctx, id, nil)
 		}
 
 		// Redirect to list (PRG pattern).
@@ -1061,10 +1071,17 @@ func deleteHandler(p *Panel, r Resource) http.HandlerFunc {
 		ctx := req.Context()
 		t := tenant.From(ctx)
 
-		if err := r.Writer.Delete(ctx, t, id); err != nil {
-			slog.Error("resource: delete failed", "resource", r.Name, "id", id, "err", err)
+		deleteErr := r.Writer.Delete(ctx, t, id)
+		if deleteErr != nil {
+			slog.Error("resource: delete failed", "resource", r.Name, "id", id, "err", deleteErr)
+			if r.Writer.AfterDelete != nil {
+				r.Writer.AfterDelete(ctx, id, deleteErr)
+			}
 			http.Error(w, "delete failed", http.StatusInternalServerError)
 			return
+		}
+		if r.Writer.AfterDelete != nil {
+			r.Writer.AfterDelete(ctx, id, nil)
 		}
 
 		// Redirect to list (PRG pattern).
