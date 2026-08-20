@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.3](https://github.com/anatolykoptev/go-panel/compare/v0.23.2...v0.23.3) (2026-08-20)
+
+
+### Fixed
+
+* **resource,shell:** the delete confirmation never ran — CSP drops inline handlers ([#127](https://github.com/anatolykoptev/go-panel/issues/127)) ([05ca78d](https://github.com/anatolykoptev/go-panel/commit/05ca78daa6be53c2bde9379949b3884d71742097))
+
 ## [0.23.2](https://github.com/anatolykoptev/go-panel/compare/v0.23.1...v0.23.2) (2026-08-20)
 
 
