@@ -549,10 +549,17 @@ const trashNavGroupLabel = "System"
 // A hand-rolled group header — the shape AddNav documents, carrying no ID —
 // must survive when its members do.
 //
-// Falsification: in resource/resource.go, change isNavHeader to match by ID
-// (`item.ID == "group:"+item.Group`) → RED. Measured before this test existed:
-// the heading vanished and its link was absorbed into the PRECEDING, unrelated
-// group, in every panel, with or without a Trash.
+// Falsification: in resource/resource.go headerHasVisibleMember, find members
+// only via the group: ID — `if nav[idx].ID != "group:"+nav[idx].Group { return
+// false }` → RED. Measured before this test existed: the heading vanished and
+// its link was absorbed into the PRECEDING, unrelated group, in every panel,
+// with or without a Trash.
+//
+// NOT the mutant to reach for first: making isNavHeader match by ID stays GREEN
+// on this fixture, and the rendered sidebar is byte-identical. A misclassified
+// header falls through as an unfiltered link, and toNavGroups re-headers it
+// because it looks only at Group != "". The header-detection half is observable
+// only when the members are hidden — see the test below.
 func TestNav_HandRolledGroupHeaderSurvives(t *testing.T) {
 	p := newWriterPanel()
 	resource.Register(p, undoResourceBare())
@@ -624,4 +631,61 @@ func TestTrash_MountPageIsRefusedAfterARecoveredCollisionPanic(t *testing.T) {
 		}
 	}()
 	p.MountPage(resource.PageSpec{Path: "later", Handler: func(http.ResponseWriter, *http.Request) {}})
+}
+
+// The header-DETECTION half of the rule, which the test above cannot see: an
+// ID-less header is observable only once its members are hidden, because a
+// misclassified header still renders (toNavGroups re-headers anything with a
+// Group). This is the direction round 2's bug actually ran in.
+//
+// Falsification: in resource/resource.go, change isNavHeader to match by ID
+// (`item.Group != "" && item.ID == "group:"+item.Group`) → RED. That is the
+// mutant that stays green on the fixture above and only bites here.
+func TestNav_HandRolledGroupHeadingDropsWhenItsMembersHide(t *testing.T) {
+	p := newWriterPanel()
+	resource.Register(p, undoResourceBare())
+	p.AddNav(shell.NavItem{Group: "ZZReports"}) // AddNav's documented shape: no ID
+	p.AddNav(shell.NavItem{
+		ID: "zzdocs", Label: "ZZDocs", URL: "/admin/zzdocs",
+		Visible: func(context.Context) bool { return false },
+	})
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	_, body := getTrashPage(t, p, cookieVal, "/admin/items")
+	if strings.Contains(body, "ZZDocs") {
+		t.Fatal("the hidden link rendered — the fixture is not exercising Visible")
+	}
+	if strings.Contains(body, "ZZReports") {
+		t.Error("a hand-rolled group heading survived with every member hidden: a bare caption " +
+			"over nothing reads as a section that failed to load")
+	}
+}
+
+// A link carrying BOTH a Group and a URL must not keep the PREVIOUS heading
+// alive. isNavHeader calls it a link, because it has a URL; shell.toNavGroups
+// opens a new section for it and files it into no section's links. Counting it
+// as a member of the run above would keep that heading on the strength of
+// something that renders somewhere else — measured, exactly the empty heading
+// this rule exists to prevent.
+//
+// Falsification: in resource/resource.go headerHasVisibleMember, end the member
+// run at `!isNavHeader(nav[i])` instead of `nav[i].Group == ""` → RED.
+func TestNav_AGroupedLinkDoesNotKeepThePreviousHeadingAlive(t *testing.T) {
+	p := newWriterPanel()
+	resource.Register(p, undoResourceBare())
+	hidden := undoResourceBare()
+	hidden.Name = "secret"
+	hidden.Title = "Secret"
+	hidden.Group = "ZZOps"
+	hidden.Visible = func(context.Context) bool { return false }
+	resource.Register(p, hidden)
+	// Off-contract but reachable: a Group and a URL on one item.
+	p.AddNav(shell.NavItem{ID: "zzx", Group: "ZZXtra", Label: "ZZXLINK", URL: "/admin/zzx"})
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	_, body := getTrashPage(t, p, cookieVal, "/admin/items")
+	if strings.Contains(body, "ZZOps") {
+		t.Error("the ZZOps heading survived on the strength of a ZZXtra item that renders " +
+			"under its own heading — the member run must end where toNavGroups' bucket does")
+	}
 }

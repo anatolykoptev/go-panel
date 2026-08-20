@@ -559,6 +559,12 @@ func (p *Panel) NavItems() []shell.NavItem {
 // group; a hand-rolled header without that ID renders identically but will not
 // be reused, so a later Register for the same Group opens a second heading.
 // Set ID: "group:"+name if you want a Register'd resource to join your group.
+//
+// Do NOT set both Group and URL on one item. shell.toNavGroups opens a new
+// section for anything carrying a Group and files only Group-less items into a
+// section's links, so such an item renders as a heading and its URL is silently
+// discarded. A link that should sit under a section carries no Group of its
+// own — its placement comes from following that section's header.
 func (p *Panel) AddNav(item shell.NavItem) {
 	p.nav = append(p.nav, item)
 }
@@ -1594,17 +1600,22 @@ func navLinkVisible(ctx context.Context, item shell.NavItem, ra RoleAuthenticato
 	return true
 }
 
-// headerHasVisibleMember reports whether any link between the header at idx and
-// the next header survived this session's filters.
+// headerHasVisibleMember reports whether any link filed under the header at idx
+// survived this session's filters.
 //
-// "Members" are the consecutive non-header items following the header, which is
-// deliberately the same run shell.toNavGroups will file under that heading. The
-// two definitions agreeing is what makes the rule correct rather than merely
-// plausible: a Group-less link appended after a group's members renders under
-// that heading, so keeping the heading alive for it is right, not a leak. It
-// also means a heading is kept exactly when something will appear beneath it.
+// The member run ends at the next item carrying a Group — the SAME test
+// shell.toNavGroups uses to open a new bucket, and deliberately NOT isNavHeader's.
+// The two disagree for an item carrying both a Group and a URL: isNavHeader calls
+// it a link, because it has one, while toNavGroups opens a bucket for it and then
+// files it into no bucket at all. Counting such an item as a member would keep the
+// previous heading alive on the strength of something that renders elsewhere —
+// measured, that left a heading with nothing beneath it, which is the exact
+// picture this rule exists to prevent.
+//
+// Agreeing with toNavGroups is what makes the rule correct rather than merely
+// plausible: a heading survives exactly when something will render under it.
 func headerHasVisibleMember(nav []shell.NavItem, visible []bool, idx int) bool {
-	for i := idx + 1; i < len(nav) && !isNavHeader(nav[i]); i++ {
+	for i := idx + 1; i < len(nav) && nav[i].Group == ""; i++ {
 		if visible[i] {
 			return true
 		}
