@@ -10,7 +10,7 @@ permissions: {}
 
 jobs:
   release-please:
-    runs-on: [self-hosted, krolik]
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
       pull-requests: write

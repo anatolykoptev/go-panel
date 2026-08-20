@@ -8,15 +8,16 @@ on:
 permissions:
   contents: read
 
-# The krolik runner's $HOME carries a go.work that does not list CI checkouts;
-# without GOWORK=off every go command fails with "directory prefix . does not
-# contain modules listed in go.work".
+# A go.work in an outer directory would not list the CI checkout, and every
+# go command would fail with "directory prefix . does not contain modules
+# listed in go.work". Setting it off here makes the build independent of
+# whatever the runner's home directory happens to contain.
 env:
   GOWORK: "off"
 
 jobs:
   check:
-    runs-on: [self-hosted, krolik]
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
