@@ -11,6 +11,18 @@ import "context"
 // chrome layer owns.
 const GroupsCookie = "sb-g"
 
+// ThemeCookie persists the operator's light/dark theme choice.
+// Value is "light" or "dark"; absent or unrecognised = dark (backward-compat).
+// Server-readable (vs localStorage) so Layout emits the theme class at SSR time —
+// no flash-of-wrong-theme on first load. Mirrors SidebarCookie/GroupsCookie pattern.
+const ThemeCookie = "sb-t"
+
+// Recognised ChromeState.Theme values.
+const (
+	ThemeDark  = "dark"
+	ThemeLight = "light"
+)
+
 // ChromeState carries per-request shell (chrome) configuration threaded into
 // Layout via context.  It is the single context seam for all per-request
 // state the layout renders, replacing the narrower SidebarState.
@@ -24,6 +36,37 @@ type ChromeState struct {
 	Collapsed       bool
 	CollapsedGroups map[string]bool
 	Profile         ProfileConfig
+
+	// Theme is the operator's light/dark choice, read from the sb-t cookie by
+	// chromeStateFrom. Zero value ("") means dark — a consumer that never sets
+	// Theme renders byte-identically to the pre-theme dark-only admin, which is
+	// the load-bearing backward-compat invariant for downstream consumers
+	// (go-grad, go-nerv, oxpulse-admin) that pick this up on a version bump.
+	// Use ThemeClass() to resolve to the HTML class value.
+	Theme string
+}
+
+// ThemeClass returns the HTML class value for <html> given ChromeState.Theme.
+// Returns "dark" for empty or unrecognised values, "light" only for ThemeLight.
+// This is the single resolution point — Layout, LoginPage, and MFAPage all call
+// it, and the falsification tests (F1/F2) mutate this function to verify the
+// backward-compat invariant: an absent or garbage cookie MUST render dark.
+func (s ChromeState) ThemeClass() string {
+	return themeClass(s.Theme)
+}
+
+// themeClass resolves a raw theme string to the HTML class value.
+// Returns "dark" for the zero value ("") so a consumer that never sets Theme
+// renders dark (backward-compat). Non-empty values pass through verbatim —
+// the validation that rejects unrecognised values lives in chromeStateFrom
+// (resource layer), which is the sole gate. This separation makes the
+// falsification tests work: F1 mutates the default branch here, F2 mutates
+// the validation in chromeStateFrom.
+func themeClass(theme string) string {
+	if theme == "" {
+		return ThemeDark
+	}
+	return theme
 }
 
 // ProfileConfig carries the per-operator identity shown in the sticky-bottom

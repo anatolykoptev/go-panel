@@ -35,6 +35,7 @@ func (p *Panel) RenderPage(w http.ResponseWriter, r *http.Request, title, active
 // Cookie contracts:
 //   - "sb-c"="1"  → Collapsed=true
 //   - "sb-g"=<url-encoded comma-separated names> → CollapsedGroups map
+//   - "sb-t"="light"|"dark" → Theme (absent/unrecognised = dark, backward-compat)
 //
 // Encoding: the whole sb-g value is URL-encoded (encodeURIComponent on the
 // joined string); the server URL-unescapes before splitting on ','. Group names
@@ -50,6 +51,14 @@ func (p *Panel) chromeStateFrom(r *http.Request) shell.ChromeState {
 	var state shell.ChromeState
 	if c, err := r.Cookie(shell.SidebarCookie); err == nil && c.Value == "1" {
 		state.Collapsed = true
+	}
+	if c, err := r.Cookie(shell.ThemeCookie); err == nil {
+		// Only accept recognised values; anything else stays zero ("" → dark).
+		// This is the load-bearing backward-compat invariant: a garbage or
+		// absent cookie MUST render dark, not light.
+		if c.Value == shell.ThemeLight || c.Value == shell.ThemeDark {
+			state.Theme = c.Value
+		}
 	}
 	if c, err := r.Cookie(shell.GroupsCookie); err == nil && c.Value != "" {
 		raw, decErr := url.QueryUnescape(c.Value)
