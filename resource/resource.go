@@ -153,6 +153,40 @@ type Resource struct {
 	// the app owns the row type + scan. go-panel never assumes a schema.
 	Lister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
 
+	// TrashLister fetches this resource's DELETED rows for the panel-wide Trash
+	// page, newest-deleted first. Nil (default) = this resource contributes
+	// nothing to the trash and, if no resource sets it, no Trash page exists at
+	// all.
+	//
+	// It is a second reader rather than a flag on Lister because the two answer
+	// different questions and must not share a query: Lister reads whatever
+	// live view the consumer built (in go-grad, live_lead), while TrashLister
+	// deliberately reads the base table with the filter INVERTED. Folding both
+	// into one closure behind a boolean is how a caller ends up passing the
+	// wrong one — the mistake every ORM in the survey shipped at least once.
+	//
+	// Only Limit and Tenant of the ListQuery are populated; ordering is the
+	// consumer's, because only it knows which column records the deletion.
+	//
+	// Applying q.Tenant is the CONSUMER'S OBLIGATION and is easy to miss here
+	// specifically: Lister usually reads a view that already carries the tenant
+	// predicate, while TrashLister reads the base table on purpose — so it drops
+	// exactly the scoping the view was supplying. A TrashLister that ignores
+	// q.Tenant shows one tenant's deleted rows to another.
+	//
+	// RequiredRole is the only authorization lever the Trash page honours. A
+	// resource gated by anything else — a reverse-proxy path rule, middleware
+	// outside the panel — is off-contract (see RequiredRole), and the Trash
+	// aggregates its rows onto a page that gate never sees.
+	// total is every deleted row, not just the returned page — the Trash page
+	// prints it beside what it drew, so a cap is never mistaken for the whole
+	// set.
+	//
+	// Register panics when TrashLister is set without Writer.Delete AND
+	// Writer.Restore: a trash you cannot restore from is a dead end, and one
+	// nothing can put rows into is furniture.
+	TrashLister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
+
 	// Detailer enables a per-row Detail (Show) view at GET {basePath}/{name}/{id}.
 	// Nil = no detail page (default — preserves existing behaviour).
 	// When non-nil, Register mounts GET {basePath}/{name}/{id} and the template
@@ -244,6 +278,14 @@ type Panel struct {
 	locales     locale.Set          // configured i18n locales; zero value = single-locale
 	profileCfg  shell.ProfileConfig // static defaults for the sidebar profile block
 	resources   []Resource          // registered Resources, in Register order
+	// pagePaths holds every URL suffix MountPage has claimed (Path and each
+	// Alias), so a route mounted LATER can tell whether it would shadow one.
+	// Needed because MountPage runs during setup while finalize() runs after
+	// it: the panel-wide Trash cannot see a conflicting page any other way,
+	// and net/http only rejects a byte-identical pattern — MountPage's
+	// "{suffix}/{$}" and the Trash's bare "/trash" do not collide in the mux,
+	// so the consumer's page is silently shadowed instead.
+	pagePaths []string
 
 	// indexOverride is set once via MountPage(PageSpec{Path: ""}) before the
 	// mux is finalized; it replaces the default handleIndex at GET {basePath}/{$}.
@@ -304,6 +346,11 @@ type sessionCookier interface {
 // An authenticator that does not implement this interface cannot back a Resource
 // with a non-empty RequiredRole: Register panics at startup (fail-closed) rather
 // than mount the resource ungated.
+// NOTE: HasRole is no longer nav-only. The panel-wide Trash page uses it to
+// decide which resources' DELETED ROW BODIES are rendered to this session
+// (trashResourcesFor), so an implementation whose HasRole is looser than its
+// RequireRole shows rows behind a Вернуть button that then 403s — present,
+// plausible, and never once working. Keep the two predicates in agreement.
 type RoleAuthenticator interface {
 	RequireRole(role string, next http.HandlerFunc) http.HandlerFunc
 	HasRole(ctx context.Context, role string) bool
@@ -504,8 +551,20 @@ func (p *Panel) NavItems() []shell.NavItem {
 // at setup time (not concurrently with other Panel mutations) and after
 // the relevant Register calls if the caller wants the item to appear after
 // resource entries. To place an item under a named group that isn't already
-// present, emit a group-header NavItem{Group: "X"} before the link item(s) —
-// the same convention Register uses.
+// present, emit a group-header NavItem{Group: "X"} before the link item(s).
+//
+// A header is recognised STRUCTURALLY — a Group with no URL — so the bare form
+// above is enough. Register additionally stamps ID "group:<name>" on the
+// headers it creates, which is what lets addNavLink find and reuse an existing
+// group; a hand-rolled header without that ID renders identically but will not
+// be reused, so a later Register for the same Group opens a second heading.
+// Set ID: "group:"+name if you want a Register'd resource to join your group.
+//
+// Do NOT set both Group and URL on one item. shell.toNavGroups opens a new
+// section for anything carrying a Group and files only Group-less items into a
+// section's links, so such an item renders as a heading and its URL is silently
+// discarded. A link that should sit under a section carries no Group of its
+// own — its placement comes from following that section's header.
 func (p *Panel) AddNav(item shell.NavItem) {
 	p.nav = append(p.nav, item)
 }
@@ -551,6 +610,7 @@ func Register(p *Panel, r Resource) {
 		panic(fmt.Sprintf("resource.Register %q: SingleRow requires Writer to be non-nil", r.Name))
 	}
 	validateRoleConfig(p, r)
+	validateTrashConfig(r)
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
 
@@ -571,6 +631,25 @@ func Register(p *Panel, r Resource) {
 	// Writer routes — only mounted when Writer is configured.
 	if r.Writer != nil {
 		mountWriterRoutes(p, r)
+	}
+}
+
+// validateTrashConfig fails closed on a trash that cannot work.
+//
+// A TrashLister without a Restore renders rows behind a button that 403s — the
+// exact shape of the bug this panel spent a week on, where the affordance was
+// present, looked right, and had never once run. Without a Delete nothing can
+// put a row into the trash in the first place, so the section can only ever be
+// empty. Both are startup mistakes, so both are startup panics.
+func validateTrashConfig(r Resource) {
+	if r.TrashLister == nil {
+		return
+	}
+	if r.Writer == nil || r.Writer.Delete == nil {
+		panic(fmt.Sprintf("resource.Register %q: TrashLister requires Writer.Delete (nothing can fill the trash otherwise)", r.Name))
+	}
+	if r.Writer.Restore == nil {
+		panic(fmt.Sprintf("resource.Register %q: TrashLister requires Writer.Restore (the trash would have no way back)", r.Name))
 	}
 }
 
@@ -603,21 +682,32 @@ func addNavEntry(p *Panel, r Resource) {
 		Visible:      r.Visible,
 		RequiredRole: r.RequiredRole,
 	}
-	if r.Group == "" {
+	addNavLink(p, link, r.Group)
+}
+
+// addNavLink places link under group, creating the group header when the group
+// is new and inserting after the group's existing members when it is not.
+//
+// Extracted from addNavEntry so the panel-wide Trash link goes through the SAME
+// rule as a resource's. A second insertion path is exactly how the Trash grew
+// its own duplicate "System" heading beside an identically-named group a
+// consumer had already declared.
+func addNavLink(p *Panel, link shell.NavItem, group string) {
+	if group == "" {
 		p.nav = append(p.nav, link)
 		return
 	}
-	groupKey := "group:" + r.Group
+	groupKey := "group:" + group
 	headerIdx := -1
 	for i, n := range p.nav {
-		if n.Group == r.Group && n.ID == groupKey {
+		if n.Group == group && n.ID == groupKey {
 			headerIdx = i
 			break
 		}
 	}
 	if headerIdx < 0 {
 		// New group: append header then link at end — same as today.
-		p.nav = append(p.nav, shell.NavItem{ID: groupKey, Group: r.Group}, link)
+		p.nav = append(p.nav, shell.NavItem{ID: groupKey, Group: group}, link)
 		return
 	}
 	// Header exists: insert the link after the group's existing members.
@@ -1450,31 +1540,87 @@ func (p *Panel) navItemsFor(ctx context.Context, activeID string) []shell.NavIte
 	// at Register panics otherwise), so nil is safe — those items pass through.
 	ra, _ := p.auth.(RoleAuthenticator)
 
+	// One pass, deciding each LINK exactly once. Visible is consumer code with
+	// no caching helper — unlike Badge, which the docs tell you to wrap in
+	// shell.CachedBadge — so asking a header to re-derive its members' state
+	// would call every consumer closure once per group as well as once for
+	// itself. Measured before this pass existed: 4 calls per render where main
+	// made 1.
+	visible := make([]bool, len(p.nav))
+	for i, item := range p.nav {
+		if isNavHeader(item) {
+			continue // decided below, from its members
+		}
+		visible[i] = navLinkVisible(ctx, item, ra)
+	}
+
 	out := make([]shell.NavItem, 0, len(p.nav))
-	for _, item := range p.nav {
-		// Group headers are structural — never filtered.
-		if item.Group != "" && item.URL == "" {
+	for i, item := range p.nav {
+		// A header whose every member was filtered out is dropped with them.
+		// Before the Trash nothing could empty a group, because a group existed
+		// only if a resource declared it; the Trash is the first nav item whose
+		// whole group can vanish for one operator, and a bare heading over
+		// nothing reads as a section that failed to load.
+		if isNavHeader(item) {
+			if !headerHasVisibleMember(p.nav, visible, i) {
+				continue
+			}
 			out = append(out, item)
 			continue
 		}
-
-		// RequiredRole-derived nav-hide.
-		if item.RequiredRole != "" {
-			if ra == nil || !ra.HasRole(ctx, item.RequiredRole) {
-				continue // item is invisible to this session
-			}
-		}
-
-		// Visible cosmetic predicate.
-		if item.Visible != nil && !item.Visible(ctx) {
+		if !visible[i] {
 			continue
 		}
-
-		// Mark active.
 		item.Active = item.ID == activeID
 		out = append(out, item)
 	}
 	return out
+}
+
+// isNavHeader reports whether item is a group header: a Group with no URL.
+//
+// Structural, NOT by ID. Register's headers carry ID "group:<name>" but
+// AddNav's documented shape — NavItem{Group: "X"} — carries none, and matching
+// on the ID silently deleted every hand-rolled heading while leaving its links
+// behind to be absorbed into the preceding group. This is the same shape
+// navItemsFor has always used to recognise a header.
+func isNavHeader(item shell.NavItem) bool {
+	return item.Group != "" && item.URL == ""
+}
+
+// navLinkVisible applies the two nav filters to one link: the RequiredRole gate
+// and the cosmetic Visible predicate.
+func navLinkVisible(ctx context.Context, item shell.NavItem, ra RoleAuthenticator) bool {
+	if item.RequiredRole != "" && (ra == nil || !ra.HasRole(ctx, item.RequiredRole)) {
+		return false
+	}
+	if item.Visible != nil && !item.Visible(ctx) {
+		return false
+	}
+	return true
+}
+
+// headerHasVisibleMember reports whether any link filed under the header at idx
+// survived this session's filters.
+//
+// The member run ends at the next item carrying a Group — the SAME test
+// shell.toNavGroups uses to open a new bucket, and deliberately NOT isNavHeader's.
+// The two disagree for an item carrying both a Group and a URL: isNavHeader calls
+// it a link, because it has one, while toNavGroups opens a bucket for it and then
+// files it into no bucket at all. Counting such an item as a member would keep the
+// previous heading alive on the strength of something that renders elsewhere —
+// measured, that left a heading with nothing beneath it, which is the exact
+// picture this rule exists to prevent.
+//
+// Agreeing with toNavGroups is what makes the rule correct rather than merely
+// plausible: a heading survives exactly when something will render under it.
+func headerHasVisibleMember(nav []shell.NavItem, visible []bool, idx int) bool {
+	for i := idx + 1; i < len(nav) && nav[i].Group == ""; i++ {
+		if visible[i] {
+			return true
+		}
+	}
+	return false
 }
 
 // activeNav returns a context-filtered, active-marked copy of the nav list.

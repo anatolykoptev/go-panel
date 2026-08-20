@@ -312,6 +312,12 @@
 			padding:.6rem .9rem;background:var(--bg-surface);border:1px solid var(--border);
 			border-radius:var(--radius-lg);color:var(--text-secondary);font-size:.8125rem}
 		.undo-toast form{margin:0}
+		/* A trash section whose lister failed. Loud on purpose: the alternative
+		   is a section that renders as empty, which is the same picture as "you
+		   deleted nothing here" — and the row the operator came to recover is
+		   exactly the one they would then stop looking for. */
+		.trash-unreadable{padding:.6rem .9rem;border:1px solid var(--red);
+			border-radius:var(--radius);color:var(--red);font-size:.8125rem}
 		/* The fade is the only motion: prefers-reduced-motion callers get the
 		   removal without it, which is still correct. */
 		.undo-expired{opacity:0;transition:opacity .18s ease-out}

@@ -822,8 +822,11 @@ func (a *BcryptTOTPAuth) RequireRole(role string, next http.HandlerFunc) http.Ha
 
 // HasRole reports whether the session on ctx satisfies role: an exact role match
 // or the "owner" super-role. It is the read-only derivation behind nav-hiding and
-// must never be used as a route gate — RequireRole is the authority. Returns
-// false (never panics) when ctx carries no session.
+// go-panel's Trash-page content filter, and must never be used as a route gate —
+// RequireRole is the authority. It is deliberately the SAME predicate as
+// RequireRole here, which is what keeps the Trash from rendering a row whose
+// restore button would 403. Returns false (never panics) when ctx carries no
+// session.
 func (a *BcryptTOTPAuth) HasRole(ctx context.Context, role string) bool {
 	s, ok := SessionFrom(ctx)
 	return ok && (s.Role == role || s.Role == RoleOwner)
