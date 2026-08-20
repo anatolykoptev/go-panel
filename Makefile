@@ -2,7 +2,8 @@
 .RECIPEPREFIX = >
 .PHONY: check build vet test race lint vuln gen preflight-db
 
-# GOWORK=off — this repo must build standalone (krolik has a stray ~/go.work).
+# GOWORK=off — this repo must build standalone; a workspace file in an outer
+# directory would otherwise pull unrelated modules into every go command.
 export GOWORK = off
 
 check: build vet race lint vuln

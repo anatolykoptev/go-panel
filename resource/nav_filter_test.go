@@ -1,7 +1,8 @@
 package resource_test
 
 // Tests for Phase t3-3 (nav-filter via HasRole + Visible) and Phase t7 (profile block).
-// See plan: ~/deploy/krolik-server/plans/go-panel/2026-06-27-shared-sidebar-fleet-standard-v2.md
+// Part of the shared-sidebar fleet standard: nav filtering is declarative,
+// so a consumer never hand-rolls a search box over its own nav items.
 
 import (
 	"context"

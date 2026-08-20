@@ -16,7 +16,7 @@
 # exist here with a single package — so this script provisions ONE throwaway
 # database directly via POSTGRES_DB at container start (no manual
 # CREATE/DROP DATABASE round-trip needed) and uses vanilla `postgres:17`,
-# not `krolik-postgres-age:17` (that image is for pgvector/AGE, which
+# not a pgvector/AGE-flavoured image (those carry extensions this repo does
 # go-panel needs neither). If a second DB-gated package appears later,
 # revisit go-grad's pattern instead of growing this ad hoc.
 #

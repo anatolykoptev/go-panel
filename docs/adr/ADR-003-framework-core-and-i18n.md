@@ -37,7 +37,7 @@ go-panel's resource framework. hully is the first go-panel-native instance.**
 | go-panel | identity + auth + csrf + render + **resource/admin CRUD** + **tenant** + **i18n (new)** | which resources, locales, theme | resource/tenant ✅; i18n ⬜ |
 | go-grad (app on go-panel) | the service + Lister/Writer + store | env: jurisdiction/basis/policy/DB | basis config ✅ (#36); content resources ⬜ |
 | Astro frontend | reusable core: components, data-layer, **i18n routing** | brand / locales / domains / API base | ⬜ (biggest gap) |
-| Provisioning | compose + bootstrap template | project / country / secrets | 🟡 (hand-rolled on pillow) |
+| Provisioning | compose + bootstrap template | project / country / secrets | 🟡 (hand-rolled per deployment) |
 
 ### i18n design (where it lives)
 
