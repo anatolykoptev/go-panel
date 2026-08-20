@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.23.4](https://github.com/anatolykoptev/go-panel/compare/v0.23.3...v0.23.4) (2026-08-20)
+
+
+### Added
+
+* **resource,shell:** delete with an undo window instead of a confirm dialog ([#131](https://github.com/anatolykoptev/go-panel/issues/131)) ([8963a95](https://github.com/anatolykoptev/go-panel/commit/8963a95feacbce84f4fdb1491f4fe14e2e55e4be))
+
+
+### Fixed
+
+* **resource:** the delete form posted a CSRF field nothing reads, so delete always 403'd ([#129](https://github.com/anatolykoptev/go-panel/issues/129)) ([07206c4](https://github.com/anatolykoptev/go-panel/commit/07206c41f463506369d4ac51ab8f1ee17acfcd59))
+
 ## [0.23.3](https://github.com/anatolykoptev/go-panel/compare/v0.23.2...v0.23.3) (2026-08-20)
 
 
