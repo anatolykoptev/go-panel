@@ -49,7 +49,9 @@ templ listPageContent(d listPageData) {
 // sort/filter/pagination click has no target and htmx silently does nothing.
 templ listRowsFragment(d listPageData) {
 	<div id={ d.Resource.Name + "-region" }>
-		@listTable(d)
+		<div class="crm-table-scroll">
+			@listTable(d)
+		</div>
 		@pagination(d)
 	</div>
 }
