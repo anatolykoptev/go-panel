@@ -65,7 +65,13 @@ templ trashSectionBlock(d trashPageData, s trashSection) {
 				<span aria-hidden="true">{ s.Resource.Icon }</span>
 			}
 			{ s.Resource.Title }
-			<span style="font-family:var(--font-mono);color:var(--text-muted);font-weight:400">{ strconv.Itoa(s.Total) }</span>
+			if !s.Err {
+				// Suppressed on failure: Total is 0 when the lister errored, and
+				// a heading reading "Items 0" directly above "could not read
+				// this resource's trash" restates the very thing the section is
+				// there to deny.
+				<span style="font-family:var(--font-mono);color:var(--text-muted);font-weight:400">{ strconv.Itoa(s.Total) }</span>
+			}
 		</h3>
 		if s.Err {
 			<p class="trash-unreadable" role="status">
@@ -114,13 +120,16 @@ templ trashRow(d trashPageData, s trashSection, row Row) {
 			}
 		}
 		<td style="text-align:right;white-space:nowrap">
+			// No hx-target/hx-swap: restoreHandler answers HX-Refresh, so htmx
+			// reloads the page rather than swapping this row. Carrying swap
+			// attributes that never fire would suggest a row-level exchange that
+			// does not happen, and the next person to touch this would debug the
+			// swap rather than read the handler.
 			<button
 				type="button"
 				class="row-undo"
 				hx-post={ d.BasePath + "/" + s.Resource.Name + "/" + row.ID + "/restore" }
 				hx-vals={ csrfVals(d.CSRFToken) }
-				hx-target="closest tr"
-				hx-swap="outerHTML"
 				aria-label={ "Restore " + row.ID }
 			>Вернуть</button>
 		</td>

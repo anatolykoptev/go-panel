@@ -167,6 +167,17 @@ type Resource struct {
 	//
 	// Only Limit and Tenant of the ListQuery are populated; ordering is the
 	// consumer's, because only it knows which column records the deletion.
+	//
+	// Applying q.Tenant is the CONSUMER'S OBLIGATION and is easy to miss here
+	// specifically: Lister usually reads a view that already carries the tenant
+	// predicate, while TrashLister reads the base table on purpose — so it drops
+	// exactly the scoping the view was supplying. A TrashLister that ignores
+	// q.Tenant shows one tenant's deleted rows to another.
+	//
+	// RequiredRole is the only authorization lever the Trash page honours. A
+	// resource gated by anything else — a reverse-proxy path rule, middleware
+	// outside the panel — is off-contract (see RequiredRole), and the Trash
+	// aggregates its rows onto a page that gate never sees.
 	// total is every deleted row, not just the returned page — the Trash page
 	// prints it beside what it drew, so a cap is never mistaken for the whole
 	// set.
@@ -267,6 +278,14 @@ type Panel struct {
 	locales     locale.Set          // configured i18n locales; zero value = single-locale
 	profileCfg  shell.ProfileConfig // static defaults for the sidebar profile block
 	resources   []Resource          // registered Resources, in Register order
+	// pagePaths holds every URL suffix MountPage has claimed (Path and each
+	// Alias), so a route mounted LATER can tell whether it would shadow one.
+	// Needed because MountPage runs during setup while finalize() runs after
+	// it: the panel-wide Trash cannot see a conflicting page any other way,
+	// and net/http only rejects a byte-identical pattern — MountPage's
+	// "{suffix}/{$}" and the Trash's bare "/trash" do not collide in the mux,
+	// so the consumer's page is silently shadowed instead.
+	pagePaths []string
 
 	// indexOverride is set once via MountPage(PageSpec{Path: ""}) before the
 	// mux is finalized; it replaces the default handleIndex at GET {basePath}/{$}.
@@ -327,6 +346,11 @@ type sessionCookier interface {
 // An authenticator that does not implement this interface cannot back a Resource
 // with a non-empty RequiredRole: Register panics at startup (fail-closed) rather
 // than mount the resource ungated.
+// NOTE: HasRole is no longer nav-only. The panel-wide Trash page uses it to
+// decide which resources' DELETED ROW BODIES are rendered to this session
+// (trashResourcesFor), so an implementation whose HasRole is looser than its
+// RequireRole shows rows behind a Вернуть button that then 403s — present,
+// plausible, and never once working. Keep the two predicates in agreement.
 type RoleAuthenticator interface {
 	RequireRole(role string, next http.HandlerFunc) http.HandlerFunc
 	HasRole(ctx context.Context, role string) bool
@@ -646,21 +670,32 @@ func addNavEntry(p *Panel, r Resource) {
 		Visible:      r.Visible,
 		RequiredRole: r.RequiredRole,
 	}
-	if r.Group == "" {
+	addNavLink(p, link, r.Group)
+}
+
+// addNavLink places link under group, creating the group header when the group
+// is new and inserting after the group's existing members when it is not.
+//
+// Extracted from addNavEntry so the panel-wide Trash link goes through the SAME
+// rule as a resource's. A second insertion path is exactly how the Trash grew
+// its own duplicate "System" heading beside an identically-named group a
+// consumer had already declared.
+func addNavLink(p *Panel, link shell.NavItem, group string) {
+	if group == "" {
 		p.nav = append(p.nav, link)
 		return
 	}
-	groupKey := "group:" + r.Group
+	groupKey := "group:" + group
 	headerIdx := -1
 	for i, n := range p.nav {
-		if n.Group == r.Group && n.ID == groupKey {
+		if n.Group == group && n.ID == groupKey {
 			headerIdx = i
 			break
 		}
 	}
 	if headerIdx < 0 {
 		// New group: append header then link at end — same as today.
-		p.nav = append(p.nav, shell.NavItem{ID: groupKey, Group: r.Group}, link)
+		p.nav = append(p.nav, shell.NavItem{ID: groupKey, Group: group}, link)
 		return
 	}
 	// Header exists: insert the link after the group's existing members.
@@ -1495,8 +1530,16 @@ func (p *Panel) navItemsFor(ctx context.Context, activeID string) []shell.NavIte
 
 	out := make([]shell.NavItem, 0, len(p.nav))
 	for _, item := range p.nav {
-		// Group headers are structural — never filtered.
+		// Group headers are structural — never filtered on their own account,
+		// but a header whose every member was filtered out is dropped with
+		// them. Before the Trash nothing could empty a group, because a group
+		// only existed if a resource declared it; the Trash is the first nav
+		// item whose whole group can vanish for one operator, and a bare
+		// heading over nothing reads as a section that failed to load.
 		if item.Group != "" && item.URL == "" {
+			if !groupHasVisibleItem(ctx, p.nav, item.Group, ra) {
+				continue
+			}
 			out = append(out, item)
 			continue
 		}
@@ -1518,6 +1561,32 @@ func (p *Panel) navItemsFor(ctx context.Context, activeID string) []shell.NavIte
 		out = append(out, item)
 	}
 	return out
+}
+
+// groupHasVisibleItem reports whether any link belonging to group survives this
+// session's RequiredRole and Visible filters. Members are the consecutive
+// Group=="" items following the group's header — the same adjacency addNavLink
+// maintains.
+func groupHasVisibleItem(ctx context.Context, nav []shell.NavItem, group string, ra RoleAuthenticator) bool {
+	groupKey := "group:" + group
+	i := 0
+	for i < len(nav) {
+		if nav[i].ID == groupKey && nav[i].Group == group {
+			break
+		}
+		i++
+	}
+	for i++; i < len(nav) && nav[i].Group == ""; i++ {
+		item := nav[i]
+		if item.RequiredRole != "" && (ra == nil || !ra.HasRole(ctx, item.RequiredRole)) {
+			continue
+		}
+		if item.Visible != nil && !item.Visible(ctx) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // activeNav returns a context-filtered, active-marked copy of the nav list.

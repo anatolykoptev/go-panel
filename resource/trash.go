@@ -44,11 +44,23 @@ func (p *Panel) mountTrash() {
 	if !p.hasTrash() {
 		return
 	}
+	// Both a resource and a MountPage'd page can already own this suffix, and
+	// neither collision is loud on its own: net/http rejects only a
+	// byte-identical pattern, so MountPage's "trash/{$}" and this bare "/trash"
+	// coexist happily while the consumer's page quietly stops answering the URL
+	// they published. Fail at startup, where it is one rename.
 	for _, r := range p.resources {
 		if r.Name == trashNavID {
 			panic(fmt.Sprintf(
 				"resource: resource %q collides with the panel-wide Trash page at %s/%s — rename the resource",
 				r.Name, p.basePath, trashNavID))
+		}
+	}
+	for _, path := range p.pagePaths {
+		if path == trashNavID {
+			panic(fmt.Sprintf(
+				"resource: a MountPage path or alias %q collides with the panel-wide Trash page at %s/%s — rename the page, or drop the resource's TrashLister",
+				path, p.basePath, trashNavID))
 		}
 	}
 	// The page itself is open to any authenticated operator; its CONTENTS are
@@ -58,12 +70,12 @@ func (p *Panel) mountTrash() {
 	// deleted are different questions, and fusing them is easy to do once and
 	// expensive to undo.
 	p.mux.HandleFunc("GET "+p.basePath+"/"+trashNavID, p.guard("", p.handleTrash))
-	// Header first, link second — the convention addNavEntry uses. Without a
-	// header of its own the link is Group-less, and toNavGroups files a
-	// Group-less item under the group that registered LAST, so Trash would
-	// render as one of that group's resources rather than as a panel-wide page.
-	p.nav = append(p.nav, shell.NavItem{Group: trashNavGroup})
-	p.nav = append(p.nav, shell.NavItem{
+	// Through addNavLink, the same insertion a resource gets: it creates the
+	// heading or reuses an existing one. The heading matters because
+	// toNavGroups files a Group-less item under the group that registered LAST,
+	// so a bare append would render this panel-wide page as one more resource
+	// inside whichever subject area came last.
+	addNavLink(p, shell.NavItem{
 		ID:    trashNavID,
 		Label: "Trash",
 		Icon:  "🗑",
@@ -74,7 +86,7 @@ func (p *Panel) mountTrash() {
 		// trash" when none of it is yours. Cheap by construction: role checks,
 		// never a query.
 		Visible: func(ctx context.Context) bool { return len(p.trashResourcesFor(ctx)) > 0 },
-	})
+	}, trashNavGroup)
 }
 
 // trashResourcesFor returns the opted-in resources this operator may see,
@@ -133,7 +145,10 @@ func (p *Panel) handleTrash(w http.ResponseWriter, req *http.Request) {
 		if total == 0 && len(rows) == 0 {
 			continue // nothing deleted here; no empty table to scroll past
 		}
-		d.Sections = append(d.Sections, trashSection{Resource: r, Rows: rows, Total: total})
+		// max, not total: a consumer that returns len(rows) as its total (or 0
+		// beside a full page) would otherwise render a heading that says 0 above
+		// rows the operator can see, or claim to show more than it has.
+		d.Sections = append(d.Sections, trashSection{Resource: r, Rows: rows, Total: max(total, len(rows))})
 	}
 
 	layoutComp := shell.Layout(p.title, p.activeNav(ctx, trashNavID), trashPageContent(d))

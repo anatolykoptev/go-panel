@@ -13,6 +13,7 @@ package resource_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -327,3 +328,211 @@ func TestTrash_SidebarLinkHasItsOwnHeading(t *testing.T) {
 			prev.Label, prev.Group, prev.URL)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Round 1 of review on PR #132. Every test below pins a line that was CORRECT
+// but unpinned: the reviewer mutated each one and the package stayed green.
+// Enforcement is exactly the part that fails silently, so it is the part that
+// most needs a mutant.
+// ---------------------------------------------------------------------------
+
+// The Trash aggregates several resources onto one URL, so a single unguarded
+// route exposes all of them at once. The shipped code guards it; nothing made
+// that fact observable.
+//
+// Falsification: in resource/trash.go mountTrash, replace
+// `p.guard("", p.handleTrash)` with `http.HandlerFunc(p.handleTrash)` → RED.
+// Measured before this test existed: that edit left the package green while an
+// unauthenticated GET returned 200 with the row bodies.
+func TestTrash_RequiresASession(t *testing.T) {
+	p := newWriterPanel()
+	rows := []resource.Row{{
+		ID:    "a",
+		Cells: []resource.Cell{{Value: "SECRET-ROW"}, {Value: "2026-08-20"}},
+	}}
+	resource.Register(p, trashResource("items", rows, 1, nil))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/trash", nil)
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req) // no session cookie
+
+	if w.Code == http.StatusOK {
+		t.Errorf("unauthenticated GET /admin/trash answered 200 — one unguarded URL dumps the "+
+			"deleted rows of EVERY opted-in resource; body: %.120s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "SECRET-ROW") {
+		t.Error("a deleted row leaked to a request carrying no session")
+	}
+}
+
+// The tenant on the request must reach the consumer's TrashLister. This is the
+// likeliest consumer mistake by construction: Lister usually reads a view that
+// already carries the tenant predicate, while TrashLister reads the base table
+// on purpose and therefore drops exactly that scoping.
+//
+// Falsification: in resource/trash.go handleTrash, replace
+// `Tenant: tenant.From(ctx)` with `Tenant: tenant.Tenant{}` → RED. The panel
+// must be tenant-configured for the mutant to be visible at all: under the
+// default resolver the real tenant IS the zero value, and no assertion can tell
+// the two apart.
+func TestTrash_PassesTheRequestTenantToTheLister(t *testing.T) {
+	p := newTenantTestPanel(allowCityAuthorizer{allowed: "spb"})
+	var got tenant.Tenant
+	r := trashResource("items", trashRows(1), 1, nil)
+	r.TrashLister = func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
+		got = q.Tenant
+		return trashRows(1), 1, nil
+	}
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	if code, _ := getTrashPage(t, p, cookieVal, "/admin/tenant/spb/trash"); code != http.StatusOK {
+		t.Fatalf("GET the tenant-scoped trash: %d", code)
+	}
+	if got.CitySlug != "spb" {
+		t.Errorf("TrashLister was handed tenant %+v, want CitySlug \"spb\" — a lister that "+
+			"trusts this field would read every tenant's deleted rows", got)
+	}
+}
+
+// Visible is cosmetic by contract, but it is the second filter in
+// trashResourcesFor and the first one had the only test between them.
+//
+// Falsification: in resource/trash.go trashResourcesFor, replace
+// `if r.Visible != nil && !r.Visible(ctx)` with
+// `if false && r.Visible != nil && !r.Visible(ctx)` → RED.
+func TestTrash_HonoursTheVisiblePredicate(t *testing.T) {
+	p := newWriterPanel()
+	shown := trashResource("items", trashRows(1), 1, nil)
+	hidden := trashResource("invoices", []resource.Row{
+		{ID: "z", Cells: []resource.Cell{{Value: "HIDDEN-ROW"}, {Value: "2026-08-20"}}},
+	}, 1, nil)
+	hidden.Visible = func(context.Context) bool { return false }
+	resource.Register(p, shown)
+	resource.Register(p, hidden)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	_, body := getTrashPage(t, p, cookieVal, "/admin/trash")
+	if !strings.Contains(body, "Row-a") {
+		t.Error("the visible resource's trashed row is missing")
+	}
+	if strings.Contains(body, "HIDDEN-ROW") {
+		t.Error("a resource hidden by Visible still contributed rows to the trash")
+	}
+}
+
+// A consumer that already mounted its own /admin/trash page must not lose it on
+// a version bump. net/http rejects only a byte-identical pattern, so
+// MountPage's "trash/{$}" and the Trash's bare "/trash" coexist in the mux and
+// the consumer's page is silently shadowed — the one consumer most likely to
+// have a trash page already is the one this would surprise.
+//
+// Falsification: in resource/trash.go mountTrash, delete the `p.pagePaths`
+// loop → RED (and, measured, the consumer's page keeps answering only on the
+// trailing-slash URL while /admin/trash serves this page instead).
+func TestTrash_CollidingMountPagePanicsAtStartup(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec resource.PageSpec
+	}{
+		{"path", resource.PageSpec{Path: "trash", Handler: func(http.ResponseWriter, *http.Request) {}}},
+		{"alias", resource.PageSpec{
+			Path:    "reports",
+			Aliases: []string{"trash"},
+			Handler: func(http.ResponseWriter, *http.Request) {},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("a MountPage %s of %q survived alongside the Trash page — the "+
+						"consumer's page stops answering its own URL with no error anywhere",
+						tc.name, "trash")
+				}
+				// net/http's own duplicate-pattern panic would also be a panic,
+				// and it does NOT fire for the Path case — assert on our message
+				// so the test cannot pass on the wrong one.
+				if msg := fmt.Sprint(r); !strings.Contains(msg, "MountPage path or alias") {
+					t.Errorf("panicked with %q, not the Trash collision message", msg)
+				}
+			}()
+			p := newWriterPanel()
+			p.MountPage(tc.spec)
+			resource.Register(p, trashResource("items", nil, 0, nil))
+			p.Handler()
+		})
+	}
+}
+
+// The Trash link joins the "System" group through the same insertion a resource
+// uses, so a consumer that already has a System group gets ONE heading.
+//
+// Falsification: in resource/trash.go mountTrash, replace the `addNavLink(...)`
+// call with the two bare `p.nav = append(...)` statements it replaced → RED
+// (measured: systemHeadings=2).
+func TestTrash_ReusesAnExistingSystemGroupHeading(t *testing.T) {
+	p := newWriterPanel()
+	consumer := undoResourceBare()
+	consumer.Name = "audit"
+	consumer.Title = "Audit"
+	consumer.Group = "System"
+	resource.Register(p, consumer)
+	resource.Register(p, trashResource("items", trashRows(1), 1, nil))
+	p.Handler()
+
+	headings := 0
+	for _, it := range p.NavItems() {
+		if it.Group == "System" && it.URL == "" {
+			headings++
+		}
+	}
+	if headings != 1 {
+		t.Errorf("sidebar carries %d \"System\" headings, want 1 — the Trash opened its own "+
+			"beside the consumer's identically-named group", headings)
+	}
+}
+
+// A heading with every member filtered away is not a heading. The Trash is the
+// first nav item whose whole group can vanish for one operator, and a bare
+// caption over nothing reads as a section that failed to load.
+//
+// Asserted in both directions: an operator who holds the role sees the heading,
+// one who does not sees neither the link nor the caption. A one-directional
+// absence test would also pass if the heading never rendered at all.
+//
+// Falsification: in resource/resource.go navItemsFor, drop the
+// `if !groupHasVisibleItem(...) { continue }` guard → RED.
+func TestTrash_EmptyGroupHeadingIsDropped(t *testing.T) {
+	sidebarFor := func(t *testing.T, holdsRole bool) string {
+		t.Helper()
+		a := newTrashRoleAuth(map[string]bool{"editor": holdsRole})
+		p := resource.New(resource.Config{
+			Title: "Test Panel", BasePath: "/admin", Auth: a, CSRFKey: testCSRFKey,
+		})
+		// An ungated resource so this operator always has a page to land on.
+		resource.Register(p, undoResourceBare())
+		gated := trashResource("invoices", trashRows(1), 1, nil)
+		gated.RequiredRole = "editor"
+		resource.Register(p, gated)
+		cookieVal, _ := loginAndGetCookie(t, p)
+		code, body := getTrashPage(t, p, cookieVal, "/admin/items")
+		if code != http.StatusOK {
+			t.Fatalf("GET /admin/items: %d", code)
+		}
+		return body
+	}
+
+	if body := sidebarFor(t, true); !strings.Contains(body, trashNavGroupLabel) {
+		t.Fatalf("an operator who CAN reach the trash sees no %q heading — the test below "+
+			"would then pass for the wrong reason", trashNavGroupLabel)
+	}
+	if body := sidebarFor(t, false); strings.Contains(body, trashNavGroupLabel) {
+		t.Errorf("the sidebar shows a %q heading with nothing under it: this operator can reach "+
+			"none of the opted-in resources, so the Trash link is hidden and only its caption "+
+			"remains", trashNavGroupLabel)
+	}
+}
+
+// trashNavGroupLabel mirrors resource.trashNavGroup, which is unexported.
+const trashNavGroupLabel = "System"
