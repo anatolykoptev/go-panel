@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -19,11 +20,33 @@ type listPageData struct {
 	TotalPages  int
 	BasePath    string
 	QueryString string // raw query string for sort link base URL
+	// CSRFToken is issued only when the resource can undo a delete
+	// (Writer.Restore != nil). It is what the row-level Delete and Вернуть
+	// buttons post, and its emptiness is what hides them — so a resource that
+	// cannot restore can never render a one-click delete.
+	CSRFToken string
+	// RestorableID carries the row just deleted from a DETAIL page, so the list
+	// can offer the same way back the table row does. Server-rendered rather
+	// than client state: it survives a reload and needs no script.
+	RestorableID string
 }
 
 // listPageContent renders the full list page content (page header + filter bar + table + pagination).
 // Wrapped by Layout for non-htmx requests; used directly for htmx fragment swap.
 templ listPageContent(d listPageData) {
+	if d.RestorableID != "" && d.CSRFToken != "" {
+		// Rendered server-side rather than raised in JS: it survives a reload,
+		// needs no client state, and works under the admin CSP, which drops
+		// inline handlers. admin.js only fades it — if that never loads the
+		// toast stays, which is the safe direction.
+		<div class="undo-toast" data-undo-after="5000" role="status">
+			<span>{ d.Resource.Title } deleted</span>
+			<form method="POST" action={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + d.RestorableID + "/restore") }>
+				<input type="hidden" name={ csrfFormField } value={ d.CSRFToken }/>
+				<button type="submit" class="row-undo">Вернуть</button>
+			</form>
+		</div>
+	}
 	<div class="page-header">
 		<div style="display:flex;align-items:center;justify-content:space-between;gap:1rem">
 			<div>
@@ -151,28 +174,76 @@ templ listTable(d listPageData) {
 // Load-more append fragment (parity by construction, edit column included).
 templ listRows(d listPageData) {
 	for _, row := range d.Rows {
-		<tr>
-			for i, cell := range row.Cells {
-				if i == 0 && row.Href != "" {
-					<td style={ colCellStyle(d, i) }>
-						<a class="row-name" href={ templ.SafeURL(row.Href) }>{ cell.Value }</a>
-					</td>
-				} else if cell.HTML {
-					<td style={ colCellStyle(d, i) }>@templ.Raw(cell.Value)</td>
-				} else {
-					<td style={ colCellStyle(d, i) }>{ cell.Value }</td>
-				}
-			}
-			if d.Resource.Writer != nil {
-				<td style="text-align:right">
-					<a
-						href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + row.ID + "/edit") }
-						style="font-size:.75rem;color:var(--text-secondary);text-decoration:none"
-					>Edit</a>
-				</td>
-			}
-		</tr>
+		@listRow(d, row)
 	}
+}
+
+// listRow renders ONE data row.
+//
+// Extracted from listRows so the delete handler can swap a single <tr> and get
+// markup identical to the full-page render. Two templates that "look the same"
+// drift, and the drift shows only in the swapped row — next to its unswapped
+// neighbours, which is the one place nobody has a baseline for.
+templ listRow(d listPageData, row Row) {
+	<tr>
+		for i, cell := range row.Cells {
+			if i == 0 && row.Href != "" {
+				<td style={ colCellStyle(d, i) }>
+					<a class="row-name" href={ templ.SafeURL(row.Href) }>{ cell.Value }</a>
+				</td>
+			} else if cell.HTML {
+				<td style={ colCellStyle(d, i) }>@templ.Raw(cell.Value)</td>
+			} else {
+				<td style={ colCellStyle(d, i) }>{ cell.Value }</td>
+			}
+		}
+		if d.Resource.Writer != nil {
+			<td style="text-align:right;white-space:nowrap">
+				<a
+					href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + row.ID + "/edit") }
+					style="font-size:.75rem;color:var(--text-secondary);text-decoration:none"
+				>Edit</a>
+				if d.Resource.Writer.Restore != nil && d.CSRFToken != "" {
+					<button
+						type="button"
+						class="row-delete"
+						hx-post={ d.BasePath + "/" + d.Resource.Name + "/" + row.ID + "/delete" }
+						hx-vals={ csrfVals(d.CSRFToken) }
+						hx-target="closest tr"
+						hx-swap="outerHTML"
+						aria-label={ "Delete " + row.ID }
+					>Delete</button>
+				}
+			</td>
+		}
+	</tr>
+}
+
+// deletedRow replaces a row the operator just deleted: dimmed, and offering the
+// way back where Delete used to be.
+//
+// It is rendered ONLY when the resource has a Restore, so this markup can never
+// appear for a resource that cannot honour the button it draws. The row is
+// removed from the DOM by admin.js after the undo window; if that script fails
+// to load the row stays dimmed instead of vanishing, which is the safe
+// direction — a stale visible row is recoverable, a silently vanished one is
+// indistinguishable from a delete the operator did not intend.
+templ deletedRow(d listPageData, id string, label string) {
+	<tr class="row-deleted" data-undo-after="5000">
+		<td colspan={ listColspanExceptActions(d) } class="row-deleted-label">
+			{ label } deleted
+		</td>
+		<td style="text-align:right;white-space:nowrap">
+			<button
+				type="button"
+				class="row-undo"
+				hx-post={ d.BasePath + "/" + d.Resource.Name + "/" + id + "/restore" }
+				hx-vals={ csrfVals(d.CSRFToken) }
+				hx-target="closest tr"
+				hx-swap="outerHTML"
+			>Вернуть</button>
+		</td>
+	</tr>
 }
 
 // pagination renders page navigation inside a stable-id wrapper so the
@@ -226,6 +297,26 @@ templ paginationInner(d listPageData) {
 // --- helper functions (not components) ---
 
 // listColspan returns the total column count including the optional edit column.
+// listColspanExceptActions is listColspan minus the actions column: a deleted
+// row's label spans the data columns while its actions cell keeps the undo
+// button exactly where the Delete it replaced used to be.
+func listColspanExceptActions(d listPageData) string {
+	return strconv.Itoa(len(d.Resource.Sort.Columns))
+}
+
+// csrfVals renders the token as an hx-vals JSON object. htmx sends it as an
+// ordinary form field, so the existing CSRF check on the route applies
+// unchanged — this adds an affordance, not an exemption. The field name comes
+// from csrfFormField for the same reason the templates do: a literal here
+// would 403 silently, which is what a working button looks like.
+func csrfVals(token string) string {
+	b, err := json.Marshal(map[string]string{csrfFormField: token})
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 func listColspan(d listPageData) string {
 	n := len(d.Resource.Sort.Columns)
 	if d.Resource.Writer != nil {

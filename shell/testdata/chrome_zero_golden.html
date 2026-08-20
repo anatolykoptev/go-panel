@@ -295,6 +295,27 @@
 		   Note overflow-x:auto computes overflow-y to auto as well; the table
 		   has nothing that overflows vertically, so nothing is clipped. */
 		.crm-table-scroll{overflow-x:auto}
+		/* Delete-with-undo. The deleted row keeps the table's rhythm — same
+		   height, same borders — so the rows below do not jump while the undo
+		   window is open; only the ink changes. */
+		.row-delete{background:none;border:none;padding:0 0 0 .75rem;cursor:pointer;
+			font-family:inherit;font-size:.75rem;color:var(--text-muted)}
+		.row-delete:hover{color:var(--red)}
+		.crm-table tbody tr.row-deleted{cursor:default;background:var(--bg-deep)}
+		.crm-table tbody tr.row-deleted:hover>td{background:var(--bg-deep)}
+		.row-deleted-label{color:var(--text-muted);font-style:italic}
+		.row-undo{background:none;border:1px solid var(--border);border-radius:var(--radius);
+			padding:.2rem .6rem;cursor:pointer;font-family:inherit;font-size:.75rem;
+			color:var(--accent-link)}
+		.row-undo:hover{border-color:var(--accent)}
+		.undo-toast{display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;
+			padding:.6rem .9rem;background:var(--bg-surface);border:1px solid var(--border);
+			border-radius:var(--radius-lg);color:var(--text-secondary);font-size:.8125rem}
+		.undo-toast form{margin:0}
+		/* The fade is the only motion: prefers-reduced-motion callers get the
+		   removal without it, which is still correct. */
+		.undo-expired{opacity:0;transition:opacity .18s ease-out}
+		@media (prefers-reduced-motion: reduce){.undo-expired{transition:none}}
 		.crm-table{width:100%;border-collapse:separate;border-spacing:0;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
 		.crm-table thead th{text-align:left;padding:.5rem 1rem;color:var(--text-muted);font-family:var(--font-mono);font-size:.625rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);background:var(--bg-deep);white-space:nowrap}
 		.crm-table thead th:first-child{padding-left:1.25rem}

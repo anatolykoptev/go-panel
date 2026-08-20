@@ -921,6 +921,12 @@ func mountWriterRoutes(p *Panel, r Resource) {
 		deletePath := p.basePath + "/" + r.Name + "/{id}/delete"
 		p.mux.HandleFunc("POST "+deletePath, p.guard(r.RequiredRole, deleteHandler(p, r)))
 	}
+	// Mounted only alongside a Delete it can undo. A restore route without a
+	// delete would be an endpoint nothing can reach.
+	if r.Writer.Delete != nil && r.Writer.Restore != nil {
+		restorePath := p.basePath + "/" + r.Name + "/{id}/restore"
+		p.mux.HandleFunc("POST "+restorePath, p.guard(r.RequiredRole, restoreHandler(p, r)))
+	}
 }
 
 // withResolvedForm returns a shallow copy of r whose Writer.Form has all
@@ -1217,9 +1223,106 @@ func deleteHandler(p *Panel, r Resource) http.HandlerFunc {
 			r.Writer.AfterDelete(ctx, id, nil)
 		}
 
+		// A recoverable delete from the table swaps the row in place: it dims
+		// and offers the way back where Delete was. Anything else keeps the
+		// original PRG behaviour, so a resource without Restore is untouched.
+		if r.Writer.Restore != nil && render.IsHTMX(req) {
+			renderDeletedRow(w, req, p, r, id)
+			return
+		}
+		// From a detail page, hand the list the id so it can offer the same undo
+		// as a toast. Only when the consumer has not chosen its own destination.
+		if r.Writer.Restore != nil && r.Writer.RedirectAfterDelete == nil {
+			http.Redirect(w, req, p.basePath+"/"+r.Name+"?restorable="+url.QueryEscape(id), http.StatusSeeOther)
+			return
+		}
 		// Redirect (PRG pattern). Custom redirect URL via RedirectAfterDelete,
 		// or default to the resource list page.
 		postWriteRedirect(w, req, p, r, ctx, id, r.Writer.RedirectAfterDelete)
+	}
+}
+
+// renderDeletedRow replaces the swapped-out <tr> with its deleted placeholder.
+// A fresh CSRF token is issued for the undo button: the one that authorised the
+// delete has been spent from the operator's point of view, and the restore is a
+// separate state-changing POST that must carry its own.
+func renderDeletedRow(w http.ResponseWriter, req *http.Request, p *Panel, r Resource, id string) {
+	d := listPageData{
+		Resource:  r,
+		BasePath:  p.basePath,
+		CSRFToken: csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL),
+	}
+	if err := deletedRow(d, id, r.Title).Render(req.Context(), w); err != nil {
+		slog.Error("resource: render deleted row", "resource", r.Name, "id", sanitizeForLog(id), "err", err)
+		http.Error(w, "render failed", http.StatusInternalServerError)
+	}
+}
+
+// restoreHandler returns the handler for POST /{name}/{id}/restore.
+// Only mounted when both Writer.Delete and Writer.Restore are non-nil.
+func restoreHandler(p *Panel, r Resource) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		shell.SecurityHeaders(w)
+		const maxFormBytes = 1 << 20 // 1 MB
+		req.Body = http.MaxBytesReader(w, req.Body, maxFormBytes)
+		if err := req.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if !p.verifyCSRFToken(w, req, "resource: CSRF verification failed on restore", "resource", r.Name) {
+			return
+		}
+		id := req.PathValue("id")
+		if id == "" || id == idNew {
+			http.Error(w, "bad id", http.StatusBadRequest)
+			return
+		}
+		ctx := req.Context()
+		if err := r.Writer.Restore(ctx, tenant.From(ctx), id); err != nil {
+			slog.Error("resource: restore failed", "resource", r.Name, "id", sanitizeForLog(id), "err", err)
+			http.Error(w, "restore failed", http.StatusInternalServerError)
+			return
+		}
+		// Re-render rather than reconstruct the row. Rebuilding one row here
+		// would need a single-row read the framework does not have, and would
+		// be a second rendering path to keep in step with the list. Undo is
+		// rare; a refresh is cheap and cannot drift.
+		if render.IsHTMX(req) {
+			w.Header().Set("HX-Refresh", "true")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, req, p.basePath+"/"+r.Name, http.StatusSeeOther)
+	}
+}
+
+// restorableIDParam sanitises the ?restorable= value before it reaches a URL in
+// the rendered toast. Anything that is not a plain id is dropped rather than
+// escaped: the parameter exists to name a row this admin just deleted, and a
+// value that does not look like one is not worth rendering.
+func restorableIDParam(v string) string {
+	if v == "" || len(v) > 64 {
+		return ""
+	}
+	for _, c := range v {
+		if !isIDRune(c) {
+			return ""
+		}
+	}
+	return v
+}
+
+// isIDRune reports whether c may appear in a row id. Deliberately an allowlist:
+// a blocklist of "dangerous" characters is the shape that keeps being one
+// character short.
+func isIDRune(c rune) bool {
+	switch {
+	case c >= '0' && c <= '9', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		return true
+	case c == '-' || c == '_':
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1453,6 +1556,14 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			TotalPages:  totalPages,
 			BasePath:    p.basePath,
 			QueryString: req.URL.RawQuery,
+		}
+		// The row-level Delete and the undo toast exist only where a delete can
+		// be taken back. Issuing the token is what enables them: the templates
+		// render nothing when it is empty, so this single condition governs the
+		// whole affordance and there is no second place to keep in step.
+		if r.Writer != nil && r.Writer.Delete != nil && r.Writer.Restore != nil {
+			data.CSRFToken = csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+			data.RestorableID = restorableIDParam(q.Get("restorable"))
 		}
 
 		if fragmentOnly || render.IsHTMX(req) {
