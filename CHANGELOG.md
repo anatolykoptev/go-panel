@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.2](https://github.com/anatolykoptev/go-panel/compare/v0.23.1...v0.23.2) (2026-08-20)
+
+
+### Fixed
+
+* **resource,shell:** keep a wide table's overflow inside the table ([#125](https://github.com/anatolykoptev/go-panel/issues/125)) ([d155278](https://github.com/anatolykoptev/go-panel/commit/d1552784e32e2a5a15954a75730b1e975f5d34fc))
+
 ## [0.23.1](https://github.com/anatolykoptev/go-panel/compare/v0.22.2...v0.23.1) (2026-08-20)
 
 
