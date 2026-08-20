@@ -10,6 +10,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -61,38 +63,45 @@ func TestModuleVersionComesFromBuildInfo(t *testing.T) {
 // Falsification: put `Version: "0.1.0"` back at either site in mcp.go and this
 // goes RED naming the file and line.
 func TestNoVersionFieldIsAStringLiteral(t *testing.T) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	// go/parser.ParseDir is deprecated as of Go 1.25 (it ignores build tags), so
+	// the directory is walked directly. Every non-test .go file is parsed —
+	// build tags do not matter here, because a literal is a literal whichever
+	// build it belongs to, and skipping a tagged file would be a hole.
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parse package source: %v", err)
+		t.Fatalf("read package dir: %v", err)
 	}
 
+	fset := token.NewFileSet()
 	var files int
-	for _, pkg := range pkgs {
-		for name, f := range pkg.Files {
-			if strings.HasSuffix(name, "_test.go") {
-				continue // this file legitimately contains version strings
-			}
-			files++
-			ast.Inspect(f, func(n ast.Node) bool {
-				kv, ok := n.(*ast.KeyValueExpr)
-				if !ok {
-					return true
-				}
-				key, ok := kv.Key.(*ast.Ident)
-				if !ok || key.Name != "Version" {
-					return true
-				}
-				lit, ok := kv.Value.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					return true
-				}
-				t.Errorf("%s: Version is a string literal %s — the version belongs to "+
-					"release-please; read it with moduleVersion() instead",
-					fset.Position(lit.Pos()), lit.Value)
-				return true
-			})
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue // a _test.go file legitimately contains version strings
 		}
+		f, parseErr := parser.ParseFile(fset, filepath.Join(".", name), nil, 0)
+		if parseErr != nil {
+			t.Fatalf("parse %s: %v", name, parseErr)
+		}
+		files++
+		ast.Inspect(f, func(n ast.Node) bool {
+			kv, ok := n.(*ast.KeyValueExpr)
+			if !ok {
+				return true
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != "Version" {
+				return true
+			}
+			lit, ok := kv.Value.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			t.Errorf("%s: Version is a string literal %s — the version belongs to "+
+				"release-please; read it with moduleVersion() instead",
+				fset.Position(lit.Pos()), lit.Value)
+			return true
+		})
 	}
 
 	// A guard that parsed nothing passes for the wrong reason.
