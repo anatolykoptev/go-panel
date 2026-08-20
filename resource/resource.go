@@ -1305,11 +1305,25 @@ func restorableIDParam(v string) string {
 		return ""
 	}
 	for _, c := range v {
-		if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && c != '-' && c != '_' {
+		if !isIDRune(c) {
 			return ""
 		}
 	}
 	return v
+}
+
+// isIDRune reports whether c may appear in a row id. Deliberately an allowlist:
+// a blocklist of "dangerous" characters is the shape that keeps being one
+// character short.
+func isIDRune(c rune) bool {
+	switch {
+	case c >= '0' && c <= '9', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		return true
+	case c == '-' || c == '_':
+		return true
+	default:
+		return false
+	}
 }
 
 // handleDeleteError logs a delete failure, calls AfterDelete with the error,
