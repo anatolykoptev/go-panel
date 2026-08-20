@@ -2,7 +2,7 @@ module github.com/anatolykoptev/go-panel
 
 go 1.26
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 tool github.com/a-h/templ/cmd/templ
 
