@@ -285,12 +285,27 @@
 		.badge-green{background:var(--green-dim);color:var(--green-light)}
 		.badge-red{background:var(--red-dim);color:var(--red-light)}
 		.badge-gray{background:var(--bg-elevated);color:var(--badge-gray-fg);border:1px solid var(--border-subtle)}
+		/* A resource with many columns produces a table wider than the
+		   viewport — the header row alone sets a floor, because every th is
+		   white-space:nowrap and cannot wrap. Without a scroll container that
+		   width propagates to the document and the WHOLE PAGE scrolls
+		   sideways, carrying the sidebar and header off-screen with it.
+		   Measured on go-grad /admin/leads: 14 columns, page scrolled.
+		   The container keeps the overflow inside the table's own box.
+		   Note overflow-x:auto computes overflow-y to auto as well; the table
+		   has nothing that overflows vertically, so nothing is clipped. */
+		.crm-table-scroll{overflow-x:auto}
 		.crm-table{width:100%;border-collapse:separate;border-spacing:0;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
 		.crm-table thead th{text-align:left;padding:.5rem 1rem;color:var(--text-muted);font-family:var(--font-mono);font-size:.625rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);background:var(--bg-deep);white-space:nowrap}
 		.crm-table thead th:first-child{padding-left:1.25rem}
 		.crm-table tbody tr{cursor:pointer;transition:background .08s}
 		.crm-table tbody tr:hover>td{background:var(--row-hover-bg)}
-		.crm-table td{padding:.625rem 1rem;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
+		/* overflow-wrap:anywhere, not break-word: only `anywhere` is taken
+		   into account when the browser computes the table's min-content
+		   width, so a long unbreakable token stops widening its column
+		   instead of merely being allowed to break once the width is set.
+		   Measured on go-grad /admin/leads: a 90-character page URL. */
+		.crm-table td{padding:.625rem 1rem;border-bottom:1px solid var(--border-subtle);vertical-align:middle;overflow-wrap:anywhere}
 		.crm-table td:first-child{padding-left:1.25rem}
 		.crm-table tbody tr:last-child td{border-bottom:none}
 		.crm-table a{color:var(--text-primary);text-decoration:none}
