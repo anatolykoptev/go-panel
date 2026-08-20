@@ -22,6 +22,7 @@ import (
 	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/resource"
+	"github.com/anatolykoptev/go-panel/shell"
 	"github.com/anatolykoptev/go-panel/tenant"
 )
 
@@ -536,3 +537,91 @@ func TestTrash_EmptyGroupHeadingIsDropped(t *testing.T) {
 
 // trashNavGroupLabel mirrors resource.trashNavGroup, which is unexported.
 const trashNavGroupLabel = "System"
+
+// ---------------------------------------------------------------------------
+// Round 2 of review. The empty-heading rule from round 1 was right in intent
+// and wrong in its matching: it found a header by ID, which is what Register
+// stamps, and NOT what AddNav's own doc tells consumers to build. The two tests
+// below pin the corrected rule and the cost of evaluating it, because both
+// failures land on consumers who never asked for a Trash.
+// ---------------------------------------------------------------------------
+
+// A hand-rolled group header — the shape AddNav documents, carrying no ID —
+// must survive when its members do.
+//
+// Falsification: in resource/resource.go, change isNavHeader to match by ID
+// (`item.ID == "group:"+item.Group`) → RED. Measured before this test existed:
+// the heading vanished and its link was absorbed into the PRECEDING, unrelated
+// group, in every panel, with or without a Trash.
+func TestNav_HandRolledGroupHeaderSurvives(t *testing.T) {
+	p := newWriterPanel()
+	resource.Register(p, undoResourceBare())
+	// Exactly the shape AddNav's doc prescribes: bare Group, no ID.
+	p.AddNav(shell.NavItem{Group: "ZZReports"})
+	p.AddNav(shell.NavItem{ID: "zzdocs", Label: "ZZDocs", URL: "/admin/zzdocs"})
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	_, body := getTrashPage(t, p, cookieVal, "/admin/items")
+	if !strings.Contains(body, "ZZReports") {
+		t.Error("a group header built the way AddNav documents was dropped from the sidebar; " +
+			"its link then renders under whichever unrelated group came before it")
+	}
+	if !strings.Contains(body, "ZZDocs") {
+		t.Error("the hand-rolled group's link is missing entirely")
+	}
+}
+
+// Visible is consumer code and has no caching helper — unlike Badge, whose doc
+// tells you to wrap it in shell.CachedBadge. Deciding a header from its members
+// must not mean re-running every member's closure per header.
+//
+// Falsification: in resource/resource.go navItemsFor, call navLinkVisible from
+// headerHasVisibleMember instead of reading the precomputed slice → RED.
+// Measured on the round-1 tip: 4 calls per render where main made 1.
+func TestNav_VisibleIsEvaluatedOncePerRender(t *testing.T) {
+	var calls int
+	r := undoResourceBare() // no TrashLister: this panel has no Trash at all
+	r.Visible = func(context.Context) bool { calls++; return true }
+	p := newWriterPanel()
+	resource.Register(p, r)
+	cookieVal, _ := loginAndGetCookie(t, p)
+
+	calls = 0
+	if code, _ := getTrashPage(t, p, cookieVal, "/admin/items"); code != http.StatusOK {
+		t.Fatalf("GET /admin/items: %d", code)
+	}
+	if calls != 1 {
+		t.Errorf("Visible was called %d times rendering one page, want 1 — a consumer whose "+
+			"predicate costs anything pays that multiplier on every render of every page", calls)
+	}
+}
+
+// finalize sets p.finalized BEFORE mountTrash, which can panic. sync.Once marks
+// the call done even on panic, so a consumer that recovers one must not be left
+// with a Panel that still accepts mounts nothing will ever read.
+//
+// Falsification: in resource/page.go finalize, move `p.finalized = true` back
+// after `p.mountTrash()` → RED.
+func TestTrash_MountPageIsRefusedAfterARecoveredCollisionPanic(t *testing.T) {
+	p := newWriterPanel()
+	p.MountPage(resource.PageSpec{Path: "trash", Handler: func(http.ResponseWriter, *http.Request) {}})
+	resource.Register(p, trashResource("items", nil, 0, nil))
+
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("expected the trash/page collision to panic")
+			}
+		}()
+		p.Handler()
+	}()
+
+	// The mux is frozen now — finalizeOnce will not run again.
+	defer func() {
+		if recover() == nil {
+			t.Error("MountPage was accepted after a recovered Handler() panic: the route would " +
+				"never be mounted and nothing anywhere would say so")
+		}
+	}()
+	p.MountPage(resource.PageSpec{Path: "later", Handler: func(http.ResponseWriter, *http.Request) {}})
+}

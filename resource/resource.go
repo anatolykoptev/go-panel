@@ -551,8 +551,14 @@ func (p *Panel) NavItems() []shell.NavItem {
 // at setup time (not concurrently with other Panel mutations) and after
 // the relevant Register calls if the caller wants the item to appear after
 // resource entries. To place an item under a named group that isn't already
-// present, emit a group-header NavItem{Group: "X"} before the link item(s) —
-// the same convention Register uses.
+// present, emit a group-header NavItem{Group: "X"} before the link item(s).
+//
+// A header is recognised STRUCTURALLY — a Group with no URL — so the bare form
+// above is enough. Register additionally stamps ID "group:<name>" on the
+// headers it creates, which is what lets addNavLink find and reuse an existing
+// group; a hand-rolled header without that ID renders identically but will not
+// be reused, so a later Register for the same Group opens a second heading.
+// Set ID: "group:"+name if you want a Register'd resource to join your group.
 func (p *Panel) AddNav(item shell.NavItem) {
 	p.nav = append(p.nav, item)
 }
@@ -1528,63 +1534,80 @@ func (p *Panel) navItemsFor(ctx context.Context, activeID string) []shell.NavIte
 	// at Register panics otherwise), so nil is safe — those items pass through.
 	ra, _ := p.auth.(RoleAuthenticator)
 
+	// One pass, deciding each LINK exactly once. Visible is consumer code with
+	// no caching helper — unlike Badge, which the docs tell you to wrap in
+	// shell.CachedBadge — so asking a header to re-derive its members' state
+	// would call every consumer closure once per group as well as once for
+	// itself. Measured before this pass existed: 4 calls per render where main
+	// made 1.
+	visible := make([]bool, len(p.nav))
+	for i, item := range p.nav {
+		if isNavHeader(item) {
+			continue // decided below, from its members
+		}
+		visible[i] = navLinkVisible(ctx, item, ra)
+	}
+
 	out := make([]shell.NavItem, 0, len(p.nav))
-	for _, item := range p.nav {
-		// Group headers are structural — never filtered on their own account,
-		// but a header whose every member was filtered out is dropped with
-		// them. Before the Trash nothing could empty a group, because a group
-		// only existed if a resource declared it; the Trash is the first nav
-		// item whose whole group can vanish for one operator, and a bare
-		// heading over nothing reads as a section that failed to load.
-		if item.Group != "" && item.URL == "" {
-			if !groupHasVisibleItem(ctx, p.nav, item.Group, ra) {
+	for i, item := range p.nav {
+		// A header whose every member was filtered out is dropped with them.
+		// Before the Trash nothing could empty a group, because a group existed
+		// only if a resource declared it; the Trash is the first nav item whose
+		// whole group can vanish for one operator, and a bare heading over
+		// nothing reads as a section that failed to load.
+		if isNavHeader(item) {
+			if !headerHasVisibleMember(p.nav, visible, i) {
 				continue
 			}
 			out = append(out, item)
 			continue
 		}
-
-		// RequiredRole-derived nav-hide.
-		if item.RequiredRole != "" {
-			if ra == nil || !ra.HasRole(ctx, item.RequiredRole) {
-				continue // item is invisible to this session
-			}
-		}
-
-		// Visible cosmetic predicate.
-		if item.Visible != nil && !item.Visible(ctx) {
+		if !visible[i] {
 			continue
 		}
-
-		// Mark active.
 		item.Active = item.ID == activeID
 		out = append(out, item)
 	}
 	return out
 }
 
-// groupHasVisibleItem reports whether any link belonging to group survives this
-// session's RequiredRole and Visible filters. Members are the consecutive
-// Group=="" items following the group's header — the same adjacency addNavLink
-// maintains.
-func groupHasVisibleItem(ctx context.Context, nav []shell.NavItem, group string, ra RoleAuthenticator) bool {
-	groupKey := "group:" + group
-	i := 0
-	for i < len(nav) {
-		if nav[i].ID == groupKey && nav[i].Group == group {
-			break
-		}
-		i++
+// isNavHeader reports whether item is a group header: a Group with no URL.
+//
+// Structural, NOT by ID. Register's headers carry ID "group:<name>" but
+// AddNav's documented shape — NavItem{Group: "X"} — carries none, and matching
+// on the ID silently deleted every hand-rolled heading while leaving its links
+// behind to be absorbed into the preceding group. This is the same shape
+// navItemsFor has always used to recognise a header.
+func isNavHeader(item shell.NavItem) bool {
+	return item.Group != "" && item.URL == ""
+}
+
+// navLinkVisible applies the two nav filters to one link: the RequiredRole gate
+// and the cosmetic Visible predicate.
+func navLinkVisible(ctx context.Context, item shell.NavItem, ra RoleAuthenticator) bool {
+	if item.RequiredRole != "" && (ra == nil || !ra.HasRole(ctx, item.RequiredRole)) {
+		return false
 	}
-	for i++; i < len(nav) && nav[i].Group == ""; i++ {
-		item := nav[i]
-		if item.RequiredRole != "" && (ra == nil || !ra.HasRole(ctx, item.RequiredRole)) {
-			continue
+	if item.Visible != nil && !item.Visible(ctx) {
+		return false
+	}
+	return true
+}
+
+// headerHasVisibleMember reports whether any link between the header at idx and
+// the next header survived this session's filters.
+//
+// "Members" are the consecutive non-header items following the header, which is
+// deliberately the same run shell.toNavGroups will file under that heading. The
+// two definitions agreeing is what makes the rule correct rather than merely
+// plausible: a Group-less link appended after a group's members renders under
+// that heading, so keeping the heading alive for it is right, not a leak. It
+// also means a heading is kept exactly when something will appear beneath it.
+func headerHasVisibleMember(nav []shell.NavItem, visible []bool, idx int) bool {
+	for i := idx + 1; i < len(nav) && !isNavHeader(nav[i]); i++ {
+		if visible[i] {
+			return true
 		}
-		if item.Visible != nil && !item.Visible(ctx) {
-			continue
-		}
-		return true
 	}
 	return false
 }

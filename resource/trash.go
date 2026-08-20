@@ -59,7 +59,7 @@ func (p *Panel) mountTrash() {
 	for _, path := range p.pagePaths {
 		if path == trashNavID {
 			panic(fmt.Sprintf(
-				"resource: a MountPage path or alias %q collides with the panel-wide Trash page at %s/%s — rename the page, or drop the resource's TrashLister",
+				"resource: a MountPage path or alias %q collides with the panel-wide Trash page at %s/%s — rename the page",
 				path, p.basePath, trashNavID))
 		}
 	}
@@ -148,6 +148,16 @@ func (p *Panel) handleTrash(w http.ResponseWriter, req *http.Request) {
 		// max, not total: a consumer that returns len(rows) as its total (or 0
 		// beside a full page) would otherwise render a heading that says 0 above
 		// rows the operator can see, or claim to show more than it has.
+		//
+		// But max() alone would render that contradiction as a perfectly
+		// plausible page, and the contradiction has a specific likely cause: a
+		// tenant-scoped COUNT beside an unscoped SELECT — exactly what
+		// TrashLister's doc warns about. Smoothing it over silently is the
+		// failure this whole page is built to refuse, so say so.
+		if total < len(rows) {
+			slog.WarnContext(ctx, "resource: trash lister reported fewer total rows than it returned",
+				"resource", r.Name, "total", total, "rows", len(rows))
+		}
 		d.Sections = append(d.Sections, trashSection{Resource: r, Rows: rows, Total: max(total, len(rows))})
 	}
 
