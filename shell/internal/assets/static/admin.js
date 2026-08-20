@@ -545,6 +545,24 @@
     closeDrawer();
   });
 
+  // Destructive-form confirmation — CSP-compliant replacement for the inline
+  // onsubmit="return confirm(...)" this form used to carry, for the same
+  // reason as the copy buttons above: the page CSP is
+  // `script-src 'self' 'unsafe-eval'` with no 'unsafe-inline', so an inline
+  // handler never runs. It failed silently and open — the browser dropped
+  // the handler, the form submitted anyway, and the row was deleted with no
+  // prompt. Any form carrying data-confirm is gated here instead.
+  //
+  // The message comes from the attribute rather than being built in JS, so
+  // the server owns the wording and the browser owns nothing but the prompt.
+  // Reading it via getAttribute also means a title containing a quote is
+  // already unescaped by the HTML parser — the old inline version pasted the
+  // title into a JS string literal, where a quote would have broken it.
+  document.addEventListener('submit',function(e){
+    var form=e.target.closest('form[data-confirm]');
+    if(!form) return;
+    if(!window.confirm(form.getAttribute('data-confirm'))) e.preventDefault();
+  });
   // Esc — close drawer and return focus to hamburger.
   document.addEventListener('keydown',function(e){
     if(e.key!=='Escape') return;
