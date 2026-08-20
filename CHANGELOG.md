@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.22.2](https://github.com/anatolykoptev/go-panel/compare/v0.22.1...v0.22.2) (2026-08-20)
+
+
+### Added
+
+* **resource:** add SingleRow mode for single-row resources ([#111](https://github.com/anatolykoptev/go-panel/issues/111)) ([eb2a57a](https://github.com/anatolykoptev/go-panel/commit/eb2a57ab0ee49d0b4524a6249f92bdf4ff5885f2))
+* **shell:** light theme + toggle, dark stays the default ([#113](https://github.com/anatolykoptev/go-panel/issues/113)) ([fc801f3](https://github.com/anatolykoptev/go-panel/commit/fc801f3c1732a037acc27c5eb9d7fb6cf8e1ad29))
+* **writer:** add AfterSave/AfterDelete hooks ([#109](https://github.com/anatolykoptev/go-panel/issues/109)) ([56804d2](https://github.com/anatolykoptev/go-panel/commit/56804d2968b6ab3a107f17dbdde228c1e5f8db8d))
+* **writer:** add Delete capability ([#107](https://github.com/anatolykoptev/go-panel/issues/107)) ([5770822](https://github.com/anatolykoptev/go-panel/commit/5770822ee8caddc18dc746b0a007c994782a2ef3))
+* **writer:** add PresetValues for scoped create with foreign keys ([#108](https://github.com/anatolykoptev/go-panel/issues/108)) ([aa864e1](https://github.com/anatolykoptev/go-panel/commit/aa864e129eee0ec7b9b07f5239af86a03bcefce1))
+* **writer:** add RedirectAfterSave/RedirectAfterDelete ([#110](https://github.com/anatolykoptev/go-panel/issues/110)) ([45a7536](https://github.com/anatolykoptev/go-panel/commit/45a75364ac3e8370af758ac6742cd33e7094c724))
+
+
+### Fixed
+
+* **resource:** make sidebar grouping independent of registration order ([#120](https://github.com/anatolykoptev/go-panel/issues/120)) ([69e1040](https://github.com/anatolykoptev/go-panel/commit/69e104075fb75cf673374d651dab5bcf0d305357))
+* **resource:** make the lint gate green again — sanitise a tainted log id, split three oversized funcs ([#118](https://github.com/anatolykoptev/go-panel/issues/118)) ([8b006b5](https://github.com/anatolykoptev/go-panel/commit/8b006b56a51e278c48fc0413eb5f56321706ba23))
+
 ## [0.22.1](https://github.com/anatolykoptev/go-panel/compare/v0.22.0...v0.22.1) (2026-07-21)
 
 
