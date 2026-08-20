@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.23.5](https://github.com/anatolykoptev/go-panel/compare/v0.23.4...v0.23.5) (2026-08-20)
+
+
+### Added
+
+* **resource,shell:** a panel-wide Trash for rows a delete kept ([6a9d95e](https://github.com/anatolykoptev/go-panel/commit/6a9d95e41c50135715b06c1ff53ccd8b5ede1f8c))
+* **resource,shell:** a panel-wide Trash for rows a delete kept ([5d4d5bb](https://github.com/anatolykoptev/go-panel/commit/5d4d5bb090fd60ec83b87ebad968754ab632d93b))
+
+
+### Fixed
+
+* **resource:** hide a sidebar group heading when all its links are filtered out ([97f7d37](https://github.com/anatolykoptev/go-panel/commit/97f7d37429c22f608c3f7b6d336387a428172d88))
+* **resource:** pin the Trash's enforcement, not just its behaviour ([7608304](https://github.com/anatolykoptev/go-panel/commit/76083045cc906e97e39338c22f3844df14596e95))
+* **resource:** recognise a group header by shape, not by ID ([52e9d3e](https://github.com/anatolykoptev/go-panel/commit/52e9d3e738e9010c08d2319c19b2c750f50f372e))
+
 ## [0.23.4](https://github.com/anatolykoptev/go-panel/compare/v0.23.3...v0.23.4) (2026-08-20)
 
 
