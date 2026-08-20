@@ -57,6 +57,10 @@ const (
 	// request. It is rejected with 404 on detail/edit routes (which require an
 	// existing record) and treated as a create signal by the save handler.
 	idNew = "new"
+	// maxLogIDLen caps the length of an attacker-controlled id value emitted
+	// in a structured log attribute. Without a cap, one request can write an
+	// arbitrarily large log line (the id arrives from the URL path verbatim).
+	maxLogIDLen = 256
 	// tenantAuthzDefaultWarning is the stable, greppable message New logs
 	// once at construction when Config.TenantAuthorizer is left nil
 	// (defaulting to tenant.GlobalOnlyAuthorizer) — the only runtime signal
@@ -855,7 +859,7 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 		layoutComp := shell.Layout(p.title, nav, content)
 		renderCtx := shell.ContextWithChrome(req.Context(), p.chromeStateFrom(req))
 		if err := layoutComp.Render(renderCtx, w); err != nil {
-			slog.Error("resource: render detail page", "resource", r.Name, "id", strconv.Quote(id), "err", err)
+			slog.Error("resource: render detail page", "resource", r.Name, "id", strconv.Quote(sanitizeForLog(id)), "err", err)
 			http.Error(w, "render failed", http.StatusInternalServerError)
 		}
 	}
@@ -1131,7 +1135,7 @@ func deleteHandler(p *Panel, r Resource) http.HandlerFunc {
 
 		deleteErr := r.Writer.Delete(ctx, t, id)
 		if deleteErr != nil {
-			slog.Error("resource: delete failed", "resource", r.Name, "id", id, "err", deleteErr)
+			slog.Error("resource: delete failed", "resource", r.Name, "id", sanitizeForLog(id), "err", deleteErr)
 			if r.Writer.AfterDelete != nil {
 				r.Writer.AfterDelete(ctx, id, deleteErr)
 			}
@@ -1447,4 +1451,40 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// sanitizeForLog strips control characters from s and caps its length so an
+// attacker-controlled value (e.g. an id from the URL path) can be safely
+// included in a structured log attribute without dropping it entirely.
+//
+// Two properties, both required for log injection defence (gosec G706):
+//
+//  1. No control characters — newlines and carriage returns let a caller forge
+//     additional log records; ANSI escapes (ESC, C1 controls) can act on an
+//     operator's terminal when they tail the log. All C0 controls except tab
+//     (0x00-0x08, 0x0A-0x1F), DEL (0x7F), and C1 controls (0x80-0x9F) are
+//     removed. Tab is kept because it is harmless in log output.
+//
+//  2. Bounded length — an unbounded id lets one request write an arbitrarily
+//     large log line. The value is capped at maxLogIDLen runes.
+//
+// No existing in-house sanitiser covers both: go-kit strutil.Scrub only
+// validates UTF-8 (replaces invalid bytes, keeps control chars); strutil.Truncate
+// only caps length (keeps control chars). This function does both in one pass.
+func sanitizeForLog(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		// Keep tab (0x09) — harmless in log output.
+		// Drop all other C0 controls (0x00-0x08, 0x0A-0x1F), DEL (0x7F),
+		// and C1 controls (0x80-0x9F).
+		if r == '\t' || (r >= 0x20 && r != 0x7f && (r < 0x80 || r > 0x9f)) {
+			b.WriteRune(r)
+			n++
+			if n >= maxLogIDLen {
+				break
+			}
+		}
+	}
+	return b.String()
 }
