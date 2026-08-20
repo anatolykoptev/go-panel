@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.1](https://github.com/anatolykoptev/go-panel/compare/v0.22.2...v0.23.1) (2026-08-20)
+
+
+### Fixed
+
+* **mcp,release:** the version comes from the release, never from a literal ([#124](https://github.com/anatolykoptev/go-panel/issues/124)) ([423c68f](https://github.com/anatolykoptev/go-panel/commit/423c68fe9d5c6497239c6aea0252baee667d3b48))
+* **release:** put the version above the orphan v0.23.0 tag, action to v5 ([#122](https://github.com/anatolykoptev/go-panel/issues/122)) ([1b73982](https://github.com/anatolykoptev/go-panel/commit/1b73982a1ae6171008a807ce17c923c31abc42f4))
+
 ## [0.22.2](https://github.com/anatolykoptev/go-panel/compare/v0.22.1...v0.22.2) (2026-08-20)
 
 
