@@ -41,6 +41,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"time"
 
 	"github.com/anatolykoptev/go-mcpserver"
@@ -92,7 +93,7 @@ func Run(cfg Config) error {
 
 	mcpCfg := mcpserver.Config{
 		Name:                       "go-panel",
-		Version:                    "0.1.0",
+		Version:                    moduleVersion(),
 		Port:                       cfg.Port,
 		KeepAlive:                  30 * time.Second,
 		SchemaCache:                mcp.NewSchemaCache(),
@@ -106,10 +107,53 @@ func Run(cfg Config) error {
 	}
 	return mcpserver.Serve(&mcp.Implementation{
 		Name:    "go-panel",
-		Version: "0.1.0",
+		Version: moduleVersion(),
 	}, mcpCfg, func(s *mcp.Server) {
 		registerResourceTools(s, cfg.Panel.Resources(), logger)
 	})
+}
+
+// modulePath is go-panel's own import path — the key its version is filed
+// under in a consumer's build info.
+const modulePath = "github.com/anatolykoptev/go-panel"
+
+// moduleVersion reports the go-panel release a binary was built against, read
+// out of the build info the toolchain stamps from the go.mod requirement.
+//
+// It exists because the two version fields below it used to hold the literal
+// "0.1.0". Nothing referenced that number, so nothing ever went red when it
+// drifted, and by v0.22.2 every MCP client had been told go-panel was at 0.1.0
+// for twenty-two releases. release-please owns the version; a second copy
+// maintained by hand can only ever be wrong.
+//
+// Three cases, in the order they occur:
+//   - go-panel is a dependency: the version comes from Deps, or from Replace
+//     when a consumer points the requirement elsewhere (a replace directive is
+//     what actually gets built, so it is what gets reported).
+//   - go-panel is the main module — its own tests, or `go run ./...` — where
+//     the toolchain has no released version to stamp. "(devel)" is the
+//     toolchain's own word for that, not an error.
+//   - no build info at all, which a normally-built binary never hits.
+func moduleVersion() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "(unknown)"
+	}
+	for _, d := range bi.Deps {
+		if d.Path != modulePath {
+			continue
+		}
+		if d.Replace != nil && d.Replace.Version != "" {
+			return d.Replace.Version
+		}
+		if d.Version != "" {
+			return d.Version
+		}
+	}
+	if bi.Main.Path == modulePath && bi.Main.Version != "" {
+		return bi.Main.Version
+	}
+	return "(devel)"
 }
 
 // registerResourceTools creates MCP list/get tools for each Resource.
