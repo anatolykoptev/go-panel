@@ -153,6 +153,29 @@ type Resource struct {
 	// the app owns the row type + scan. go-panel never assumes a schema.
 	Lister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
 
+	// TrashLister fetches this resource's DELETED rows for the panel-wide Trash
+	// page, newest-deleted first. Nil (default) = this resource contributes
+	// nothing to the trash and, if no resource sets it, no Trash page exists at
+	// all.
+	//
+	// It is a second reader rather than a flag on Lister because the two answer
+	// different questions and must not share a query: Lister reads whatever
+	// live view the consumer built (in go-grad, live_lead), while TrashLister
+	// deliberately reads the base table with the filter INVERTED. Folding both
+	// into one closure behind a boolean is how a caller ends up passing the
+	// wrong one — the mistake every ORM in the survey shipped at least once.
+	//
+	// Only Limit and Tenant of the ListQuery are populated; ordering is the
+	// consumer's, because only it knows which column records the deletion.
+	// total is every deleted row, not just the returned page — the Trash page
+	// prints it beside what it drew, so a cap is never mistaken for the whole
+	// set.
+	//
+	// Register panics when TrashLister is set without Writer.Delete AND
+	// Writer.Restore: a trash you cannot restore from is a dead end, and one
+	// nothing can put rows into is furniture.
+	TrashLister func(ctx context.Context, q ListQuery) (rows []Row, total int, err error)
+
 	// Detailer enables a per-row Detail (Show) view at GET {basePath}/{name}/{id}.
 	// Nil = no detail page (default — preserves existing behaviour).
 	// When non-nil, Register mounts GET {basePath}/{name}/{id} and the template
@@ -551,6 +574,7 @@ func Register(p *Panel, r Resource) {
 		panic(fmt.Sprintf("resource.Register %q: SingleRow requires Writer to be non-nil", r.Name))
 	}
 	validateRoleConfig(p, r)
+	validateTrashConfig(r)
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
 
@@ -571,6 +595,25 @@ func Register(p *Panel, r Resource) {
 	// Writer routes — only mounted when Writer is configured.
 	if r.Writer != nil {
 		mountWriterRoutes(p, r)
+	}
+}
+
+// validateTrashConfig fails closed on a trash that cannot work.
+//
+// A TrashLister without a Restore renders rows behind a button that 403s — the
+// exact shape of the bug this panel spent a week on, where the affordance was
+// present, looked right, and had never once run. Without a Delete nothing can
+// put a row into the trash in the first place, so the section can only ever be
+// empty. Both are startup mistakes, so both are startup panics.
+func validateTrashConfig(r Resource) {
+	if r.TrashLister == nil {
+		return
+	}
+	if r.Writer == nil || r.Writer.Delete == nil {
+		panic(fmt.Sprintf("resource.Register %q: TrashLister requires Writer.Delete (nothing can fill the trash otherwise)", r.Name))
+	}
+	if r.Writer.Restore == nil {
+		panic(fmt.Sprintf("resource.Register %q: TrashLister requires Writer.Restore (the trash would have no way back)", r.Name))
 	}
 }
 

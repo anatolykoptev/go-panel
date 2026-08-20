@@ -128,6 +128,9 @@ func (p *Panel) finalize() {
 			h = p.guard("", p.handleIndex)
 		}
 		p.mux.HandleFunc("GET "+p.basePath+"/{$}", h)
+		// After the index, and only here: the Trash page fans out over every
+		// registered resource, so it cannot be mounted from Register.
+		p.mountTrash()
 		p.finalized = true
 	})
 }

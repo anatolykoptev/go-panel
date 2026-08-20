@@ -1331,10 +1331,19 @@ func colHeaderStyle(col admintable.Column) string {
 // colCellStyle builds the inline style for a <td> element using the column at index i.
 // Out-of-bounds index (extra cells) returns an empty string safely.
 func colCellStyle(d listPageData, i int) string {
-	if i >= len(d.Resource.Sort.Columns) {
+	return colCellStyleAt(d.Resource.Sort.Columns, i)
+}
+
+// colCellStyleAt is colCellStyle over a bare column slice, so the Trash table —
+// which renders another resource's columns without that resource's
+// listPageData — styles its cells through the SAME code the list uses. Two
+// functions drawing "the same" cell drift, and the drift shows only on the page
+// nobody has a baseline for.
+func colCellStyleAt(cols []admintable.Column, i int) string {
+	if i >= len(cols) {
 		return ""
 	}
-	col := d.Resource.Sort.Columns[i]
+	col := cols[i]
 	s := ""
 	if col.Align != "" {
 		s += "text-align:" + col.Align + ";"
