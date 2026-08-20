@@ -476,7 +476,10 @@
     document.documentElement.classList.toggle('light',!dark);
     document.cookie=THEME_COOKIE+'='+(dark?'dark':'light')+';path=/;max-age=604800;samesite=Lax';
     var btn=document.getElementById('theme-toggle');
-    if(btn) btn.setAttribute('aria-label',dark?'Switch to light theme':'Switch to dark theme');
+    if(btn){
+      btn.setAttribute('aria-label',dark?'Switch to light theme':'Switch to dark theme');
+      btn.setAttribute('aria-pressed',dark?'false':'true');
+    }
   }
 
   // Delegated click — survives htmx swaps (listener on document, not button).
@@ -486,12 +489,17 @@
     setTheme(currentTheme()==='dark'?'light':'dark');
   });
 
-  // Re-sync aria-label after htmx swap (button may be re-rendered by SSR with
-  // a label derived from the cookie, which should match — this reconciles any
-  // cross-tab cookie drift, mirroring groupsApply/subsApply pattern).
+  // Re-sync aria-label and aria-pressed after htmx swap (button may be
+  // re-rendered by SSR with values derived from the cookie, which should match
+  // — this reconciles any cross-tab cookie drift, mirroring groupsApply/
+  // subsApply pattern). Missing the aria-pressed re-sync here is how the
+  // attribute goes stale after the first swap.
   document.addEventListener('htmx:afterSwap',function(){
     var btn=document.getElementById('theme-toggle');
-    if(btn) btn.setAttribute('aria-label',currentTheme()==='dark'?'Switch to light theme':'Switch to dark theme');
+    if(!btn) return;
+    var dark=currentTheme()==='dark';
+    btn.setAttribute('aria-label',dark?'Switch to light theme':'Switch to dark theme');
+    btn.setAttribute('aria-pressed',dark?'false':'true');
   });
 })();
 

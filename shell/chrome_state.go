@@ -57,16 +57,29 @@ func (s ChromeState) ThemeClass() string {
 
 // themeClass resolves a raw theme string to the HTML class value.
 // Returns "dark" for the zero value ("") so a consumer that never sets Theme
-// renders dark (backward-compat). Non-empty values pass through verbatim —
-// the validation that rejects unrecognised values lives in chromeStateFrom
-// (resource layer), which is the sole gate. This separation makes the
-// falsification tests work: F1 mutates the default branch here, F2 mutates
-// the validation in chromeStateFrom.
+// renders dark (backward-compat). Returns "dark" for any value that is not
+// ThemeLight — this makes the function TOTAL: no reachable path (cookie,
+// direct ContextWithChrome, or a future caller) can emit a third class that
+// matches neither :root.dark nor :root.light, which would fall through to the
+// bare :root light palette and silently render light for an unrecognised value.
+//
+// The cookie validation in chromeStateFrom (resource layer) is a SEPARATE
+// guard: it stops junk from being STORED in ChromeState.Theme. Both layers
+// exist because each alone fails to catch a different case:
+//   - themeClass alone (without chromeStateFrom validation) would still render
+//     dark for junk, but ChromeState.Theme would carry the junk value — a
+//     consumer inspecting state.Theme directly (not via ThemeClass) would see
+//     it, and any logic branching on Theme == ThemeLight would miss it.
+//   - chromeStateFrom validation alone (without total themeClass) would reject
+//     junk from the cookie path, but a downstream consumer calling
+//     ContextWithChrome directly with ChromeState{Theme: "purple"} would bypass
+//     chromeStateFrom entirely — themeClass would return "purple" verbatim,
+//     rendering an unrecognised class and falling through to light.
 func themeClass(theme string) string {
-	if theme == "" {
-		return ThemeDark
+	if theme == ThemeLight {
+		return ThemeLight
 	}
-	return theme
+	return ThemeDark
 }
 
 // ProfileConfig carries the per-operator identity shown in the sticky-bottom

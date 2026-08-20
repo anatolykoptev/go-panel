@@ -89,6 +89,17 @@ func themeToggleLabel(theme string) string {
 	return "Switch to light theme"
 }
 
+// themeTogglePressed returns the aria-pressed value for the theme toggle
+// button, reflecting the current theme state: "true" when light is active,
+// "false" when dark is active. aria-label names the action; aria-pressed
+// names the state — a screen-reader user hears both.
+func themeTogglePressed(theme string) string {
+	if themeClass(theme) == ThemeLight {
+		return "true"
+	}
+	return "false"
+}
+
 // hasActiveChild reports whether any direct child of item is active.
 // Used server-side to emit data-has-active-child on parent submenu wrappers,
 // so JS always keeps parents of the current-page item expanded regardless of
@@ -164,7 +175,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 					<div class="sidebar-header">
 						<h1>{ title }</h1>
 						<div class="sidebar-header-actions">
-							<button type="button" class="theme-toggle" id="theme-toggle" aria-label={ themeToggleLabel(ChromeFromContext(ctx).Theme) }>
+							<button type="button" class="theme-toggle" id="theme-toggle" aria-label={ themeToggleLabel(ChromeFromContext(ctx).Theme) } aria-pressed={ themeTogglePressed(ChromeFromContext(ctx).Theme) }>
 								<span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
 								<span class="theme-icon-sun" aria-hidden="true">&#9728;</span>
 							</button>

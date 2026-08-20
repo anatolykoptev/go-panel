@@ -1,10 +1,20 @@
 <!doctype html><html lang="en" class="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>T</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f172a'/><text x='6' y='22' font-size='18' fill='%233b82f6'>⚙</text></svg>"><link rel="stylesheet" href="/admin/static/pm7.css"><style>
 		/* ── Light palette (default, bare :root) ────────────────────────────
-		   WCAG AA contrast ratios on --bg-base (#ffffff):
-		     --text-primary  #0f172a  17.9:1
-		     --text-secondary #475569  7.6:1
-		     --text-muted    #64748b  4.7:1
-		     --text-label    #334155  10.4:1
+		   WCAG AA contrast ratios (4.5:1 threshold for normal text).
+		   Ratios measured against the backgrounds each token actually sits
+		   on, not just --bg-base. --text-muted and --badge-gray-fg are used
+		   on --bg-surface (#f1f5f9) and --bg-elevated (#e2e8f0) — tables,
+		   cards, detail sections, badges — so they must clear 4.5:1 on
+		   --bg-elevated (the darkest). --accent-link is a separate token
+		   for link/foreground use; --accent (the fill behind white text in
+		   .filter-chip.active, .login-submit) is NOT darkened — darkening
+		   the fill changes a different pair.
+
+		     --text-primary  #0f172a  17.9/16.2/14.7  ✓ (base/surface/elevated)
+		     --text-secondary #475569  7.6/6.9/6.2    ✓
+		     --text-muted    #4f5b6b   6.9/6.3/5.6    ✓
+		     --text-label    #334155  10.4/9.4/8.5    ✓
+		     --accent-link   #2563eb   5.2/4.7        ✓ (base/surface)
 		   pm7 token overrides are re-valued (not deleted) because pm7.css
 		   ships its own @media (prefers-color-scheme: dark) :root block that
 		   would override the cookie choice when the OS is in dark mode.
@@ -20,9 +30,10 @@
 			--border-subtle:#e2e8f0;
 			--text-primary:#0f172a;
 			--text-secondary:#475569;
-			--text-muted:#64748b;
+			--text-muted:#4f5b6b;
 			--text-label:#334155;
 			--accent:#3b82f6;
+			--accent-link:#2563eb;
 			--accent-glow:rgba(59,130,246,.12);
 			--accent-dim:#dbeafe;
 			--green:#10b981;
@@ -58,10 +69,51 @@
 			--pm7-surface:var(--bg-surface);
 			--pm7-surface-hover:var(--bg-elevated);
 			--pm7-surface-active:var(--bg-elevated);
+			/* pm7 tokens redefined in pm7.css @media (prefers-color-scheme: dark) :root
+			   that were NOT in the original 17 overrides. Light values copied from
+			   pm7.css bare :root so the cookie wins over the OS dark preference.
+			   Without these, a viewer whose OS is dark but cookie is light gets
+			   dark-tuned shadows, dark tooltips, dark scrollbars, etc. on light
+			   surfaces. Dark-only tokens (no bare-:root value) are excluded — they
+			   are undefined in light mode by design. */
+			--pm7-text-primary:var(--pm7-foreground);
+			--pm7-text-secondary:var(--pm7-muted-foreground);
+			--pm7-menu-bg:var(--pm7-surface);
+			--pm7-ring-offset:#ffffff;
+			--pm7-input:#ffffff;
+			--pm7-card-footer-bg:#f7fafc;
+			--pm7-sidebar-bg:#F3F4F6;
+			--pm7-sidebar-item-hover:#ffffff;
+			--pm7-header-bg:var(--pm7-surface);
+			--pm7-footer-bg:#f5f5f5;
+			--pm7-footer-text:var(--pm7-text-secondary);
+			--pm7-tooltip-bg:#1a1a1a;
+			--pm7-tooltip-color:#ffffff;
+			--pm7-success-light:#dcfce7;
+			--pm7-success-dark:#166534;
+			--pm7-warning-light:#fef3c7;
+			--pm7-warning-dark:#92400e;
+			--pm7-info-light:#dbeafe;
+			--pm7-info-dark:#1e40af;
+			--pm7-theme-switch-bg:var(--pm7-background);
+			--pm7-theme-switch-thumb-bg-light:#FFD43B;
+			--pm7-theme-switch-thumb-bg-dark:#6E6E6E;
+			--pm7-theme-switch-icon-light:var(--pm7-foreground);
+			--pm7-theme-switch-icon-dark:var(--pm7-background);
+			--pm7-theme-switch-sun-color:#FFB800;
+			--pm7-theme-switch-moon-color:#4A5568;
+			--pm7-menu-hover-shadow:rgba(0,0,0,.08) 0px 5px 15px 0px,rgba(25,28,33,.2) 0px 15px 35px -5px;
+			--pm7-focus-shadow:0 0 0 3px rgb(28 134 239 / 0.2);
+			--pm7-shadow-sm:0 1px 2px 0 rgb(0 0 0 / 0.05);
+			--pm7-shadow:0 1px 3px 0 rgb(0 0 0 / 0.1),0 1px 2px -1px rgb(0 0 0 / 0.1);
+			--pm7-shadow-md:0 4px 6px -1px rgb(0 0 0 / 0.1),0 2px 4px -2px rgb(0 0 0 / 0.1);
+			--pm7-shadow-lg:0 10px 15px -3px rgb(0 0 0 / 0.1),0 4px 6px -4px rgb(0 0 0 / 0.1);
+			--pm7-shadow-xl:0 20px 25px -5px rgb(0 0 0 / 0.1),0 8px 10px -6px rgb(0 0 0 / 0.1);
+			--pm7-shadow-2xl:0 25px 50px -12px rgb(0 0 0 / 0.25);
 			--accent-light:#1e40af;
 			--green-light:#065f46;
 			--red-light:#991b1b;
-			--badge-gray-fg:#64748b;
+			--badge-gray-fg:#4f5b6b;
 			--row-hover-bg:rgba(59,130,246,.07);
 			--overlay-bg:rgba(0,0,0,.4);
 			--fit-strong-bg:#d1fae5;--fit-strong-fg:#065f46;
@@ -93,6 +145,7 @@
 			--text-muted:#4a5b78;
 			--text-label:#5d6f90;
 			--accent:#3b82f6;
+			--accent-link:var(--accent);
 			--accent-glow:rgba(59,130,246,.15);
 			--accent-dim:#1e3a6e;
 			--green:#10b981;
@@ -144,7 +197,7 @@
 		}
 		*{margin:0;padding:0;box-sizing:border-box}
 		body{background:var(--bg-deep);color:var(--text-primary);font-family:var(--font-sans);min-height:100vh;font-size:.875rem;line-height:1.5}
-		a{color:var(--accent);text-decoration:none}
+		a{color:var(--accent-link);text-decoration:none}
 		a:hover{opacity:.85}
 		.app{display:flex;min-height:100vh}
 		.main{flex:1;overflow-x:auto;background:var(--bg-base)}
@@ -319,7 +372,7 @@
 		.job-detail-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:.25rem}
 		.job-detail-title{font-size:1.0625rem;font-weight:700;color:var(--text-primary);line-height:1.3}
 		.job-detail-meta{font-family:var(--font-mono);font-size:.6875rem;color:var(--text-muted);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
-		.job-detail-meta a{color:var(--accent);text-decoration:none}
+		.job-detail-meta a{color:var(--accent-link);text-decoration:none}
 		.job-detail-meta a:hover{opacity:.8}
 		/* ── Mobile off-canvas drawer (Phase 6, pm7-borrowed overlay) ─────────
 		   Overlay backdrop: pm7.css:4668-4681 (.pm7-sidebar-overlay), re-namespaced.
@@ -359,4 +412,4 @@
 		.sparkline{vertical-align:middle;display:inline-block}
 		.sparkline-line{stroke:var(--accent);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
 		.sparkline-zero{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
-	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1>T</h1><div class="sidebar-header-actions"><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light theme"><span class="theme-icon-moon" aria-hidden="true">&#9790;</span> <span class="theme-icon-sun" aria-hidden="true">&#9728;</span></button> <button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom">  <form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block"><button type="submit" class="sidebar-item" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></button></form></div></aside><div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div><main class="main"><button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>
+	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1>T</h1><div class="sidebar-header-actions"><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light theme" aria-pressed="false"><span class="theme-icon-moon" aria-hidden="true">&#9790;</span> <span class="theme-icon-sun" aria-hidden="true">&#9728;</span></button> <button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom">  <form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block"><button type="submit" class="sidebar-item" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></button></form></div></aside><div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div><main class="main"><button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>
