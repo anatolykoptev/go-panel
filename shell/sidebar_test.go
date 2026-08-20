@@ -681,6 +681,45 @@ func TestMobileDrawerNoDataPm7Sidebar(t *testing.T) {
 
 // ── End mobile off-canvas drawer tests ───────────────────────────────────
 
+// ── Theme class totality tests (Fix 2) ────────────────────────────────────
+
+// TestThemeClass_UnrecognisedViaContextWithChrome verifies F2b: an
+// unrecognised theme value arriving through shell.ContextWithChrome DIRECTLY
+// (bypassing the cookie path and chromeStateFrom entirely) renders
+// <html class="dark">, not the raw value or light.
+//
+// This is the critical falsification: today's code (pre-fix themeClass that
+// returns input verbatim) would render class="purple" here, which matches
+// neither :root.dark nor :root.light, falling through to the bare :root
+// LIGHT palette — the exact opposite of the documented "unrecognised = dark"
+// guarantee. After Fix 2 (total themeClass), it renders dark.
+//
+// Falsification (F2b): in shell/chrome_state.go, revert themeClass to:
+//   func themeClass(theme string) string {
+//       if theme == "" { return ThemeDark }
+//       return theme
+//   }
+// F2b → RED (class="purple" not class="dark").
+func TestThemeClass_UnrecognisedViaContextWithChrome(t *testing.T) {
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Theme: "purple"})
+	html := renderLayout(t, ctx, nil)
+	if !strings.Contains(html, `<html lang="en" class="dark">`) {
+		t.Fatalf("unrecognised theme via ContextWithChrome must render class=\"dark\" (total themeClass); got HTML head:\n%s", html[:200])
+	}
+}
+
+// TestThemeClass_RecognisedLightViaContextWithChrome confirms the positive
+// case: ThemeLight via direct ContextWithChrome renders class="light".
+func TestThemeClass_RecognisedLightViaContextWithChrome(t *testing.T) {
+	ctx := shell.ContextWithChrome(context.Background(), shell.ChromeState{Theme: shell.ThemeLight})
+	html := renderLayout(t, ctx, nil)
+	if !strings.Contains(html, `<html lang="en" class="light">`) {
+		t.Fatal("ThemeLight via ContextWithChrome must render class=\"light\"")
+	}
+}
+
+// ── End theme class totality tests ────────────────────────────────────────
+
 // TestChrome_ZeroFields_GoldenStable locks the HTML output produced when
 // Layout receives a zero ChromeState (Collapsed=false, CollapsedGroups=nil,
 // Profile=zero).  This is the baseline every subsequent Phase must not break.
