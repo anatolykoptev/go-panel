@@ -35,7 +35,7 @@ templ detailPageContent(d detailPageData) {
 				style="margin-top:1.5rem"
 				data-confirm={ "Delete this " + d.Resource.Title + "? This cannot be undone." }
 			>
-				<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+				<input type="hidden" name={ csrfFormField } value={ d.CSRFToken }/>
 				<button type="submit" style="background:var(--danger,#dc2626);color:#fff;border:none;padding:.5rem 1rem;border-radius:.375rem;cursor:pointer;font-size:.8125rem">
 					Delete
 				</button>
