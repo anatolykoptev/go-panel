@@ -553,7 +553,29 @@ func Register(p *Panel, r Resource) {
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
 
-	// Add nav entry.
+	addNavEntry(p, r)
+
+	listHandler := p.makeListHandler(r)
+	mountListRoutes(p, r, listHandler)
+
+	// Detailer route — mounted when Detailer OR FetchRow is configured.
+	// If Detailer is nil but FetchRow is non-nil, synthesize an auto-Detailer
+	// from Sort.Columns + FetchRow (see autoDetailer).
+	if r.Detailer != nil {
+		mountDetailRoute(p, r)
+	} else if r.FetchRow != nil {
+		mountDetailRoute(p, withAutoDetailer(r))
+	}
+
+	// Writer routes — only mounted when Writer is configured.
+	if r.Writer != nil {
+		mountWriterRoutes(p, r)
+	}
+}
+
+// addNavEntry inserts a group-header NavItem (if r.Group is set and not already
+// present) followed by the resource's own nav item. Called from Register only.
+func addNavEntry(p *Panel, r Resource) {
 	if r.Group != "" {
 		// Insert group header if not already present.
 		groupKey := "group:" + r.Group
@@ -580,11 +602,16 @@ func Register(p *Panel, r Resource) {
 		Visible:      r.Visible,
 		RequiredRole: r.RequiredRole,
 	})
+}
 
+// mountListRoutes mounts the GET list and rows routes for r. Single-row
+// resources get a redirect-to-edit handler at the list path; regular resources
+// get the full list page. The rows fragment route is mounted identically in
+// both cases.
+func mountListRoutes(p *Panel, r Resource, listHandler func(http.ResponseWriter, *http.Request, []shell.NavItem, bool)) {
 	listPath := p.basePath + "/" + r.Name
 	rowsPath := p.basePath + "/" + r.Name + "/rows"
 
-	listHandler := p.makeListHandler(r)
 	if r.SingleRow {
 		// Single-row resource: GET /{name} redirects to /{name}/{id}/edit
 		// for the first (only) row. The "new" route is not mounted.
@@ -631,20 +658,6 @@ func Register(p *Panel, r Resource) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			listHandler(w, req, nil, true)
 		}))
-	}
-
-	// Detailer route — mounted when Detailer OR FetchRow is configured.
-	// If Detailer is nil but FetchRow is non-nil, synthesize an auto-Detailer
-	// from Sort.Columns + FetchRow (see autoDetailer).
-	if r.Detailer != nil {
-		mountDetailRoute(p, r)
-	} else if r.FetchRow != nil {
-		mountDetailRoute(p, withAutoDetailer(r))
-	}
-
-	// Writer routes — only mounted when Writer is configured.
-	if r.Writer != nil {
-		mountWriterRoutes(p, r)
 	}
 }
 
@@ -1022,12 +1035,7 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		// form); edit honours ?locale=. The locale-filtered field set drives
 		// collection AND validation so that shared fields, absent on a secondary
 		// locale, are not spuriously "required".
-		loc := p.locales.Default
-		multi := false
-		if !creating {
-			loc = p.activeLocale(req)
-			multi = p.multiLocale()
-		}
+		loc, multi := resolveSaveLocale(p, req, creating)
 		ctx := locale.WithLocale(req.Context(), loc)
 
 		// Resolve dynamic options fresh for this POST — whitelist must be live.
@@ -1045,16 +1053,10 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		// On create, merge preset values (foreign keys from context, not the
 		// form). Preset takes precedence over form values — prevents
 		// hidden-field tampering. PresetValues is nil = no preset.
-		if creating && rr.Writer.PresetValues != nil {
-			preset, err := rr.Writer.PresetValues(ctx, t)
-			if err != nil {
-				slog.Error("resource: preset values failed", "resource", r.Name, "err", err)
-				http.Error(w, "internal error", http.StatusInternalServerError)
-				return
-			}
-			for k, v := range preset {
-				values[k] = v
-			}
+		if err := mergePresetValues(rr, ctx, t, creating, values); err != nil {
+			slog.Error("resource: preset values failed", "resource", r.Name, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
 		}
 
 		// Server-side validation over the active locale's field set.
@@ -1071,20 +1073,7 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		// generic 500 body, detail logged server-side, never masked as a
 		// user error.
 		saveErr := rr.Writer.Save(ctx, t, id, values)
-		if saveErr != nil {
-			var se *SaveError
-			if errors.As(saveErr, &se) {
-				if rr.Writer.AfterSave != nil {
-					rr.Writer.AfterSave(ctx, id, saveErr)
-				}
-				renderValidationErrors(w, req, p, rr, id, loc, values, formErrors{se.Field: se.Message})
-				return
-			}
-			slog.Error("resource: save failed", "resource", r.Name, "err", saveErr)
-			if rr.Writer.AfterSave != nil {
-				rr.Writer.AfterSave(ctx, id, saveErr)
-			}
-			http.Error(w, "save failed", http.StatusInternalServerError)
+		if handleSaveError(w, req, p, rr, ctx, id, loc, values, saveErr) {
 			return
 		}
 		if rr.Writer.AfterSave != nil {
@@ -1093,19 +1082,81 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 
 		// Redirect (PRG pattern). Custom redirect URL via RedirectAfterSave,
 		// or default to the resource list page.
-		redirectURL := p.basePath + "/" + r.Name
-		if rr.Writer.RedirectAfterSave != nil {
-			if custom := rr.Writer.RedirectAfterSave(ctx, id); custom != "" {
-				redirectURL = custom
-			}
-		}
-		if render.IsHTMX(req) {
-			w.Header().Set("HX-Redirect", redirectURL)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, req, redirectURL, http.StatusSeeOther)
+		postWriteRedirect(w, req, p, rr, ctx, id, rr.Writer.RedirectAfterSave)
 	}
+}
+
+// resolveSaveLocale determines the active locale and multi-locale flag for a
+// save request. Create always lands in Default (symmetric with the new form);
+// edit honours ?locale=.
+func resolveSaveLocale(p *Panel, req *http.Request, creating bool) (locale.Locale, bool) {
+	if creating {
+		return p.locales.Default, false
+	}
+	return p.activeLocale(req), p.multiLocale()
+}
+
+// mergePresetValues merges preset values (foreign keys from context, not the
+// form) into values on create. Preset takes precedence over form values —
+// prevents hidden-field tampering. PresetValues is nil = no preset. Returns
+// an error if the PresetValues closure fails; the caller is responsible for
+// the 500 response.
+func mergePresetValues(r Resource, ctx context.Context, t tenant.Tenant, creating bool, values map[string]string) error {
+	if !creating || r.Writer.PresetValues == nil {
+		return nil
+	}
+	preset, err := r.Writer.PresetValues(ctx, t)
+	if err != nil {
+		return err
+	}
+	for k, v := range preset {
+		values[k] = v
+	}
+	return nil
+}
+
+// handleSaveError processes a save error: a *SaveError is a domain validation
+// failure that re-renders the form at 422 with the message on its field; any
+// other error is a genuine internal failure (500, detail logged server-side).
+// AfterSave is called with the error in both cases. Returns true when saveErr
+// is non-nil (caller must return); false when there is no error.
+func handleSaveError(w http.ResponseWriter, req *http.Request, p *Panel, r Resource, ctx context.Context, id string, loc locale.Locale, values map[string]string, saveErr error) bool {
+	if saveErr == nil {
+		return false
+	}
+	var se *SaveError
+	if errors.As(saveErr, &se) {
+		if r.Writer.AfterSave != nil {
+			r.Writer.AfterSave(ctx, id, saveErr)
+		}
+		renderValidationErrors(w, req, p, r, id, loc, values, formErrors{se.Field: se.Message})
+		return true
+	}
+	slog.Error("resource: save failed", "resource", r.Name, "err", saveErr)
+	if r.Writer.AfterSave != nil {
+		r.Writer.AfterSave(ctx, id, saveErr)
+	}
+	http.Error(w, "save failed", http.StatusInternalServerError)
+	return true
+}
+
+// postWriteRedirect sends the PRG redirect after a successful write (save or
+// delete). If redirectFn is non-nil and returns a non-empty string, that URL
+// is used; otherwise the default is the resource list page. HTMX requests get
+// an HX-Redirect header instead of an HTTP redirect.
+func postWriteRedirect(w http.ResponseWriter, req *http.Request, p *Panel, r Resource, ctx context.Context, id string, redirectFn func(context.Context, string) string) {
+	redirectURL := p.basePath + "/" + r.Name
+	if redirectFn != nil {
+		if custom := redirectFn(ctx, id); custom != "" {
+			redirectURL = custom
+		}
+	}
+	if render.IsHTMX(req) {
+		w.Header().Set("HX-Redirect", redirectURL)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, req, redirectURL, http.StatusSeeOther)
 }
 
 // deleteHandler returns the handler for POST /{name}/{id}/delete.
@@ -1134,12 +1185,7 @@ func deleteHandler(p *Panel, r Resource) http.HandlerFunc {
 		t := tenant.From(ctx)
 
 		deleteErr := r.Writer.Delete(ctx, t, id)
-		if deleteErr != nil {
-			slog.Error("resource: delete failed", "resource", r.Name, "id", sanitizeForLog(id), "err", deleteErr)
-			if r.Writer.AfterDelete != nil {
-				r.Writer.AfterDelete(ctx, id, deleteErr)
-			}
-			http.Error(w, "delete failed", http.StatusInternalServerError)
+		if handleDeleteError(w, r, ctx, id, deleteErr) {
 			return
 		}
 		if r.Writer.AfterDelete != nil {
@@ -1148,19 +1194,23 @@ func deleteHandler(p *Panel, r Resource) http.HandlerFunc {
 
 		// Redirect (PRG pattern). Custom redirect URL via RedirectAfterDelete,
 		// or default to the resource list page.
-		redirectURL := p.basePath + "/" + r.Name
-		if r.Writer.RedirectAfterDelete != nil {
-			if custom := r.Writer.RedirectAfterDelete(ctx, id); custom != "" {
-				redirectURL = custom
-			}
-		}
-		if render.IsHTMX(req) {
-			w.Header().Set("HX-Redirect", redirectURL)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, req, redirectURL, http.StatusSeeOther)
+		postWriteRedirect(w, req, p, r, ctx, id, r.Writer.RedirectAfterDelete)
 	}
+}
+
+// handleDeleteError logs a delete failure, calls AfterDelete with the error,
+// and writes a 500 response. Returns true when deleteErr is non-nil (caller
+// must return); false when there is no error.
+func handleDeleteError(w http.ResponseWriter, r Resource, ctx context.Context, id string, deleteErr error) bool {
+	if deleteErr == nil {
+		return false
+	}
+	slog.Error("resource: delete failed", "resource", r.Name, "id", sanitizeForLog(id), "err", deleteErr)
+	if r.Writer.AfterDelete != nil {
+		r.Writer.AfterDelete(ctx, id, deleteErr)
+	}
+	http.Error(w, "delete failed", http.StatusInternalServerError)
+	return true
 }
 
 // collectFormValues reads submitted form values for the given fields (the
