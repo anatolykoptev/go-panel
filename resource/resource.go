@@ -35,6 +35,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -575,25 +576,25 @@ func Register(p *Panel, r Resource) {
 
 // addNavEntry inserts a group-header NavItem (if r.Group is set and not already
 // present) followed by the resource's own nav item. Called from Register only.
+//
+// The link item is placed NEXT TO its group header, not appended at the end of
+// p.nav. When the header already exists, the link is inserted after the run of
+// items already belonging to that group (the consecutive Group=="" items
+// following the header). This makes sidebar grouping independent of
+// registration order: an interleaved or out-of-order registration produces the
+// same grouping as a contiguous one.
+//
+// Boundaries:
+//   - Empty Group: append at end (preserves the anonymous pre-group bucket
+//     and today's behaviour for group-less resources).
+//   - Group header not yet present: append header then link at end — identical
+//     to today's behaviour for a new group, so contiguous consumers see
+//     byte-identical nav output.
+//   - Group header present (created by Register or by a manual AddNav): insert
+//     the link after the group's existing members, preserving registration
+//     order within the group.
 func addNavEntry(p *Panel, r Resource) {
-	if r.Group != "" {
-		// Insert group header if not already present.
-		groupKey := "group:" + r.Group
-		found := false
-		for _, n := range p.nav {
-			if n.Group == r.Group && n.ID == groupKey {
-				found = true
-				break
-			}
-		}
-		if !found {
-			p.nav = append(p.nav, shell.NavItem{
-				ID:    groupKey,
-				Group: r.Group,
-			})
-		}
-	}
-	p.nav = append(p.nav, shell.NavItem{
+	link := shell.NavItem{
 		ID:           r.Name,
 		Label:        r.Title,
 		Icon:         r.Icon,
@@ -601,7 +602,31 @@ func addNavEntry(p *Panel, r Resource) {
 		Badge:        r.Badge,
 		Visible:      r.Visible,
 		RequiredRole: r.RequiredRole,
-	})
+	}
+	if r.Group == "" {
+		p.nav = append(p.nav, link)
+		return
+	}
+	groupKey := "group:" + r.Group
+	headerIdx := -1
+	for i, n := range p.nav {
+		if n.Group == r.Group && n.ID == groupKey {
+			headerIdx = i
+			break
+		}
+	}
+	if headerIdx < 0 {
+		// New group: append header then link at end — same as today.
+		p.nav = append(p.nav, shell.NavItem{ID: groupKey, Group: r.Group}, link)
+		return
+	}
+	// Header exists: insert the link after the group's existing members.
+	// Scan forward past consecutive Group=="" items following the header.
+	insertAt := headerIdx + 1
+	for insertAt < len(p.nav) && p.nav[insertAt].Group == "" {
+		insertAt++
+	}
+	p.nav = slices.Insert(p.nav, insertAt, link)
 }
 
 // mountListRoutes mounts the GET list and rows routes for r. Single-row
