@@ -1,10 +1,12 @@
 package resource
 
 // detailColAlign builds the inline style for a detail-table <th>/<td> from
-// DetailColumn.Align. Mirrors colHeaderStyle in list.templ: an empty Align
-// emits no style attribute at all (templ omits an empty style), and only
-// "right"/"center" are expected — anything else still passes through verbatim
-// to match the list page's permissive behaviour.
+// DetailColumn.Align. Mirrors colHeaderStyle in list.templ. An empty Align
+// yields an empty style attribute (style=""), which is inert — templ does NOT
+// drop it, measured on the rendered output. Only "right"/"center" are expected;
+// anything else passes through verbatim, matching the list page's permissive
+// behaviour. Align comes from a Spec literal in consumer CODE, never from a
+// request, which is why verbatim is acceptable here and is not for a cell.
 func detailColAlign(align string) string {
 	if align == "" {
 		return ""
@@ -101,7 +103,7 @@ templ detailSection(s DetailSection) {
 										if i < len(row) {
 											<td style={ detailColAlign(s.Table.Columns[i].Align) }>
 												if row[i].Href != "" {
-													<a href={ templ.SafeURL(row[i].Href) }>{ row[i].Value }</a>
+													<a href={ row[i].Href }>{ row[i].Value }</a>
 												} else {
 													{ row[i].Value }
 												}

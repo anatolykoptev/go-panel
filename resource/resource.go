@@ -104,6 +104,13 @@ type DetailColumn struct {
 // DetailCell is one cell of a DetailTable row. Value is ALWAYS rendered as
 // escaped text. Href, when non-empty, wraps it in an anchor.
 //
+// Href is passed to templ as a PLAIN STRING so templ's own URL sanitiser runs
+// on it, rewriting a dangerous scheme to about:invalid#TemplFailedSanitizationURL.
+// Never wrap it in templ.SafeURL: that type is not a sanitiser, it is the
+// opt-OUT from the sanitiser, and a cell Href is consumer data built from a
+// database row. Measured — with the SafeURL cast, javascript:alert(1) reached
+// the rendered anchor verbatim.
+//
 // There is deliberately NO per-cell HTML flag: the whole point of DetailTable
 // is to give tabular detail data a structured home so it stops reaching for the
 // RawHTML hatch. A cell that needs a link uses Href; anything richer belongs on

@@ -236,3 +236,52 @@ func TestFilterLinkCell_ResourcePathEscaped(t *testing.T) {
 		t.Fatalf("resourceName with space not path-escaped: %q", got)
 	}
 }
+
+// F6 — a dangerous scheme in DetailCell.Href must not survive into the anchor.
+//
+// templ.SafeURL is NOT a sanitiser; it is the opt-OUT from templ's URL
+// sanitiser, and casting an arbitrary string to it asserts the string is
+// already safe. A cell Href is consumer data built from a database row, so that
+// assertion is false by construction. Passing the plain string lets templ
+// rewrite the scheme instead.
+//
+// This matters more here than almost anywhere else in the package: DetailTable
+// exists so consumers stop hand-writing anchors through the RawHTML hatch, and
+// a primitive that escapes worse than the code it replaces is a net loss.
+//
+// RED-on-revert: in detail.templ, wrap the href back in templ.SafeURL(...)
+// -> "javascript:" reaches the rendered anchor verbatim. Measured.
+func TestDetailTable_HrefSchemeSanitized(t *testing.T) {
+	body := renderDetail(t, detailTableResource("things", []resource.DetailSection{
+		{Title: "Invoices", Table: resource.DetailTable{
+			Columns: []resource.DetailColumn{{Label: "Period"}},
+			Rows: [][]resource.DetailCell{
+				{{Value: "2026-08", Href: "javascript:alert(1)"}},
+			},
+		}},
+	}), "1")
+
+	if strings.Contains(body, "javascript:") {
+		t.Errorf("a javascript: href survived into the anchor:\n%s", body)
+	}
+	if !strings.Contains(body, "TemplFailedSanitizationURL") {
+		t.Errorf("want templ's sanitiser to have rewritten the href, got:\n%s", body)
+	}
+}
+
+// A legitimate href must survive the sanitiser unchanged — otherwise F6 could
+// be satisfied by a primitive that silently drops every link.
+func TestDetailTable_LegitimateHrefSurvives(t *testing.T) {
+	body := renderDetail(t, detailTableResource("things", []resource.DetailSection{
+		{Table: resource.DetailTable{
+			Columns: []resource.DetailColumn{{Label: "Period"}},
+			Rows: [][]resource.DetailCell{
+				{{Value: "2026-08", Href: "/admin/invoices?account_id=7"}},
+			},
+		}},
+	}), "1")
+
+	if !strings.Contains(body, `href="/admin/invoices?account_id=7"`) {
+		t.Errorf("a legitimate href did not survive:\n%s", body)
+	}
+}
