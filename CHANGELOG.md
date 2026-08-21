@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.7](https://github.com/anatolykoptev/go-panel/compare/v0.23.6...v0.23.7) (2026-08-21)
+
+
+### Added
+
+* **resource:** DetailSection.Table + FilterLinkCell ([#139](https://github.com/anatolykoptev/go-panel/issues/139)) ([05bde9f](https://github.com/anatolykoptev/go-panel/commit/05bde9f75f9c985ef0d8da7cd4840a8ea14ff874))
+
 ## [0.23.6](https://github.com/anatolykoptev/go-panel/compare/v0.23.5...v0.23.6) (2026-08-21)
 
 
