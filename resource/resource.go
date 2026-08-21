@@ -527,7 +527,43 @@ func New(cfg Config) *Panel {
 // tenant a request names.
 func (p *Panel) Handler() http.Handler {
 	p.finalize()
-	return withTenantResolution(p.resolver, p.mux)
+	return withBasePath(p.basePath, withTenantResolution(p.resolver, p.mux))
+}
+
+// basePathCtxKey carries the panel's mount prefix on the request context.
+type basePathCtxKey struct{}
+
+// BasePathFrom returns the mount prefix of the panel serving this request —
+// "/admin" by default, or whatever Config.BasePath was set to. It returns ""
+// for a context that did not come from a panel request.
+//
+// This exists because CrossLinkCell and FilterLinkCell both take a basePath
+// and their docs tell consumers to pass the panel's "rather than a hardcoded
+// /admin so the link stays correct under custom mounts" — while a Lister,
+// Detailer or Writer had no way to obtain it. Every consumer therefore
+// hardcoded "/admin", which is exactly the bug CrossLinkCell was promoted into
+// this framework to fix. Asking for a value the framework does not hand out is
+// not a rule, it is a trap.
+//
+// Read it from the ctx those closures already receive:
+//
+//	Detailer: func(ctx context.Context, _ *http.Request, id string) ([]DetailSection, error) {
+//	    href := FilterLinkCell(BasePathFrom(ctx), "orders", "client_id", id, "Orders")
+//	    …
+//	}
+func BasePathFrom(ctx context.Context) string {
+	v, _ := ctx.Value(basePathCtxKey{}).(string)
+	return v
+}
+
+// withBasePath stores the panel's mount prefix on every request it serves.
+// Wrapped OUTSIDE tenant resolution so the value is present no matter which
+// route or middleware runs next — the basePath is a property of the panel, not
+// of the request, and nothing downstream can change it.
+func withBasePath(bp string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), basePathCtxKey{}, bp)))
+	})
 }
 
 // Resources returns the registered Resources in registration order.
