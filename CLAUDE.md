@@ -39,7 +39,8 @@ to leave the framework.
 - `resource/` — `New`/`Register`, list + detail + edit handlers, `MountPage` for
   non-list pages, `Relations` cross-links, the Trash.
 - `shell/` — layout, sidebar, `styles.templ` (all CSS, inlined), nav groups.
-- `components/` — `Grid`, `StatCardView`. Small on purpose.
+- `components/` — `Grid`, `StatCardView`, `NoticeView`. Small on purpose, and it
+  grows the moment a consumer would otherwise hand-write a block twice.
 - `auth/` — `HMACAuth` (single operator) and `BcryptTOTPAuth` + `PgxAccountStore`
   (multi-user, `panel_accounts`).
 - `tenant/` — city-slug scoping, resolved INSIDE `Handler()` since v0.19.0.

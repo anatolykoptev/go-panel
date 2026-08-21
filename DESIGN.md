@@ -107,6 +107,26 @@ Monospace `.6875rem`, tinted `-dim` background. For closed enums only — a badg
 built from an open string is how markup gets injected. Build the markup from a
 `switch` over known values, never by interpolating the value.
 
+### Notices — `components.NoticeView` / `.notice` + `.notice-info|-warn|-danger|-muted`
+
+The page-level message block: a warning that a total is incomplete, a caveat
+that a figure is an estimate, a banner saying an action is blocked.
+`components.Notice{Level, Title, Text, LinkHref, LinkText}`.
+
+- Renders **nothing** when `Text` is empty, so a caller computing a conditional
+  message needs no guard of its own and can never leave an empty coloured box.
+- `NoticeDanger` and `NoticeWarn` carry `role="alert"`; `NoticeInfo` and
+  `NoticeMuted` carry `role="note"`, so a footnote does not interrupt a screen
+  reader.
+- `LinkHref` is sanitised by templ. Do not wrap a computed URL in
+  `templ.SafeURL` — that asserts a safety the component cannot check.
+
+**No side stripe.** The block this replaced was hand-written in three consumers
+as a `pm7-card` with `border-left:3px solid var(--red)`. A coloured left border
+carries nothing to a screen reader and reads as an accident at narrow widths; a
+full 1px border over a tinted `-dim` background states the same severity with
+the whole element.
+
 ### Cards — `.pm7-card` / `.pm7-card-content`
 
 From `pm7.css`, not from `styles.templ`. Use for a bounded block on a

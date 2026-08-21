@@ -280,6 +280,17 @@
 		.htmx-request .htmx-indicator{display:inline-block}
 		.crm-th-sort{display:inline-flex;align-items:center;gap:.25rem;color:var(--text-secondary);text-decoration:none;transition:color .12s}
 		.crm-th-sort:hover,.crm-th-sort.active{color:var(--text-primary)}
+		/* Notice — page-level message block (components/notice.templ). Full border +
+		   tinted background rather than a coloured left stripe: the stripe carries
+		   nothing to a screen reader and reads as an accident at narrow widths. */
+		.notice{padding:.625rem .875rem;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-surface);color:var(--text-secondary);font-size:.8125rem;line-height:1.5;margin:1rem 0}
+		.notice strong{color:var(--text-primary);font-weight:600}
+		.notice-info{border-color:var(--accent-dim);background:var(--accent-glow)}
+		.notice-warn{border-color:var(--yellow-dim);background:rgba(245,158,11,.08);color:#fcd34d}
+		.notice-warn strong{color:#fde68a}
+		.notice-danger{border-color:var(--red-dim);background:rgba(239,68,68,.08);color:#fca5a5}
+		.notice-danger strong{color:#fecaca}
+		.notice-muted{border-color:var(--border-subtle);background:transparent;color:var(--text-muted);font-size:.75rem}
 		.badge{display:inline-flex;align-items:center;padding:.1875rem .5rem;border-radius:.25rem;font-family:var(--font-mono);font-size:.6875rem;font-weight:500;letter-spacing:.02em;white-space:nowrap;background:var(--bg-elevated);color:var(--text-secondary)}
 		.badge-blue{background:var(--accent-dim);color:var(--accent-light)}
 		.badge-green{background:var(--green-dim);color:var(--green-light)}
