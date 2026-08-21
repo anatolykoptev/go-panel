@@ -348,6 +348,14 @@
 		.crm-table tbody tr:last-child td{border-bottom:none}
 		.crm-table a{color:var(--text-primary);text-decoration:none}
 		.crm-table a:hover{text-decoration:underline}
+		/* .crm-table--static — a detail-page table whose rows do NOT navigate.
+		   The base .crm-table sets cursor:pointer and an accent-tinted row hover
+		   because LIST rows link to a detail page. A detail-table row that does
+		   nothing but display data inherits both, and a pointer cursor on a row
+		   that does nothing is a lie the operator only discovers by clicking it.
+		   The hover tint on a non-interactive row is the same lie, quieter. */
+		.crm-table--static tbody tr{cursor:default}
+		.crm-table--static tbody tr:hover>td{background:transparent}
 		.row-name{font-weight:600;font-size:.875rem;color:var(--text-primary)}
 		.row-sub{font-size:.6875rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.1rem;display:block}
 		.page-header{margin-bottom:1.25rem}

@@ -95,13 +95,45 @@ type DetailItem struct {
 	HTML  bool // when true, Value is rendered via templ.Raw — caller guarantees safety
 }
 
+// DetailColumn is one column header of a DetailTable.
+type DetailColumn struct {
+	Label string
+	Align string // "", "center", or "right" — mirrors admintable.Column.Align
+}
+
+// DetailCell is one cell of a DetailTable row. Value is ALWAYS rendered as
+// escaped text. Href, when non-empty, wraps it in an anchor.
+//
+// There is deliberately NO per-cell HTML flag: the whole point of DetailTable
+// is to give tabular detail data a structured home so it stops reaching for the
+// RawHTML hatch. A cell that needs a link uses Href; anything richer belongs on
+// a dedicated component, not a third escape mode here.
+type DetailCell struct {
+	Value string
+	Href  string
+}
+
+// DetailTable is a multi-column row list inside a DetailSection. It renders as
+// a .crm-table--static (non-navigating) table with escaped text cells and
+// optional per-cell anchors. Use it for the tabular data a detail page carries
+// alongside its label/value summary — invoices, payments, per-page breakdowns.
+type DetailTable struct {
+	Columns []DetailColumn
+	Rows    [][]DetailCell
+}
+
 // DetailSection is one logical card / group on the Detail page.
-// A section has an optional title and either a list of Items or a RawHTML block.
-// RawHTML is for consumer-supplied pre-rendered HTML panels (e.g. a two-column
-// fit-card); it must never contain raw DB/user text — escape before embedding.
+// A section has an optional title and any of: a list of Items, a Table, or a
+// RawHTML block. RawHTML takes precedence: when non-empty it wins and NEITHER
+// Items nor Table render. Otherwise Items render first (the existing
+// label/value summary) and then the Table — a summary line above its table is
+// the intended shape. RawHTML is for consumer-supplied pre-rendered HTML panels
+// (e.g. a two-column fit-card); it must never contain raw DB/user text — escape
+// before embedding.
 type DetailSection struct {
 	Title   string
 	Items   []DetailItem
+	Table   DetailTable
 	RawHTML string // consumer-supplied HTML; must be safe (XSS-free) before use
 }
 

@@ -1,5 +1,17 @@
 package resource
 
+// detailColAlign builds the inline style for a detail-table <th>/<td> from
+// DetailColumn.Align. Mirrors colHeaderStyle in list.templ: an empty Align
+// emits no style attribute at all (templ omits an empty style), and only
+// "right"/"center" are expected — anything else still passes through verbatim
+// to match the list page's permissive behaviour.
+func detailColAlign(align string) string {
+	if align == "" {
+		return ""
+	}
+	return "text-align:" + align + ";"
+}
+
 // detailPageData holds all data needed to render a resource detail (Show) page.
 type detailPageData struct {
 	Resource  Resource
@@ -45,6 +57,11 @@ templ detailPageContent(d detailPageData) {
 }
 
 // detailSection renders one DetailSection as a card.
+//
+// Precedence: RawHTML wins outright (neither Items nor Table render when it is
+// set). Otherwise Items render first — the label/value summary — and then the
+// Table, so a section may carry a summary line above its tabular data. Both
+// being set on one section is the intended shape, not a mistake.
 templ detailSection(s DetailSection) {
 	<div class="detail-section">
 		if s.Title != "" {
@@ -52,19 +69,53 @@ templ detailSection(s DetailSection) {
 		}
 		if s.RawHTML != "" {
 			@templ.Raw(s.RawHTML)
-		} else if len(s.Items) > 0 {
-			<dl class="detail-items">
-				for _, item := range s.Items {
-					<div class="detail-item">
-						<dt class="detail-item-label">{ item.Label }</dt>
-						if item.HTML {
-							<dd class="detail-item-value">@templ.Raw(item.Value)</dd>
-						} else {
-							<dd class="detail-item-value">{ item.Value }</dd>
-						}
-					</div>
-				}
-			</dl>
+		} else {
+			if len(s.Items) > 0 {
+				<dl class="detail-items">
+					for _, item := range s.Items {
+						<div class="detail-item">
+							<dt class="detail-item-label">{ item.Label }</dt>
+							if item.HTML {
+								<dd class="detail-item-value">@templ.Raw(item.Value)</dd>
+							} else {
+								<dd class="detail-item-value">{ item.Value }</dd>
+							}
+						</div>
+					}
+				</dl>
+			}
+			if len(s.Table.Columns) > 0 {
+				<div class="crm-table-scroll">
+					<table class="crm-table crm-table--static">
+						<thead>
+							<tr>
+								for _, col := range s.Table.Columns {
+									<th style={ detailColAlign(col.Align) }>{ col.Label }</th>
+								}
+							</tr>
+						</thead>
+						<tbody>
+							for _, row := range s.Table.Rows {
+								<tr>
+									for i := 0; i < len(s.Table.Columns); i++ {
+										if i < len(row) {
+											<td style={ detailColAlign(s.Table.Columns[i].Align) }>
+												if row[i].Href != "" {
+													<a href={ templ.SafeURL(row[i].Href) }>{ row[i].Value }</a>
+												} else {
+													{ row[i].Value }
+												}
+											</td>
+										} else {
+											<td style={ detailColAlign(s.Table.Columns[i].Align) }></td>
+										}
+									}
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
 		}
 	</div>
 }
