@@ -84,6 +84,12 @@ separators, accent-tinted hover, last row borderless.
 — `.crm-table thead th` is scoped to `thead`. Put totals in a `tbody` row with
 its own class, or add the `tfoot` rules here first.
 
+**`.crm-table--static`** is the modifier for a detail-page table whose rows do
+not navigate. The base `.crm-table` sets `cursor:pointer` and an accent-tinted
+row hover because list rows link somewhere; a static table drops both (cursor
+default, hover transparent) so a non-interactive row does not pretend to be a
+link. Rendered by `DetailSection.Table` on the detail page.
+
 ### Filter chips — `.filter-chip` / `.filter-chip.active`
 
 Pill, `9999px` radius, transparent background, `--text-secondary`. `.active`
@@ -141,7 +147,11 @@ number-plus-label block by hand; this is it.
 ### Detail views — `.detail-page` / `.detail-section` / `.detail-items`
 
 Rendered by the framework from `Resource.Detailer` / `FetchRow`. See
-`docs/adr/ADR-004-detailer-show-view.md`.
+`docs/adr/ADR-004-detailer-show-view.md`. A section carries any of: a list of
+label/value `DetailItem`s, a multi-column `DetailTable` (rendered as
+`.crm-table--static`), or a `RawHTML` block. `RawHTML` takes precedence; otherwise
+the items render above the table — a summary line above its tabular data is the
+intended shape.
 
 ## Interaction
 
