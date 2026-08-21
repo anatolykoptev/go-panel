@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.6](https://github.com/anatolykoptev/go-panel/compare/v0.23.5...v0.23.6) (2026-08-21)
+
+
+### Added
+
+* **components:** NoticeView — the message block three consumers were hand-writing ([593f84b](https://github.com/anatolykoptev/go-panel/commit/593f84b6649bfd6e56c7a29fd1cdf7d9c8091d7b))
+* **resource:** Resource.Views — named modes a filter cannot express; mark the selected chip ([7893f40](https://github.com/anatolykoptev/go-panel/commit/7893f408c8bde72f9cbde0cd0b66e69223841d6e))
+
 ## [0.23.5](https://github.com/anatolykoptev/go-panel/compare/v0.23.4...v0.23.5) (2026-08-20)
 
 
