@@ -29,6 +29,49 @@ type listPageData struct {
 	// can offer the same way back the table row does. Server-rendered rather
 	// than client state: it survives a reload and needs no script.
 	RestorableID string
+	// ActiveView is the resolved Resource.Views key ("" when none declared).
+	ActiveView string
+	// Selected is the request's raw query values, used ONLY to mark which chip
+	// is currently active. Never a source of SQL — see ListQuery's doc.
+	Selected url.Values
+}
+
+// chipClass returns the filter-chip class list, adding "active" when value is
+// the one currently selected for key. Without this the selected chip renders
+// identically to the others: `.filter-chip.active` has existed in styles.templ
+// since the chips did, and nothing applied it, so no admin list has ever shown
+// which filter is on.
+func chipClass(d listPageData, key, value string) string {
+	for _, v := range d.Selected[key] {
+		if v == value {
+			return "filter-chip active"
+		}
+	}
+	return "filter-chip"
+}
+
+// viewChipClass returns the chip class for a view key.
+func viewChipClass(d listPageData, key string) string {
+	if d.ActiveView == key {
+		return "filter-chip active"
+	}
+	return "filter-chip"
+}
+
+// viewsLabel is the caption beside the view chips.
+func viewsLabel(r Resource) string {
+	if r.ViewsLabel != "" {
+		return r.ViewsLabel
+	}
+	return "view"
+}
+
+// viewLabel is the chip text for one view, falling back to its key.
+func viewLabel(v View) string {
+	if v.Label != "" {
+		return v.Label
+	}
+	return v.Key
 }
 
 // listPageContent renders the full list page content (page header + filter bar + table + pagination).
@@ -91,7 +134,7 @@ templ listRowsAppend(d listPageData) {
 
 // filterBar renders the filter chips for ILike text search and Eq/AnyOf chip selectors.
 templ filterBar(d listPageData) {
-	if len(d.Resource.Filter.Filters) > 0 {
+	if len(d.Resource.Filter.Filters) > 0 || len(d.Resource.Views) > 0 {
 		<form
 			class="filter-bar"
 			hx-get={ d.BasePath + "/" + d.Resource.Name + "/rows" }
@@ -99,6 +142,19 @@ templ filterBar(d listPageData) {
 			hx-push-url="true"
 			hx-trigger="change, submit"
 		>
+			if len(d.Resource.Views) > 0 {
+				<div style="display:flex;gap:.25rem;align-items:center">
+					<span style="font-family:var(--font-mono);font-size:.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">{ viewsLabel(d.Resource) }</span>
+					for _, v := range d.Resource.Views {
+						<button
+							type="submit"
+							name="view"
+							value={ v.Key }
+							class={ viewChipClass(d, v.Key) }
+						>{ viewLabel(v) }</button>
+					}
+				</div>
+			}
 			for _, f := range d.Resource.Filter.Filters {
 				if len(f.Allowed) > 0 {
 					<div style="display:flex;gap:.25rem;align-items:center">
@@ -108,7 +164,7 @@ templ filterBar(d listPageData) {
 								type="submit"
 								name={ f.Key }
 								value={ a }
-								class="filter-chip"
+								class={ chipClass(d, f.Key, a) }
 							>{ a }</button>
 						}
 					</div>
@@ -116,6 +172,7 @@ templ filterBar(d listPageData) {
 					<input
 						type="search"
 						name={ f.Key }
+						value={ d.Selected.Get(f.Key) }
 						placeholder={ "Search " + f.Key + "..." }
 						style="padding:.375rem .625rem;background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-sans);font-size:.8125rem"
 					/>

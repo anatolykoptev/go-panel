@@ -119,6 +119,32 @@ type ListQuery struct {
 	Tenant     tenant.Tenant
 	Limit      int
 	Offset     int
+
+	// View is the selected [Resource.Views] key, or "" when the resource
+	// declares none. It is ALWAYS one of the declared keys: the framework
+	// resolves the URL value against the closed set and falls back to the first
+	// view, so a Lister may switch on it without validating.
+	//
+	// This exists because some resources have MODES that a WHERE clause cannot
+	// express — most obviously an aggregate whose GROUP BY grain the operator
+	// picks (per week / per month / per quarter). Before Views, such a page had
+	// to be hand-built outside the framework, losing the table, the sorting,
+	// the chips and the stylesheet with it. The rule above ("never build SQL
+	// from the raw request") is what makes that tempting and Views is the
+	// sanctioned way out: the key is declared by the author, validated by the
+	// framework, and reaches the Lister as data.
+	//
+	// A view NEVER carries a SQL fragment. Map the key to author-owned SQL
+	// inside the Lister, the same way a Filter maps to an author-owned SQLExpr.
+	View string
+}
+
+// View is one named mode of a resource, rendered as a filter chip and passed to
+// the Lister as [ListQuery.View]. The set is closed and author-declared: a URL
+// value outside it never reaches the Lister.
+type View struct {
+	Key   string // URL value, e.g. "week". Must be non-empty and unique within the resource.
+	Label string // chip label, e.g. "This week". Falls back to Key when empty.
 }
 
 // Resource is the declarative contract for one admin entity.
@@ -135,6 +161,21 @@ type Resource struct {
 	Sort   admintable.Spec
 	Filter admintable.FilterSpec
 	Scope  tenant.Scope // city_slug scope; empty = global
+
+	// Views is an optional closed set of modes for this resource, rendered as
+	// filter chips beside the other filters and delivered to the Lister as
+	// [ListQuery.View]. The FIRST entry is the default. Empty (the common case)
+	// means the resource has one mode and ListQuery.View is always "".
+	//
+	// Use it for a mode a WHERE clause cannot express — an aggregate's GROUP BY
+	// grain is the motivating case. Do NOT use it for something Filter already
+	// does: a view is not a filter, it changes what a row MEANS.
+	//
+	// Register panics on an empty or duplicate Key (fail-fast at startup).
+	Views []View
+
+	// ViewsLabel is the caption shown beside the view chips. Defaults to "view".
+	ViewsLabel string
 
 	// RequiredRole is the SOLE authorization lever for this resource, applied
 	// uniformly to every route — read (list, detail) AND write (new/edit/save).
@@ -610,6 +651,7 @@ func Register(p *Panel, r Resource) {
 		panic(fmt.Sprintf("resource.Register %q: SingleRow requires Writer to be non-nil", r.Name))
 	}
 	validateRoleConfig(p, r)
+	validateViewsConfig(r)
 	validateTrashConfig(r)
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
@@ -1629,6 +1671,40 @@ func (p *Panel) activeNav(ctx context.Context, activeID string) []shell.NavItem 
 	return p.navItemsFor(ctx, activeID)
 }
 
+// validateViewsConfig fails fast on a malformed Views set. An empty key would
+// render a chip that resolves to the default (so the chip would look selectable
+// and do nothing), and a duplicate key makes the second chip unreachable —
+// neither errors at runtime, both are silently wrong on screen, which is exactly
+// the class Register's startup panics exist to convert into a boot failure.
+func validateViewsConfig(r Resource) {
+	seen := make(map[string]bool, len(r.Views))
+	for i, v := range r.Views {
+		if v.Key == "" {
+			panic(fmt.Sprintf("resource.Register %q: Views[%d] has an empty Key", r.Name, i))
+		}
+		if seen[v.Key] {
+			panic(fmt.Sprintf("resource.Register %q: Views[%d] duplicates Key %q", r.Name, i, v.Key))
+		}
+		seen[v.Key] = true
+	}
+}
+
+// resolveView maps a raw URL value to one of r.Views' keys. An unknown or empty
+// value resolves to the FIRST declared view, so a Lister never has to handle an
+// unexpected key and a hand-edited URL degrades instead of erroring. Returns ""
+// when the resource declares no views.
+func (r Resource) resolveView(raw string) string {
+	if len(r.Views) == 0 {
+		return ""
+	}
+	for _, v := range r.Views {
+		if v.Key == raw {
+			return v.Key
+		}
+	}
+	return r.Views[0].Key
+}
+
 // makeListHandler builds the handler func for a resource's list page.
 func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Request, []shell.NavItem, bool) {
 	return func(w http.ResponseWriter, req *http.Request, nav []shell.NavItem, fragmentOnly bool) {
@@ -1662,6 +1738,8 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		pageSize := clampInt(parseIntParam(q.Get("per_page"), defaultPageSize), 1, maxPageSize)
 		offset := (page - 1) * pageSize
 
+		view := r.resolveView(q.Get("view"))
+
 		lq := ListQuery{
 			Sort:       sortState,
 			WhereConds: finalConds,
@@ -1669,6 +1747,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			Tenant:     t,
 			Limit:      pageSize,
 			Offset:     offset,
+			View:       view,
 		}
 
 		rows, total, err := r.Lister(ctx, lq)
@@ -1702,6 +1781,8 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			TotalPages:  totalPages,
 			BasePath:    p.basePath,
 			QueryString: req.URL.RawQuery,
+			ActiveView:  view,
+			Selected:    q,
 		}
 		// The row-level Delete and the undo toast exist only where a delete can
 		// be taken back. Issuing the token is what enables them: the templates
