@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.9](https://github.com/anatolykoptev/go-panel/compare/v0.23.8...v0.23.9) (2026-08-22)
+
+
+### Fixed
+
+* **shell:** a detail table no longer draws a second card inside its section ([123b08a](https://github.com/anatolykoptev/go-panel/commit/123b08afbc1128fef84e0d174651415ec3e0dee9))
+
 ## [0.23.8](https://github.com/anatolykoptev/go-panel/compare/v0.23.7...v0.23.8) (2026-08-22)
 
 
