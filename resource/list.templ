@@ -36,6 +36,41 @@ type listPageData struct {
 	Selected url.Values
 }
 
+// rowPath builds a per-row URL under this resource: {basePath}/{name}/{id}.
+//
+// PathEscape because id is a database value. A slug with a slash in it does not
+// error, it silently builds a URL pointing somewhere else.
+func rowPath(d listPageData, id string, suffix string) string {
+	return d.BasePath + "/" + d.Resource.Name + "/" + url.PathEscape(id) + suffix
+}
+
+// rowDetailHref is where a row's FIRST cell links to, or "" for no link.
+//
+// Consumers do not build this. They cannot: a Lister returns rows from a store
+// package that has no idea where the panel is mounted, so asking them for a
+// URL is asking them to hardcode "/admin" — which is the exact bug CrossLinkCell
+// was promoted into the framework to remove, and which every consumer of it
+// reproduced until BasePathFrom existed. The framework already assembles this
+// path for the Edit link three lines below; it can assemble this one too.
+//
+// Row.Href still wins, for the case the derivation cannot serve: a detail page
+// belonging to a DIFFERENT resource.
+//
+// EffectiveDetailer rather than `d.Resource.Detailer != nil` because a resource
+// that sets only FetchRow HAS a detail route — Register synthesizes the
+// Detailer into a copy and mounts that, leaving the original field nil. Reading
+// the field directly would leave exactly those resources unlinked, and the
+// symptom is invisible: a name that is simply not a link.
+func rowDetailHref(d listPageData, row Row) string {
+	if row.Href != "" {
+		return row.Href
+	}
+	if row.ID == "" || EffectiveDetailer(d.Resource) == nil {
+		return ""
+	}
+	return rowPath(d, row.ID, "")
+}
+
 // chipClass returns the filter-chip class list, adding "active" when value is
 // the one currently selected for key. Without this the selected chip renders
 // identically to the others: `.filter-chip.active` has existed in styles.templ
@@ -242,11 +277,15 @@ templ listRows(d listPageData) {
 // drift, and the drift shows only in the swapped row — next to its unswapped
 // neighbours, which is the one place nobody has a baseline for.
 templ listRow(d listPageData, row Row) {
+	{{ detailHref := rowDetailHref(d, row) }}
 	<tr>
 		for i, cell := range row.Cells {
-			if i == 0 && row.Href != "" {
+			if i == 0 && detailHref != "" {
 				<td style={ colCellStyle(d, i) }>
-					<a class="row-name" href={ templ.SafeURL(row.Href) }>{ cell.Value }</a>
+					// Plain string, never templ.SafeURL: SafeURL is the opt-OUT
+					// of templ's URL sanitiser, so casting a consumer-supplied
+					// Row.Href to it renders javascript: verbatim in the href.
+					<a class="row-name" href={ detailHref }>{ cell.Value }</a>
 				</td>
 			} else if cell.HTML {
 				<td style={ colCellStyle(d, i) }>@templ.Raw(cell.Value)</td>
@@ -257,7 +296,7 @@ templ listRow(d listPageData, row Row) {
 		if d.Resource.Writer != nil {
 			<td style="text-align:right;white-space:nowrap">
 				<a
-					href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + row.ID + "/edit") }
+					href={ rowPath(d, row.ID, "/edit") }
 					style="font-size:.75rem;color:var(--text-secondary);text-decoration:none"
 				>Edit</a>
 				if d.Resource.Writer.Restore != nil && d.CSRFToken != "" {
