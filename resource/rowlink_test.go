@@ -199,3 +199,56 @@ func TestRowLink_IDIsPathEscaped(t *testing.T) {
 			firstCellHref(t, body), want)
 	}
 }
+
+// A cross-link built by ResolveTargets must point at a route the panel serves.
+// Asserting the string alone only proves the resolver agrees with the test;
+// fetching it proves the resolver agrees with the MOUNT — which is the half
+// that was wrong when a merchant_id was used as a client's id.
+func TestRelationTarget_CrossLinkResolvesToARouteThatAnswers(t *testing.T) {
+	const orgID = "7e55f17f-89e8-470b-a5a8-ad5231b26efa"
+
+	clients := listRowsResource("clients", []resource.Row{{ID: orgID, Cells: []resource.Cell{{Value: "Acme"}}}})
+	clients.Detailer = func(_ context.Context, _ *http.Request, id string) ([]resource.DetailSection, error) {
+		if id != orgID {
+			return nil, resource.ErrDetailNotFound
+		}
+		return []resource.DetailSection{{Title: "Org", Items: []resource.DetailItem{{Label: "Name", Value: "Acme"}}}}, nil
+	}
+
+	leads := listRowsResource("leads", []resource.Row{{ID: "5", Cells: []resource.Cell{{Value: "5"}, {Value: "1"}}}})
+	leads.Sort.Columns = append(leads.Sort.Columns, admintable.Column{Key: "merchant_id", Sortable: true, SQLExpr: "l.merchant_id"})
+	leads.Relations = []resource.Relation{{
+		Resource:   "clients",
+		ForeignKey: "merchant_id",
+		DisplayKey: "name",
+		ResolveTargets: func(_ context.Context, ids []string) (map[string]resource.RelationTarget, error) {
+			out := map[string]resource.RelationTarget{}
+			for _, id := range ids {
+				if id == "1" {
+					out[id] = resource.RelationTarget{ID: orgID, Label: "Acme"}
+				}
+			}
+			return out, nil
+		},
+	}}
+
+	p := resource.New(resource.Config{Title: "T", BasePath: rowLinkMount, Auth: rowLinkAuthInstance})
+	resource.Register(p, clients)
+	resource.Register(p, leads)
+
+	w := getAsAdmin(t, p, nil, rowLinkMount+"/leads")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d", w.Code)
+	}
+	m := regexp.MustCompile(`href="([^"]*/clients/[^"]*)"`).FindStringSubmatch(w.Body.String())
+	if m == nil {
+		t.Fatalf("no cross-link to clients rendered:\n%s", w.Body.String())
+	}
+	href := m[1]
+	if want := rowLinkMount + "/clients/" + orgID; href != want {
+		t.Fatalf("cross-link href = %q, want %q", href, want)
+	}
+	if got := getAsAdmin(t, p, nil, href); got.Code != http.StatusOK {
+		t.Errorf("GET %s = %d, want 200 — the cross-link points somewhere the panel does not serve", href, got.Code)
+	}
+}
