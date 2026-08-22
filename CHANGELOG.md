@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.11](https://github.com/anatolykoptev/go-panel/compare/v0.23.10...v0.23.11) (2026-08-22)
+
+
+### Added
+
+* **resource:** Relation can resolve a foreign key to a target that is not its ID ([36bfd94](https://github.com/anatolykoptev/go-panel/commit/36bfd94bfb2a37968523840dbb75efb5cc359826))
+
 ## [0.23.10](https://github.com/anatolykoptev/go-panel/compare/v0.23.9...v0.23.10) (2026-08-22)
 
 
