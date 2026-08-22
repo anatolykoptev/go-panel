@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.10](https://github.com/anatolykoptev/go-panel/compare/v0.23.9...v0.23.10) (2026-08-22)
+
+
+### Fixed
+
+* **shell:** key the no-double-frame rule to the nesting, not to a modifier ([32c5f7e](https://github.com/anatolykoptev/go-panel/commit/32c5f7e36e31e9b116b8aa1fb8edbeee531d3937))
+
 ## [0.23.9](https://github.com/anatolykoptev/go-panel/compare/v0.23.8...v0.23.9) (2026-08-22)
 
 
