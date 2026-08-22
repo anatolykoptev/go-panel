@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.8](https://github.com/anatolykoptev/go-panel/compare/v0.23.7...v0.23.8) (2026-08-22)
+
+
+### Added
+
+* **resource:** BasePathFrom — hand out what CrossLinkCell/FilterLinkCell require ([#141](https://github.com/anatolykoptev/go-panel/issues/141)) ([caa5233](https://github.com/anatolykoptev/go-panel/commit/caa523372f399b2298bbe7f77d424c5ab28c76de))
+* **resource:** the first cell links to the detail page, without the consumer building the URL ([dd4b8fe](https://github.com/anatolykoptev/go-panel/commit/dd4b8fe10b4dd21a4129a64b2fa2e96b1173af67))
+
 ## [0.23.7](https://github.com/anatolykoptev/go-panel/compare/v0.23.6...v0.23.7) (2026-08-21)
 
 
