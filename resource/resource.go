@@ -291,6 +291,8 @@ type Resource struct {
 	FetchRow func(ctx context.Context, id string) (map[string]string, error)
 
 	// Writer enables create/edit forms. Nil = read-only (Phase 1 behaviour, default).
+	// Its Load/Save/Delete/Restore closures may return ErrDetailNotFound for an
+	// id that names no row; the framework answers 404 rather than 500.
 	// When non-nil, CSRFKey must be set in Config (panic at Register if missing or < 32 bytes — fail-closed).
 	Writer *Writer
 
@@ -1009,7 +1011,13 @@ func (p *Panel) requireTenant(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// ErrDetailNotFound may be returned by Detailer to signal a 404.
+// ErrDetailNotFound signals that the id names no row: the framework answers
+// 404 instead of 500.
+//
+// Honoured on EVERY id-addressed route — Detailer/FetchRow, and a Writer's
+// Load, Save, Delete and Restore. The write routes used to map every error to
+// 500, so a consumer could not distinguish "this row is gone" from "the store
+// broke" and a stale /edit link read as an outage.
 var ErrDetailNotFound = errors.New("resource: detail not found")
 
 // mountDetailRoute mounts the GET {basePath}/{name}/{id} handler for a Detailer-enabled resource.
@@ -1219,6 +1227,14 @@ func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
 		t := tenant.From(ctx)
 		values, err := r.Writer.Load(ctx, t, id)
 		if err != nil {
+			// An id that names no row is NOT FOUND, the same as on the detail
+			// route. Until this existed a Writer had no way to say so: every
+			// Load error became "load failed" 500, so a stale /edit link told
+			// the operator the server had broken.
+			if errors.Is(err, ErrDetailNotFound) {
+				http.NotFound(w, req)
+				return
+			}
 			slog.Error("resource: load for edit", "resource", r.Name, "err", err)
 			http.Error(w, "load failed", http.StatusInternalServerError)
 			return
@@ -1370,10 +1386,16 @@ func handleSaveError(w http.ResponseWriter, req *http.Request, p *Panel, r Resou
 		renderValidationErrors(w, req, p, r, id, loc, values, formErrors{se.Field: se.Message})
 		return true
 	}
-	slog.Error("resource: save failed", "resource", r.Name, "err", saveErr)
 	if r.Writer.AfterSave != nil {
 		r.Writer.AfterSave(ctx, id, saveErr)
 	}
+	// Saving a row that is gone is NOT FOUND, not a server failure. The hook
+	// still fires: it is told what happened either way.
+	if errors.Is(saveErr, ErrDetailNotFound) {
+		http.NotFound(w, req)
+		return true
+	}
+	slog.Error("resource: save failed", "resource", r.Name, "err", saveErr)
 	http.Error(w, "save failed", http.StatusInternalServerError)
 	return true
 }
@@ -1486,6 +1508,10 @@ func restoreHandler(p *Panel, r Resource) http.HandlerFunc {
 		}
 		ctx := req.Context()
 		if err := r.Writer.Restore(ctx, tenant.From(ctx), id); err != nil {
+			if errors.Is(err, ErrDetailNotFound) {
+				http.NotFound(w, req)
+				return
+			}
 			slog.Error("resource: restore failed", "resource", r.Name, "id", sanitizeForLog(id), "err", err)
 			http.Error(w, "restore failed", http.StatusInternalServerError)
 			return
@@ -1540,10 +1566,16 @@ func handleDeleteError(w http.ResponseWriter, r Resource, ctx context.Context, i
 	if deleteErr == nil {
 		return false
 	}
-	slog.Error("resource: delete failed", "resource", r.Name, "id", sanitizeForLog(id), "err", deleteErr)
 	if r.Writer.AfterDelete != nil {
 		r.Writer.AfterDelete(ctx, id, deleteErr)
 	}
+	// handleDeleteError has no *http.Request, so write the status directly;
+	// http.NotFound only needs the request to decide nothing here.
+	if errors.Is(deleteErr, ErrDetailNotFound) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return true
+	}
+	slog.Error("resource: delete failed", "resource", r.Name, "id", sanitizeForLog(id), "err", deleteErr)
 	http.Error(w, "delete failed", http.StatusInternalServerError)
 	return true
 }
