@@ -44,6 +44,41 @@ type listPageData struct {
 	Selected url.Values
 }
 
+// rowPath builds a per-row URL under this resource: {basePath}/{name}/{id}.
+//
+// PathEscape because id is a database value. A slug with a slash in it does not
+// error, it silently builds a URL pointing somewhere else.
+func rowPath(d listPageData, id string, suffix string) string {
+	return d.BasePath + "/" + d.Resource.Name + "/" + url.PathEscape(id) + suffix
+}
+
+// rowDetailHref is where a row's FIRST cell links to, or "" for no link.
+//
+// Consumers do not build this. They cannot: a Lister returns rows from a store
+// package that has no idea where the panel is mounted, so asking them for a
+// URL is asking them to hardcode "/admin" — which is the exact bug CrossLinkCell
+// was promoted into the framework to remove, and which every consumer of it
+// reproduced until BasePathFrom existed. The framework already assembles this
+// path for the Edit link three lines below; it can assemble this one too.
+//
+// Row.Href still wins, for the case the derivation cannot serve: a detail page
+// belonging to a DIFFERENT resource.
+//
+// EffectiveDetailer rather than `d.Resource.Detailer != nil` because a resource
+// that sets only FetchRow HAS a detail route — Register synthesizes the
+// Detailer into a copy and mounts that, leaving the original field nil. Reading
+// the field directly would leave exactly those resources unlinked, and the
+// symptom is invisible: a name that is simply not a link.
+func rowDetailHref(d listPageData, row Row) string {
+	if row.Href != "" {
+		return row.Href
+	}
+	if row.ID == "" || EffectiveDetailer(d.Resource) == nil {
+		return ""
+	}
+	return rowPath(d, row.ID, "")
+}
+
 // chipClass returns the filter-chip class list, adding "active" when value is
 // the one currently selected for key. Without this the selected chip renders
 // identically to the others: `.filter-chip.active` has existed in styles.templ
@@ -113,7 +148,7 @@ func listPageContent(d listPageData) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(d.Resource.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 86, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 121, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -126,7 +161,7 @@ func listPageContent(d listPageData) templ.Component {
 			var templ_7745c5c3_Var3 templ.SafeURL
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + d.RestorableID + "/restore"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 87, Col: 117}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 122, Col: 117}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -139,7 +174,7 @@ func listPageContent(d listPageData) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(csrfFormField)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 88, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 123, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -152,7 +187,7 @@ func listPageContent(d listPageData) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 88, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 123, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 			if templ_7745c5c3_Err != nil {
@@ -170,7 +205,7 @@ func listPageContent(d listPageData) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(d.Resource.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 96, Col: 26}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 131, Col: 26}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -183,7 +218,7 @@ func listPageContent(d listPageData) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(d.Total))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 97, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 132, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -201,7 +236,7 @@ func listPageContent(d listPageData) templ.Component {
 			var templ_7745c5c3_Var8 templ.SafeURL
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/new"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 101, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 136, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -260,7 +295,7 @@ func listRowsFragment(d listPageData) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Resource.Name + "-region")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 117, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 152, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 		if templ_7745c5c3_Err != nil {
@@ -325,7 +360,7 @@ func listRowsAppend(d listPageData) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Resource.Name + "-pagination")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 130, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 165, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 		if templ_7745c5c3_Err != nil {
@@ -377,7 +412,7 @@ func filterBar(d listPageData) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.BasePath + "/" + d.Resource.Name + "/rows")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 140, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 175, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
 			if templ_7745c5c3_Err != nil {
@@ -390,7 +425,7 @@ func filterBar(d listPageData) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.Resource.Name + "-region")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 141, Col: 48}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 176, Col: 48}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 			if templ_7745c5c3_Err != nil {
@@ -408,7 +443,7 @@ func filterBar(d listPageData) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(viewsLabel(d.Resource))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 147, Col: 160}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 182, Col: 160}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -431,7 +466,7 @@ func filterBar(d listPageData) templ.Component {
 					var templ_7745c5c3_Var18 string
 					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.Key)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 152, Col: 20}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 187, Col: 20}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 					if templ_7745c5c3_Err != nil {
@@ -457,7 +492,7 @@ func filterBar(d listPageData) templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(viewLabel(v))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 154, Col: 21}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 189, Col: 21}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 					if templ_7745c5c3_Err != nil {
@@ -482,7 +517,7 @@ func filterBar(d listPageData) templ.Component {
 					var templ_7745c5c3_Var21 string
 					templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(f.Key)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 161, Col: 144}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 196, Col: 144}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 					if templ_7745c5c3_Err != nil {
@@ -505,7 +540,7 @@ func filterBar(d listPageData) templ.Component {
 						var templ_7745c5c3_Var23 string
 						templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Key)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 165, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 200, Col: 20}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 						if templ_7745c5c3_Err != nil {
@@ -518,7 +553,7 @@ func filterBar(d listPageData) templ.Component {
 						var templ_7745c5c3_Var24 string
 						templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(a)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 166, Col: 17}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 201, Col: 17}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 						if templ_7745c5c3_Err != nil {
@@ -544,7 +579,7 @@ func filterBar(d listPageData) templ.Component {
 						var templ_7745c5c3_Var26 string
 						templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(a)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 168, Col: 11}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 203, Col: 11}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 						if templ_7745c5c3_Err != nil {
@@ -567,7 +602,7 @@ func filterBar(d listPageData) templ.Component {
 					var templ_7745c5c3_Var27 string
 					templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Key)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 174, Col: 18}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 209, Col: 18}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 					if templ_7745c5c3_Err != nil {
@@ -580,7 +615,7 @@ func filterBar(d listPageData) templ.Component {
 					var templ_7745c5c3_Var28 string
 					templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Selected.Get(f.Key))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 175, Col: 35}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 210, Col: 35}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 					if templ_7745c5c3_Err != nil {
@@ -593,7 +628,7 @@ func filterBar(d listPageData) templ.Component {
 					var templ_7745c5c3_Var29 string
 					templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue("Search " + f.Key + "...")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 176, Col: 45}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 211, Col: 45}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 					if templ_7745c5c3_Err != nil {
@@ -643,7 +678,7 @@ func listTable(d listPageData) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Resource.Name + "-table")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 187, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 222, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 		if templ_7745c5c3_Err != nil {
@@ -661,7 +696,7 @@ func listTable(d listPageData) templ.Component {
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(colHeaderStyle(col))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 191, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 226, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -697,7 +732,7 @@ func listTable(d listPageData) templ.Component {
 				var templ_7745c5c3_Var35 templ.SafeURL
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(sortURL(d, col.Key)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 195, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 230, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -710,7 +745,7 @@ func listTable(d listPageData) templ.Component {
 				var templ_7745c5c3_Var36 string
 				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(sortURL(d, col.Key))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 196, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 231, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 				if templ_7745c5c3_Err != nil {
@@ -723,7 +758,7 @@ func listTable(d listPageData) templ.Component {
 				var templ_7745c5c3_Var37 string
 				templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.Resource.Name + "-region")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 197, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 232, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 				if templ_7745c5c3_Err != nil {
@@ -736,7 +771,7 @@ func listTable(d listPageData) templ.Component {
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(col.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 201, Col: 19}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 236, Col: 19}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 				if templ_7745c5c3_Err != nil {
@@ -749,7 +784,7 @@ func listTable(d listPageData) templ.Component {
 				var templ_7745c5c3_Var39 string
 				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(sortArrow(d.SortState, col.Key))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 202, Col: 87}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 237, Col: 87}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 				if templ_7745c5c3_Err != nil {
@@ -763,7 +798,7 @@ func listTable(d listPageData) templ.Component {
 				var templ_7745c5c3_Var40 string
 				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(col.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 205, Col: 18}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 240, Col: 18}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 				if templ_7745c5c3_Err != nil {
@@ -793,7 +828,7 @@ func listTable(d listPageData) templ.Component {
 			var templ_7745c5c3_Var41 string
 			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(listColspan(d))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 218, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 253, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 			if templ_7745c5c3_Err != nil {
@@ -876,12 +911,13 @@ func listRow(d listPageData, row Row) templ.Component {
 			templ_7745c5c3_Var43 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		detailHref := rowDetailHref(d, row)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<tr>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for i, cell := range row.Cells {
-			if i == 0 && row.Href != "" {
+			if i == 0 && detailHref != "" {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<td style=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -889,7 +925,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var44 string
 				templ_7745c5c3_Var44, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(colCellStyle(d, i))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 248, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 284, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 				if templ_7745c5c3_Err != nil {
@@ -900,9 +936,9 @@ func listRow(d listPageData, row Row) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var45 templ.SafeURL
-				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(row.Href))
+				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinURLErrs(detailHref)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 249, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 288, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 				if templ_7745c5c3_Err != nil {
@@ -915,7 +951,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var46 string
 				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(cell.Value)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 249, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 288, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 				if templ_7745c5c3_Err != nil {
@@ -933,7 +969,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var47 string
 				templ_7745c5c3_Var47, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(colCellStyle(d, i))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 252, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 291, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 				if templ_7745c5c3_Err != nil {
@@ -959,7 +995,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var48 string
 				templ_7745c5c3_Var48, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(colCellStyle(d, i))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 254, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 293, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 				if templ_7745c5c3_Err != nil {
@@ -972,7 +1008,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var49 string
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(cell.Value)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 254, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 293, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 				if templ_7745c5c3_Err != nil {
@@ -990,9 +1026,9 @@ func listRow(d listPageData, row Row) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var50 templ.SafeURL
-			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + row.ID + "/edit"))
+			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinURLErrs(rowPath(d, row.ID, "/edit"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 260, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 299, Col: 39}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 			if templ_7745c5c3_Err != nil {
@@ -1010,7 +1046,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.BasePath + "/" + d.Resource.Name + "/" + row.ID + "/delete")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 267, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 306, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 				if templ_7745c5c3_Err != nil {
@@ -1023,7 +1059,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var52 string
 				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(csrfVals(d.CSRFToken))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 268, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 307, Col: 37}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 				if templ_7745c5c3_Err != nil {
@@ -1036,7 +1072,7 @@ func listRow(d listPageData, row Row) templ.Component {
 				var templ_7745c5c3_Var53 string
 				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue("Delete " + row.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 271, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 310, Col: 37}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 				if templ_7745c5c3_Err != nil {
@@ -1097,7 +1133,7 @@ func deletedRow(d listPageData, id string, label string) templ.Component {
 		var templ_7745c5c3_Var55 string
 		templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue(listColspanExceptActions(d))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 290, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 329, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var55)
 		if templ_7745c5c3_Err != nil {
@@ -1110,7 +1146,7 @@ func deletedRow(d listPageData, id string, label string) templ.Component {
 		var templ_7745c5c3_Var56 string
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 291, Col: 10}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 330, Col: 10}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 		if templ_7745c5c3_Err != nil {
@@ -1123,7 +1159,7 @@ func deletedRow(d listPageData, id string, label string) templ.Component {
 		var templ_7745c5c3_Var57 string
 		templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.BasePath + "/" + d.Resource.Name + "/" + id + "/restore")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 297, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 336, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var57)
 		if templ_7745c5c3_Err != nil {
@@ -1136,7 +1172,7 @@ func deletedRow(d listPageData, id string, label string) templ.Component {
 		var templ_7745c5c3_Var58 string
 		templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.ResolveAttributeValue(csrfVals(d.CSRFToken))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 298, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 337, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var58)
 		if templ_7745c5c3_Err != nil {
@@ -1181,7 +1217,7 @@ func pagination(d listPageData) templ.Component {
 		var templ_7745c5c3_Var60 string
 		templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Resource.Name + "-pagination")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 310, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 349, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var60)
 		if templ_7745c5c3_Err != nil {
@@ -1239,7 +1275,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var62 templ.SafeURL
 				templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(pageURL(d, d.Page-1)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 322, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 361, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 				if templ_7745c5c3_Err != nil {
@@ -1252,7 +1288,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var63 string
 				templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, d.Page-1))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 323, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 362, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var63)
 				if templ_7745c5c3_Err != nil {
@@ -1265,7 +1301,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var64 string
 				templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.Resource.Name + "-region")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 324, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 363, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var64)
 				if templ_7745c5c3_Err != nil {
@@ -1283,7 +1319,7 @@ func paginationInner(d listPageData) templ.Component {
 			var templ_7745c5c3_Var65 string
 			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d / %d", d.Page, d.TotalPages))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 331, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 370, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 			if templ_7745c5c3_Err != nil {
@@ -1301,7 +1337,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var66 templ.SafeURL
 				templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(pageURL(d, d.Page+1)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 335, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 374, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 				if templ_7745c5c3_Err != nil {
@@ -1314,7 +1350,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var67 string
 				templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, d.Page+1))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 336, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 375, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var67)
 				if templ_7745c5c3_Err != nil {
@@ -1327,7 +1363,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var68 string
 				templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.Resource.Name + "-region")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 337, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 376, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var68)
 				if templ_7745c5c3_Err != nil {
@@ -1340,7 +1376,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var69 templ.SafeURL
 				templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(pageURL(d, d.Page+1)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 343, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 382, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 				if templ_7745c5c3_Err != nil {
@@ -1353,7 +1389,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var70 string
 				templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.ResolveAttributeValue(appendURL(d))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 344, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 383, Col: 26}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var70)
 				if templ_7745c5c3_Err != nil {
@@ -1366,7 +1402,7 @@ func paginationInner(d listPageData) templ.Component {
 				var templ_7745c5c3_Var71 string
 				templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.Resource.Name + "-table tbody")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 345, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/list.templ`, Line: 384, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var71)
 				if templ_7745c5c3_Err != nil {
