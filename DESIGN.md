@@ -90,6 +90,16 @@ row hover because list rows link somewhere; a static table drops both (cursor
 default, hover transparent) so a non-interactive row does not pretend to be a
 link. Rendered by `DetailSection.Table` on the detail page.
 
+It also drops the **frame**: background, border and radius all go to zero, and
+the outer cells lose their side padding so the columns line up with the
+section's own. A detail table is always inside `.detail-section`, which paints
+the same `--bg-surface`, the same `1px --border` and the same `--radius-lg` —
+drawn twice they nest a few pixels apart on an identical background, and the
+inner line reads as an artefact rather than a boundary. Only sections carrying
+a table got it, so those sections looked heavier than their neighbours for no
+reason a reader could name. **One container, one border**: if a block already
+sits inside a section, it does not draw a card of its own.
+
 ### Filter chips — `.filter-chip` / `.filter-chip.active`
 
 Pill, `9999px` radius, transparent background, `--text-secondary`. `.active`

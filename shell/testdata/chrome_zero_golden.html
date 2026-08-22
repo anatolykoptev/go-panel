@@ -356,6 +356,33 @@
 		   The hover tint on a non-interactive row is the same lie, quieter. */
 		.crm-table--static tbody tr{cursor:default}
 		.crm-table--static tbody tr:hover>td{background:transparent}
+		/* ...and it does not repeat its container. A detail table is always
+		   inside .detail-section, which already paints the SAME --bg-surface,
+		   the SAME 1px --border and the SAME --radius-lg. Painting them twice
+		   puts a second outline a few pixels inside the first, on an identical
+		   background, so the inner line reads as a rendering artefact rather
+		   than a boundary — and only sections that happen to carry a table get
+		   it, so those sections looked heavier than the plain label-value ones
+		   beside them for no reason a reader could name. One container, one
+		   border.
+
+		   Keep prose out of this file's identifiers: styles.templ is inlined
+		   into every page, and resource/nav_filter_test.go asserts nav labels
+		   are ABSENT with strings.Contains over the WHOLE body. A comment that
+		   happens to name a resource fails it. */
+		.crm-table--static{background:transparent;border:0;border-radius:0}
+		.crm-table--static td:first-child,.crm-table--static thead th:first-child{padding-left:0}
+		.crm-table--static td:last-child,.crm-table--static thead th:last-child{padding-right:0}
+		.crm-table--static tbody tr:last-child>td{border-bottom:0}
+		/* The header strip goes too. --bg-deep behind a thead reads as a bar
+		   once the table has no frame to clip it; the columns are already
+		   mono/uppercase/--text-muted, which is exactly how .detail-item-label
+		   is set, so an underline is the whole separation needed and the table
+		   header stops looking like a different component. */
+		.crm-table--static thead th{background:transparent}
+		/* A section can carry Items AND a Table. Without this the thead sits
+		   directly against the last label-value row. */
+		.detail-items+.crm-table-scroll{margin-top:.75rem}
 		.row-name{font-weight:600;font-size:.875rem;color:var(--text-primary)}
 		.row-sub{font-size:.6875rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.1rem;display:block}
 		.page-header{margin-bottom:1.25rem}
