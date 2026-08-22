@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.12](https://github.com/anatolykoptev/go-panel/compare/v0.23.11...v0.23.12) (2026-08-22)
+
+
+### Added
+
+* **resource:** a Writer can answer 404, not only 500 ([#152](https://github.com/anatolykoptev/go-panel/issues/152)) ([699f6df](https://github.com/anatolykoptev/go-panel/commit/699f6dfd4d859725e9d2681f7ed8429ad9a1a656))
+
 ## [0.23.11](https://github.com/anatolykoptev/go-panel/compare/v0.23.10...v0.23.11) (2026-08-22)
 
 
