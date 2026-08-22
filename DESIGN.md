@@ -90,15 +90,26 @@ row hover because list rows link somewhere; a static table drops both (cursor
 default, hover transparent) so a non-interactive row does not pretend to be a
 link. Rendered by `DetailSection.Table` on the detail page.
 
-It also drops the **frame**: background, border and radius all go to zero, and
-the outer cells lose their side padding so the columns line up with the
-section's own. A detail table is always inside `.detail-section`, which paints
-the same `--bg-surface`, the same `1px --border` and the same `--radius-lg` —
-drawn twice they nest a few pixels apart on an identical background, and the
-inner line reads as an artefact rather than a boundary. Only sections carrying
-a table got it, so those sections looked heavier than their neighbours for no
-reason a reader could name. **One container, one border**: if a block already
-sits inside a section, it does not draw a card of its own.
+**A table inside a card does not draw a card.** `.crm-table` paints
+`--bg-surface`, a `1px --border` and `--radius-lg`; so do `.detail-section` and
+`.pm7-card`. Nested, they put two outlines a few pixels apart on an identical
+background — the inner one reads as an artefact rather than a boundary, and
+only the containers holding a table get it, so they look heavier than their
+neighbours for no reason a reader could name. Inside either container the table
+therefore drops its background, border and radius, its outer cells lose their
+side padding so the columns line up with the container's own text, and the
+`thead` loses its `--bg-deep` strip (which reads as a floating bar once there
+is no frame to clip it — the header cells already carry the same
+mono/uppercase/muted treatment as a section label, so an underline is the whole
+separation needed).
+
+The condition is **structural**, not a modifier: it hangs off the nesting, not
+off `.crm-table--static`. That modifier answers a different question ("do these
+rows navigate"), and a consumer dropping a plain `.crm-table` into a
+`.pm7-card` — a dashboard summary, a cabinet overview, a billing preview — has
+done nothing wrong and must not inherit a doubled frame for it. CSS cannot say
+"any ancestor that draws a border", so the card containers are named
+explicitly; **a new card container has to be added to that selector list.**
 
 ### Filter chips — `.filter-chip` / `.filter-chip.active`
 
