@@ -209,14 +209,20 @@ func validTOTPToken(cookie *http.Cookie) string {
 	return csrf.Issue(totpTestCSRFKey, cookie.Value, csrf.DefaultTTL)
 }
 
-// enrollAndGetSecret drives GET /enroll and pulls the manual-entry secret
+// enrollAndGetSecret drives the re-authenticated enrollment start (POST
+// /enroll with current_password + CSRF) and pulls the manual-entry secret
 // text out of the response body (it is rendered inside a <code>...</code>
-// element with nothing else matching that shape on the page).
-func enrollAndGetSecret(t *testing.T, p *resource.Panel, cookie *http.Cookie) string {
+// element with nothing else matching that shape on the page). GET /enroll
+// renders only the password gate since enrollment sits behind step-up
+// re-auth -- the secret requires the password every time it is displayed.
+func enrollAndGetSecret(t *testing.T, p *resource.Panel, cookie *http.Cookie, password string) string {
 	t.Helper()
-	w := totpGet(t, p, cookie, "/admin/"+totpTestPrefix+"/enroll/")
+	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/enroll/", url.Values{
+		"current_password": {password},
+		"_csrf":            {validTOTPToken(cookie)},
+	})
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET enroll: expected 200, got %d body=%s", w.Code, w.Body.String())
+		t.Fatalf("POST enroll: expected 200, got %d body=%s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
 	start := strings.Index(body, "<code")
@@ -243,7 +249,12 @@ func validCodeForSecret(t *testing.T, secret string, at time.Time) string {
 
 // ── tests ────────────────────────────────────────────────────────────────
 
-func TestTOTPEnroll_RendersSecretURIAndQRImg(t *testing.T) {
+// TestTOTPEnroll_GETShowsReauthGate_PostPasswordRendersEnrollment covers the
+// step-up gate (the stolen-cookie fix): GET /enroll shows ONLY the password
+// form — no secret, no QR — and the secret+QR page requires POSTing the
+// current password. Amputation check: dropping the re-auth from enrollStart
+// turns the GET assertion RED (the secret would render on a bare session).
+func TestTOTPEnroll_GETShowsReauthGate_PostPasswordRendersEnrollment(t *testing.T) {
 	store := newTOTPTestStore()
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
 	p, a := newTOTPTestPanel(store)
@@ -254,6 +265,25 @@ func TestTOTPEnroll_RendersSecretURIAndQRImg(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
+	if !strings.Contains(body, `name="current_password"`) {
+		t.Error("GET /enroll must render the password re-auth gate, got: " + body)
+	}
+	if strings.Contains(body, "otpauth://") || strings.Contains(body, `name="code"`) {
+		t.Error("GET /enroll must NOT disclose the secret or confirm form to a bare session")
+	}
+	if len(store.pending) != 0 {
+		t.Error("a bare GET must never mint a pending secret")
+	}
+
+	// Re-auth POST → the real enrollment page.
+	w = totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/enroll/", url.Values{
+		"current_password": {"pw"},
+		"_csrf":            {validTOTPToken(cookie)},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	body = w.Body.String()
 	if !strings.Contains(body, `src="/admin/`+totpTestPrefix+`/qr.png/"`) {
 		t.Errorf("expected an <img> pointing at the qr.png endpoint, got: %s", body)
 	}
@@ -262,6 +292,33 @@ func TestTOTPEnroll_RendersSecretURIAndQRImg(t *testing.T) {
 	}
 	if !strings.Contains(body, `name="code"`) {
 		t.Error("expected the code-confirmation form's input")
+	}
+	if !strings.Contains(body, `name="current_password"`) {
+		t.Error("the confirm form must re-demand the current password (step-up on the mutation itself)")
+	}
+}
+
+// TestTOTPEnroll_WrongPassword_NeverDisclosesSecret proves the gate fails
+// closed: a wrong password re-renders the re-auth form, mints nothing, and
+// never lets the seed reach the response.
+func TestTOTPEnroll_WrongPassword_NeverDisclosesSecret(t *testing.T) {
+	store := newTOTPTestStore()
+	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
+	p, a := newTOTPTestPanel(store)
+	cookie := bcryptLogin(t, a, "op@example.com", "pw")
+
+	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/enroll/", url.Values{
+		"current_password": {"totally-wrong"},
+		"_csrf":            {validTOTPToken(cookie)},
+	})
+	if w.Code != http.StatusOK { // re-rendered re-auth gate, not an error status
+		t.Fatalf("expected 200 (re-rendered gate), got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "otpauth://") {
+		t.Error("a failed re-auth must never disclose the TOTP secret")
+	}
+	if len(store.pending) != 0 {
+		t.Error("a failed re-auth must never mint a pending secret")
 	}
 }
 
@@ -272,7 +329,7 @@ func TestTOTPQRImage_ServesValidPNG(t *testing.T) {
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
 
 	// Must enroll first -- qr.png 404s with nothing pending.
-	enrollAndGetSecret(t, p, cookie)
+	enrollAndGetSecret(t, p, cookie, "pw")
 
 	w := totpGet(t, p, cookie, "/admin/"+totpTestPrefix+"/qr.png/")
 	if w.Code != http.StatusOK {
@@ -303,12 +360,13 @@ func TestTOTPConfirm_CorrectCode_EnablesAndShowsRecoveryCodesOnce(t *testing.T) 
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
-	secret := enrollAndGetSecret(t, p, cookie)
+	secret := enrollAndGetSecret(t, p, cookie, "pw")
 	now := time.Now()
 
 	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/confirm/", url.Values{
-		"code":  {validCodeForSecret(t, secret, now)},
-		"_csrf": {validTOTPToken(cookie)},
+		"code":             {validCodeForSecret(t, secret, now)},
+		"current_password": {"pw"},
+		"_csrf":            {validTOTPToken(cookie)},
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
@@ -328,16 +386,92 @@ func TestTOTPConfirm_CorrectCode_EnablesAndShowsRecoveryCodesOnce(t *testing.T) 
 	}
 }
 
+// TestTOTPConfirm_WrongPassword_StaysDisabled proves the confirm-side
+// step-up: a VALID code plus a wrong password is rejected with the re-auth
+// gate (never re-disclosing the pending secret), enrollment stays off, no
+// recovery codes are minted — and the step is NOT burned, so the same code
+// confirms once the password is right.
+func TestTOTPConfirm_WrongPassword_StaysDisabled(t *testing.T) {
+	store := newTOTPTestStore()
+	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
+	p, a := newTOTPTestPanel(store)
+	cookie := bcryptLogin(t, a, "op@example.com", "pw")
+	secret := enrollAndGetSecret(t, p, cookie, "pw")
+	now := time.Now()
+	code := validCodeForSecret(t, secret, now)
+
+	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/confirm/", url.Values{
+		"code":             {code},
+		"current_password": {"totally-wrong"},
+		"_csrf":            {validTOTPToken(cookie)},
+	})
+	if w.Code != http.StatusOK { // re-rendered re-auth gate, not an error status
+		t.Fatalf("expected 200 (re-rendered gate), got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "otpauth://") {
+		t.Error("a failed confirm re-auth must never re-disclose the secret")
+	}
+	if store.byID["u1"].TOTPEnabled {
+		t.Error("TOTPEnabled must stay false when confirm re-auth fails")
+	}
+	if len(store.recovery["u1"]) != 0 {
+		t.Error("no recovery codes must be minted when confirm re-auth fails")
+	}
+
+	// Same code + right password still confirms (the rejected attempt ran the
+	// password check first and never consumed the step).
+	w = totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/confirm/", url.Values{
+		"code":             {code},
+		"current_password": {"pw"},
+		"_csrf":            {validTOTPToken(cookie)},
+	})
+	if w.Code != http.StatusOK || !store.byID["u1"].TOTPEnabled {
+		t.Fatalf("re-authenticated confirm with the same code must succeed, got code=%d enabled=%v", w.Code, store.byID["u1"].TOTPEnabled)
+	}
+}
+
+// TestTOTPQRImage_ConfirmedAccount_404s pins the pending-only disclosure
+// window: once enrollment confirms, the QR route stops serving the seed —
+// a live session alone must not re-extract it afterwards.
+func TestTOTPQRImage_ConfirmedAccount_404s(t *testing.T) {
+	store := newTOTPTestStore()
+	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
+	p, a := newTOTPTestPanel(store)
+	cookie := bcryptLogin(t, a, "op@example.com", "pw")
+	secret := enrollAndGetSecret(t, p, cookie, "pw")
+
+	// Pending: QR serves.
+	w := totpGet(t, p, cookie, "/admin/"+totpTestPrefix+"/qr.png/")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 while pending, got %d", w.Code)
+	}
+
+	// Confirm, then the same route must 404.
+	_ = totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/confirm/", url.Values{
+		"code":             {validCodeForSecret(t, secret, time.Now())},
+		"current_password": {"pw"},
+		"_csrf":            {validTOTPToken(cookie)},
+	})
+	if !store.byID["u1"].TOTPEnabled {
+		t.Fatal("setup: confirm must have enabled TOTP")
+	}
+	w = totpGet(t, p, cookie, "/admin/"+totpTestPrefix+"/qr.png/")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after enrollment confirmed, got %d", w.Code)
+	}
+}
+
 func TestTOTPConfirm_WrongCode_StaysDisabled(t *testing.T) {
 	store := newTOTPTestStore()
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
-	enrollAndGetSecret(t, p, cookie)
+	enrollAndGetSecret(t, p, cookie, "pw")
 
 	w := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/confirm/", url.Values{
-		"code":  {"000000"},
-		"_csrf": {validTOTPToken(cookie)},
+		"code":             {"000000"},
+		"current_password": {"pw"},
+		"_csrf":            {validTOTPToken(cookie)},
 	})
 	if w.Code != http.StatusOK { // re-rendered enroll page, not an error status
 		t.Fatalf("expected 200 (re-rendered enroll page), got %d", w.Code)
@@ -359,10 +493,10 @@ func TestTOTPConfirm_ReplayedCode_SecondAttemptRejected(t *testing.T) {
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
-	secret := enrollAndGetSecret(t, p, cookie)
+	secret := enrollAndGetSecret(t, p, cookie, "pw")
 	now := time.Now()
 	code := validCodeForSecret(t, secret, now)
-	form := url.Values{"code": {code}, "_csrf": {validTOTPToken(cookie)}}
+	form := url.Values{"code": {code}, "current_password": {"pw"}, "_csrf": {validTOTPToken(cookie)}}
 
 	first := totpPost(t, p, cookie, "/admin/"+totpTestPrefix+"/confirm/", form)
 	if first.Code != http.StatusOK || !store.byID["u1"].TOTPEnabled {
@@ -497,7 +631,7 @@ func TestTOTPCSRF_PostWithoutValidToken_Rejected(t *testing.T) {
 	seedAccount(t, store.testAccountStore, "u1", "op@example.com", "pw", "admin")
 	p, a := newTOTPTestPanel(store)
 	cookie := bcryptLogin(t, a, "op@example.com", "pw")
-	secret := enrollAndGetSecret(t, p, cookie)
+	secret := enrollAndGetSecret(t, p, cookie, "pw")
 
 	cases := map[string]string{
 		"missing token": "",
@@ -505,7 +639,7 @@ func TestTOTPCSRF_PostWithoutValidToken_Rejected(t *testing.T) {
 	}
 	for name, tok := range cases {
 		t.Run(name, func(t *testing.T) {
-			form := url.Values{"code": {validCodeForSecret(t, secret, time.Now())}}
+			form := url.Values{"code": {validCodeForSecret(t, secret, time.Now())}, "current_password": {"pw"}}
 			if tok != "" {
 				form.Set("_csrf", tok)
 			}
@@ -529,6 +663,7 @@ func TestTOTPAnonymous_EveryRouteDeniedByGuard(t *testing.T) {
 		method, path string
 	}{
 		{http.MethodGet, "/admin/" + totpTestPrefix + "/enroll/"},
+		{http.MethodPost, "/admin/" + totpTestPrefix + "/enroll/"},
 		{http.MethodGet, "/admin/" + totpTestPrefix + "/qr.png/"},
 		{http.MethodPost, "/admin/" + totpTestPrefix + "/confirm/"},
 		{http.MethodGet, "/admin/" + totpTestPrefix + "/disable/"},
@@ -568,7 +703,7 @@ func TestTOTPAccountScoping_CannotActOnAnotherAccount(t *testing.T) {
 	cookieA := bcryptLogin(t, a, "a@example.com", "pw-a")
 
 	// A enrolls -- must only ever touch acct-a's row.
-	secretA := enrollAndGetSecret(t, p, cookieA)
+	secretA := enrollAndGetSecret(t, p, cookieA, "pw-a")
 	if _, touched := store.pending["acct-a"]; !touched {
 		t.Fatal("expected A's own pending secret to be set")
 	}
@@ -578,9 +713,10 @@ func TestTOTPAccountScoping_CannotActOnAnotherAccount(t *testing.T) {
 
 	// A confirms, smuggling account_id=acct-b in the POST body.
 	w := totpPost(t, p, cookieA, "/admin/"+totpTestPrefix+"/confirm/", url.Values{
-		"code":       {validCodeForSecret(t, secretA, time.Now())},
-		"_csrf":      {validTOTPToken(cookieA)},
-		"account_id": {"acct-b"},
+		"code":             {validCodeForSecret(t, secretA, time.Now())},
+		"current_password": {"pw-a"},
+		"_csrf":            {validTOTPToken(cookieA)},
+		"account_id":       {"acct-b"},
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())

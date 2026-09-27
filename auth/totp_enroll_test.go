@@ -483,6 +483,94 @@ func TestRegenerateRecoveryCodesWithReauth_CorrectPassword_ReplacesCodes(t *test
 	}
 }
 
+// ── Enrollment re-auth (Start/Confirm WithReauth) ────────────────────────
+// The enrollment pair sits behind the same step-up password gate as
+// disable/regenerate: a live session alone — a stolen cookie — must never
+// mint, disclose, or confirm a TOTP seed.
+
+func TestStartTOTPEnrollmentWithReauth_WrongPassword_NeverMintsSecret(t *testing.T) {
+	store := newDomainTOTPStore()
+	acct := store.seed(t, "u1", "op@example.com", "correct-pw", "admin")
+	ctx := context.Background()
+
+	_, _, err := auth.StartTOTPEnrollmentWithReauth(ctx, store, store, testEncKey, "go-panel-test", acct, "wrong-pw")
+	if !errors.Is(err, auth.ErrReauthFailed) {
+		t.Fatalf("expected ErrReauthFailed, got %v", err)
+	}
+	if _, ok := store.pending[acct.ID]; ok {
+		t.Fatal("a failed re-auth must never mint a pending secret — it is the seed the enrollment page would disclose")
+	}
+}
+
+func TestStartTOTPEnrollmentWithReauth_CorrectPassword_Mints(t *testing.T) {
+	store := newDomainTOTPStore()
+	acct := store.seed(t, "u1", "op@example.com", "correct-pw", "admin")
+	ctx := context.Background()
+
+	secret, uri, err := auth.StartTOTPEnrollmentWithReauth(ctx, store, store, testEncKey, "go-panel-test", acct, "correct-pw")
+	if err != nil {
+		t.Fatalf("StartTOTPEnrollmentWithReauth: %v", err)
+	}
+	if secret == "" || uri == "" {
+		t.Fatal("expected non-empty secret and URI")
+	}
+	if _, err := store.GetTOTPSecret(ctx, acct.ID); err != nil {
+		t.Fatalf("expected the pending secret persisted: %v", err)
+	}
+}
+
+// The already-enabled short-circuit precedes the password check so the
+// "disable first" route never demands a password for a guaranteed no-op.
+func TestStartTOTPEnrollmentWithReauth_AlreadyEnabled_NoPasswordNeeded(t *testing.T) {
+	store := newDomainTOTPStore()
+	acct := store.seed(t, "u1", "op@example.com", "correct-pw", "admin")
+	acct.TOTPEnabled = true
+	ctx := context.Background()
+
+	_, _, err := auth.StartTOTPEnrollmentWithReauth(ctx, store, store, testEncKey, "go-panel-test", acct, "wrong-pw")
+	if !errors.Is(err, auth.ErrTOTPAlreadyEnabled) {
+		t.Fatalf("expected ErrTOTPAlreadyEnabled (not ErrReauthFailed), got %v", err)
+	}
+}
+
+func TestConfirmTOTPEnrollmentWithReauth_WrongPassword_StaysDisabledWithoutBurningStep(t *testing.T) {
+	store := newDomainTOTPStore()
+	acct := store.seed(t, "u1", "op@example.com", "correct-pw", "admin")
+	ctx := context.Background()
+	now := time.Now()
+
+	secret, _, err := auth.StartTOTPEnrollmentWithReauth(ctx, store, store, testEncKey, "go-panel-test", acct, "correct-pw")
+	if err != nil {
+		t.Fatalf("StartTOTPEnrollmentWithReauth: %v", err)
+	}
+	code := validCodeFor(t, secret, now)
+
+	_, err = auth.ConfirmTOTPEnrollmentWithReauth(ctx, store, store, testEncKey, acct, code, "wrong-pw", now)
+	if !errors.Is(err, auth.ErrReauthFailed) {
+		t.Fatalf("expected ErrReauthFailed, got %v", err)
+	}
+	if got, _ := store.GetByID(ctx, acct.ID); got.TOTPEnabled {
+		t.Fatal("TOTPEnabled must stay false after a failed re-auth")
+	}
+	if len(store.recovery[acct.ID]) != 0 {
+		t.Fatal("no recovery codes must be minted after a failed re-auth")
+	}
+
+	// The password check runs BEFORE the code: the step was never consumed,
+	// so the SAME code confirms once the password is right — a mistyped
+	// password must not burn the operator's current code.
+	codes, err := auth.ConfirmTOTPEnrollmentWithReauth(ctx, store, store, testEncKey, acct, code, "correct-pw", now)
+	if err != nil {
+		t.Fatalf("confirm after re-auth must succeed with the same code (step untouched): %v", err)
+	}
+	if len(codes) != auth.RecoveryCodeCount {
+		t.Fatalf("got %d recovery codes, want %d", len(codes), auth.RecoveryCodeCount)
+	}
+	if got, _ := store.GetByID(ctx, acct.ID); !got.TOTPEnabled {
+		t.Fatal("TOTPEnabled must be true after the re-authenticated confirm")
+	}
+}
+
 // ── VerifyAccountPassword ────────────────────────────────────────────────
 
 func TestVerifyAccountPassword(t *testing.T) {
