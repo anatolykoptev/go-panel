@@ -67,6 +67,18 @@ type Config struct {
 	// BearerAuth gates /mcp. nil = no auth (localhost-only deployments only).
 	BearerAuth *mcpserver.BearerAuth
 
+	// TenantResolver, when non-nil, resolves the tenant for EVERY tool call
+	// from the call's ctx — the seam a multi-account consumer uses to pin the
+	// tenant from the verified bearer identity (mcpserver.TokenInfoFromContext)
+	// instead of the fail-open global default that tenant.From(ctx) returns.
+	// A resolver returning (zero Tenant, false) DENIES the call fail-closed.
+	//
+	// nil preserves the legacy single-tenant behavior: tenant.From(ctx), which
+	// is the global default whenever nothing stamped a tenant. The tools also
+	// stamp the resolved tenant back onto the ctx handed to Listers/Detailers,
+	// so detailers reading tenant.From(req.Context()) see the pinned value.
+	TenantResolver func(ctx context.Context) (tenant.Tenant, bool)
+
 	// Logger. nil = slog.Default().
 	Logger *slog.Logger
 
@@ -109,7 +121,7 @@ func Run(cfg Config) error {
 		Name:    "go-panel",
 		Version: moduleVersion(),
 	}, mcpCfg, func(s *mcp.Server) {
-		registerResourceTools(s, cfg.Panel.Resources(), logger)
+		registerResourceTools(s, cfg.Panel.Resources(), logger, cfg.TenantResolver)
 	})
 }
 
@@ -157,17 +169,35 @@ func moduleVersion() string {
 }
 
 // registerResourceTools creates MCP list/get tools for each Resource.
-func registerResourceTools(server *mcp.Server, resources []resource.Resource, logger *slog.Logger) {
+func registerResourceTools(server *mcp.Server, resources []resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool)) {
 	for _, r := range resources {
-		registerListTool(server, r, logger)
+		registerListTool(server, r, logger, tr)
 		// EffectiveDetailer returns the hand-written Detailer OR a synthesized
 		// auto-Detailer built from Sort.Columns + FetchRow. This keeps MCP's
 		// {resource}_get tool in sync with the HTTP detail route (which is
 		// mounted whenever Detailer OR FetchRow is non-nil — see resource.Register).
 		if resource.EffectiveDetailer(r) != nil {
-			registerGetTool(server, r, logger)
+			registerGetTool(server, r, logger, tr)
 		}
 	}
+}
+
+// callTenant resolves the tenant for one tool call. A nil resolver keeps the
+// legacy behavior — tenant.From(ctx), which fails OPEN to the global default
+// (fine for the single-tenant deployments panelmcp was built for). A set
+// resolver is authoritative: (tenant, true) pins, (_, false) denies fail-closed.
+// On a successful resolve the ctx is stamped (tenant.WithTenant) so both the
+// Lister's ListQuery.Tenant and anything reading tenant.From(ctx) downstream —
+// the detailer's request context included — observe the SAME pinned tenant.
+func callTenant(ctx context.Context, tr func(context.Context) (tenant.Tenant, bool)) (context.Context, tenant.Tenant, bool) {
+	if tr == nil {
+		return ctx, tenant.From(ctx), true
+	}
+	t, ok := tr(ctx)
+	if !ok {
+		return ctx, tenant.Tenant{}, false
+	}
+	return tenant.WithTenant(ctx, t), t, true
 }
 
 // --- list tool ---
@@ -198,7 +228,7 @@ type cellJSON struct {
 	HTML  bool   `json:"html"`
 }
 
-func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logger) {
+func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool)) {
 	toolName := r.Name + "_list"
 	tool := &mcp.Tool{
 		Name:        toolName,
@@ -217,8 +247,11 @@ func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logg
 			offset = 0
 		}
 		sortState := r.Sort.Resolve(in.SortKey, in.SortDir)
-		tenantVal := tenant.From(ctx) // global default when no tenant on ctx
-		rows, total, err := r.Lister(ctx, resource.ListQuery{
+		lctx, tenantVal, ok := callTenant(ctx, tr)
+		if !ok {
+			return nil, listOutput{}, fmt.Errorf("%s: tenant resolution denied", toolName)
+		}
+		rows, total, err := r.Lister(lctx, resource.ListQuery{
 			Sort:       sortState,
 			WhereConds: "", // no filter for MCP list (future: expose FilterSpec)
 			WhereArgs:  nil,
@@ -264,7 +297,7 @@ type itemJSON struct {
 	HTML  bool   `json:"html"`
 }
 
-func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logger) {
+func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool)) {
 	toolName := r.Name + "_get"
 	tool := &mcp.Tool{
 		Name:        toolName,
@@ -274,14 +307,21 @@ func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logge
 		if in.ID == "" {
 			return nil, getOutput{}, fmt.Errorf("%s: id is required", toolName)
 		}
-		req, err := http.NewRequestWithContext(tenant.WithTenant(ctx, tenant.From(ctx)), http.MethodGet, "/", nil)
+		dctx, tenantVal, ok := callTenant(ctx, tr)
+		if !ok {
+			return nil, getOutput{}, fmt.Errorf("%s: tenant resolution denied", toolName)
+		}
+		req, err := http.NewRequestWithContext(tenant.WithTenant(dctx, tenantVal), http.MethodGet, "/", nil)
 		if err != nil {
 			return nil, getOutput{}, fmt.Errorf("%s: internal request build failed: %w", toolName, err)
 		}
 		// EffectiveDetailer handles both hand-written Detailer and the
-		// FetchRow-backed auto-Detailer (see resource.EffectiveDetailer).
+		// FetchRow-backed auto-Detailer (see resource.EffectiveDetailer). The
+		// detailer receives dctx — with the resolved tenant stamped on it when a
+		// TenantResolver is configured — so tenant.From works identically whether
+		// it reads the ctx or the request.
 		detailer := resource.EffectiveDetailer(r)
-		sections, err := detailer(ctx, req, in.ID)
+		sections, err := detailer(dctx, req, in.ID)
 		if err != nil {
 			return nil, getOutput{}, fmt.Errorf("%s: detail failed: %w", toolName, err)
 		}

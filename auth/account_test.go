@@ -110,6 +110,105 @@ func TestPgxAccountStore_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestPgxAccountStore_ListAccountsAndSetActive exercises the account-admin
+// additions: ListAccounts enumerates rows (including inactive) without lifting
+// password hashes, and SetActive flips the flag that gates login/session.
+// Same TEST_DATABASE_URL gate as the round-trip test above.
+func TestPgxAccountStore_ListAccountsAndSetActive(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping PG integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	store := auth.NewPgxAccountStore(pool)
+	if err := store.EnsureSchema(ctx); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS panel_accounts CASCADE")
+	})
+
+	hash, _ := auth.HashPassword("s3cret-pw")
+	id1, _, err := store.CreateAccount(ctx, "a1@example.com", "A One", hash, "admin")
+	if err != nil {
+		t.Fatalf("CreateAccount a1: %v", err)
+	}
+	id2, _, err := store.CreateAccount(ctx, "a2@example.com", "A Two", hash, "user")
+	if err != nil {
+		t.Fatalf("CreateAccount a2: %v", err)
+	}
+
+	// The test DB is shared with the other TEST_DATABASE_URL-gated tests in
+	// this file, so the table may hold their rows too — filter to ours.
+	all, err := store.ListAccounts(ctx)
+	if err != nil {
+		t.Fatalf("ListAccounts: %v", err)
+	}
+	var mine []auth.Account
+	for _, acct := range all {
+		if acct.PasswordHash != "" {
+			t.Fatalf("ListAccounts must not select password hashes, got %q for %s", acct.PasswordHash, acct.Email)
+		}
+		if acct.Email == "a1@example.com" || acct.Email == "a2@example.com" {
+			mine = append(mine, acct)
+		}
+	}
+	if len(mine) != 2 {
+		t.Fatalf("expected both created accounts in listing, got %+v", mine)
+	}
+	if mine[0].ID != id1 || mine[1].ID != id2 {
+		t.Fatalf("expected created_at order [a1 a2], got [%s %s]", mine[0].Email, mine[1].Email)
+	}
+
+	// Deactivate: the row stays listed but GetByEmail (login path) stops
+	// matching — the flag is what liveSession's revocation re-check reads.
+	if err := store.SetActive(ctx, id2, false); err != nil {
+		t.Fatalf("SetActive(false): %v", err)
+	}
+	if _, err := store.GetByEmail(ctx, "a2@example.com"); !errors.Is(err, auth.ErrAccountNotFound) {
+		t.Fatalf("deactivated account must fail GetByEmail, got %v", err)
+	}
+	byID, err := store.GetByID(ctx, id2)
+	if err != nil {
+		t.Fatalf("GetByID after deactivate: %v", err)
+	}
+	if byID.Active {
+		t.Fatal("GetByID must expose Active=false after SetActive(false)")
+	}
+	all2, err := store.ListAccounts(ctx)
+	if err != nil {
+		t.Fatalf("ListAccounts after deactivate: %v", err)
+	}
+	var stillListed bool
+	for _, acct := range all2 {
+		if acct.ID == id2 {
+			stillListed = true
+			if acct.Active {
+				t.Fatal("deactivated row must list with Active=false")
+			}
+		}
+	}
+	if !stillListed {
+		t.Fatal("ListAccounts must still list deactivated rows")
+	}
+
+	if err := store.SetActive(ctx, id2, true); err != nil {
+		t.Fatalf("SetActive(true): %v", err)
+	}
+	if _, err := store.GetByEmail(ctx, "a2@example.com"); err != nil {
+		t.Fatalf("reactivated account must resolve again, got %v", err)
+	}
+	if err := store.SetActive(ctx, "00000000-0000-0000-0000-000000000000", true); !errors.Is(err, auth.ErrAccountNotFound) {
+		t.Fatalf("SetActive on missing id must return ErrAccountNotFound, got %v", err)
+	}
+}
+
 // setupTOTPTestStore returns a ready PgxAccountStore (schema ensured,
 // including the TOTP additions) and a freshly created account ID to
 // exercise TOTPStore against. Skips the test if TEST_DATABASE_URL is not
