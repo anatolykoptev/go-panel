@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -138,7 +139,12 @@ ON CONFLICT (email) DO NOTHING
 RETURNING id`
 
 // CreateAccount implements AccountStore. Idempotent on email conflict.
+// The email is canonicalized (lower + trim) at the write seam: the login
+// path lower-trims submitted input before GetByEmail, so a verbatim
+// mixed-case row would be unreachable — and a differently-cased duplicate
+// would slip past the case-sensitive unique index.
 func (s *PgxAccountStore) CreateAccount(ctx context.Context, email, name, passwordHash, role string) (string, bool, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	var id string
 	err := s.pool.QueryRow(ctx, insertAccountSQL, email, name, passwordHash, role).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
