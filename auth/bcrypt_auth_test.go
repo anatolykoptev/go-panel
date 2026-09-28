@@ -333,6 +333,55 @@ func TestBcrypt_RequireAllowsValidSession(t *testing.T) {
 	}
 }
 
+// TestBcrypt_SessionFromRequest verifies the request-level session accessor
+// that exists for pre-Require callers (e.g. a resource.Config.Resolver running
+// at dispatch time, before Require stamps Session into ctx): it must make the
+// SAME accept/revocation decisions liveSession makes — valid cookie resolves to
+// {UserID, Role}; missing/tampered cookie, and deactivated/role-drifted
+// accounts, all resolve (nil, false).
+func TestBcrypt_SessionFromRequest(t *testing.T) {
+	store := newFakeStore()
+	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
+	a := newBcryptAuth(t, store)
+
+	// No cookie -> (nil, false), and no panic.
+	r := httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	if s, ok := a.SessionFromRequest(r); ok || s != nil {
+		t.Fatalf("expected (nil,false) without cookie, got s=%+v ok=%v", s, ok)
+	}
+
+	c := sessionCookie(loginPOST(a, "op@example.com", "s3cret"))
+	if c == nil {
+		t.Fatal("no session cookie after login")
+	}
+	r = httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	r.AddCookie(c)
+	s, ok := a.SessionFromRequest(r)
+	if !ok || s == nil {
+		t.Fatalf("expected live session, got s=%+v ok=%v", s, ok)
+	}
+	if s.UserID != "u1" || s.Role != "admin" {
+		t.Fatalf("session mismatch: %+v", s)
+	}
+
+	// Tampered signature must not resolve.
+	bad := *c
+	bad.Value = bad.Value[:len(bad.Value)-2] + "zz"
+	r = httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	r.AddCookie(&bad)
+	if s, ok := a.SessionFromRequest(r); ok || s != nil {
+		t.Fatalf("tampered cookie must not resolve, got s=%+v ok=%v", s, ok)
+	}
+
+	// Deactivated after login -> revoked (the liveSession DB re-check).
+	store.deactivate("u1")
+	r = httptest.NewRequest(http.MethodGet, "/admin/x", nil)
+	r.AddCookie(c)
+	if s, ok := a.SessionFromRequest(r); ok || s != nil {
+		t.Fatalf("deactivated account must not resolve, got s=%+v ok=%v", s, ok)
+	}
+}
+
 func TestBcrypt_RequireRedirectsUnauthenticated(t *testing.T) {
 	a := newBcryptAuth(t, newFakeStore())
 	h := a.Require(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
