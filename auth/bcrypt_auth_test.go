@@ -3,6 +3,11 @@ package auth_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -80,8 +85,10 @@ func (f *fakeStore) UpdatePasswordHash(_ context.Context, id, hash string) error
 	if !ok {
 		return auth.ErrAccountNotFound
 	}
+	now := time.Now()
 	cp := *a
 	cp.PasswordHash = hash
+	cp.PasswordChangedAt = &now // mirrors PgxAccountStore: every write stamps the epoch
 	f.byID[id] = &cp
 	f.byEmail[cp.Email] = &cp
 	return nil
@@ -1027,5 +1034,89 @@ func TestBcrypt_LoginLinks_IgnoredWithLoginTempl(t *testing.T) {
 	a.LoginHandler().ServeHTTP(w, r)
 	if strings.Contains(w.Body.String(), "/admin/register") {
 		t.Fatal("LoginLinks leaked into a LoginTempl-overridden page")
+	}
+}
+
+// TestBcrypt_PasswordRotationRevokesSessions: a session cookie minted before
+// UpdatePasswordHash stamps password_changed_at must be denied by the live
+// recheck — rotation is the credential-epoch cut #506 requires.
+func TestBcrypt_PasswordRotationRevokesSessions(t *testing.T) {
+	store := newFakeStore()
+	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
+	a := newBcryptAuth(t, store)
+
+	c := sessionCookie(loginPOST(a, "op@example.com", "s3cret"))
+	if c == nil {
+		t.Fatal("login must issue a session cookie")
+	}
+	probe := a.Require(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req.AddCookie(c)
+	w := httptest.NewRecorder()
+	probe.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("pre-rotation session must be valid, got %d", w.Code)
+	}
+
+	newHash, err := auth.HashPassword("rotated-pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePasswordHash(context.Background(), "u1", newHash); err != nil {
+		t.Fatal(err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req.AddCookie(c)
+	w = httptest.NewRecorder()
+	probe.ServeHTTP(w, req)
+	if w.Code == http.StatusOK {
+		t.Fatal("pre-rotation session must be revoked after password change")
+	}
+	if w := loginPOST(a, "op@example.com", "rotated-pw"); w.Code != http.StatusSeeOther {
+		t.Fatalf("fresh login with the rotated password must work, got %d", w.Code)
+	}
+}
+
+// TestBcrypt_LegacyTokenEpoch: a pre-iat token (no iat claim — issued before
+// the epoch feature shipped) stays valid while password_changed_at is NULL,
+// and is revoked by the first rotation (iat decodes as 0 < stamp).
+func TestBcrypt_LegacyTokenEpoch(t *testing.T) {
+	store := newFakeStore()
+	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
+	a := newBcryptAuth(t, store)
+
+	// Hand-mint a legacy-format token: uid/role/exp/n only, no iat.
+	payload, err := json.Marshal(map[string]any{
+		"uid": "u1", "role": "admin",
+		"exp": time.Now().Add(time.Hour).Unix(), "n": "legacy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(payload)
+	mac := hmac.New(sha256.New, []byte("test-hmac-key-32-bytes-long-here"))
+	mac.Write([]byte(encoded))
+	legacy := &http.Cookie{Name: "panel_admin", Value: encoded + "." + hex.EncodeToString(mac.Sum(nil))}
+
+	probe := a.Require(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req.AddCookie(legacy)
+	w := httptest.NewRecorder()
+	probe.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy token with NULL password_changed_at must stay valid, got %d", w.Code)
+	}
+
+	if err := store.UpdatePasswordHash(context.Background(), "u1", "irrelevant"); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req.AddCookie(legacy)
+	w = httptest.NewRecorder()
+	probe.ServeHTTP(w, req)
+	if w.Code == http.StatusOK {
+		t.Fatal("legacy token must be revoked by the first password rotation")
 	}
 }
