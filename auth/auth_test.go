@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-panel/auth"
+	"github.com/anatolykoptev/go-panel/shell"
 )
 
 func newTestAuth() *auth.HMACAuth {
@@ -323,5 +324,25 @@ func TestLoginHandler_LoginTemplOverride(t *testing.T) {
 
 	if !strings.Contains(w.Body.String(), sentinel) {
 		t.Errorf("LoginTempl override not used; body=%q", w.Body.String())
+	}
+}
+
+// TestHMACAuth_LoginLinks_Render: HMACConfig.LoginLinks threads to the
+// default shell.LoginPage — parity with BcryptConfig.LoginLinks.
+func TestHMACAuth_LoginLinks_Render(t *testing.T) {
+	a := auth.NewHMACAuth(auth.HMACConfig{
+		Username:   "admin",
+		Password:   "secret",
+		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:   "/admin",
+		SessionTTL: time.Hour,
+		LoginLinks: []shell.LoginLink{{Label: "Request access", URL: "/admin/register"}},
+	})
+	r := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `href="/admin/register"`) || !strings.Contains(body, "Request access") {
+		t.Fatalf("login page missing configured link; body=%q", body)
 	}
 }

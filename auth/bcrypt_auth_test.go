@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anatolykoptev/go-panel/auth"
+	"github.com/anatolykoptev/go-panel/shell"
 	"github.com/pquerna/otp/totp"
 )
 
@@ -857,4 +858,174 @@ func newBcryptAuthWithRateLimiter(t *testing.T, store auth.AccountStore, rl auth
 		cfg.TOTPRate = testTOTPRate
 	}
 	return auth.NewBcryptTOTPAuth(cfg)
+}
+
+// --- LoginLinks / LoginFailHint / email normalization (P6 seams) ---
+
+// loginPOSTForm posts arbitrary form fields to the login handler.
+func loginPOSTForm(a *auth.BcryptTOTPAuth, form string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+	return w
+}
+
+// TestBcrypt_LoginEmailNormalized pins MEDIUM-2: verifyPassword lower-trims
+// the email form value before GetByEmail, so a login typed with different
+// case or stray whitespace resolves the same stored (lowercased) account.
+func TestBcrypt_LoginEmailNormalized(t *testing.T) {
+	store := newFakeStore()
+	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
+	a := newBcryptAuth(t, store)
+	w := loginPOSTForm(a, "email=+Op%40Example.COM+&password=s3cret")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect for case/space-variant email, got %d", w.Code)
+	}
+	if sessionCookie(w) == nil {
+		t.Fatal("expected session cookie for normalized email login")
+	}
+}
+
+// TestBcrypt_LoginFailHint_UnknownEmail: on the not-found branch the hint
+// substitutes the generic message and receives the normalized email. The
+// dummy bcrypt compare still runs (elapsed >= bcrypt floor) — the hook is
+// called after it and cannot short-circuit the timing equalization.
+func TestBcrypt_LoginFailHint_UnknownEmail(t *testing.T) {
+	store := newFakeStore()
+	var gotEmail string
+	calls := 0
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:      store,
+		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:   "/admin",
+		SessionTTL: time.Hour,
+		LoginFailHint: func(_ context.Context, email string) (string, bool) {
+			calls++
+			gotEmail = email
+			return "PENDING-APPROVAL-HINT", true
+		},
+	})
+	start := time.Now()
+	w := loginPOSTForm(a, "email=Unknown%40Example.com&password=x")
+	elapsed := time.Since(start)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "PENDING-APPROVAL-HINT") {
+		t.Fatalf("expected hint text in body, got %q", w.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly one hint call, got %d", calls)
+	}
+	if gotEmail != "unknown@example.com" {
+		t.Fatalf("hint must receive the normalized email, got %q", gotEmail)
+	}
+	// bcrypt at DefaultCost takes well over 25ms on any host; a sub-floor
+	// elapsed would mean the dummy compare was skipped (timing oracle).
+	if elapsed < 25*time.Millisecond {
+		t.Fatalf("hint path completed in %v — dummy compare skipped?", elapsed)
+	}
+}
+
+// TestBcrypt_LoginFailHint_FalseKeepsGeneric: (_, false) keeps the generic
+// message — the enumeration boundary is unchanged when the hint declines.
+func TestBcrypt_LoginFailHint_FalseKeepsGeneric(t *testing.T) {
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:      newFakeStore(),
+		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:   "/admin",
+		SessionTTL: time.Hour,
+		LoginFailHint: func(context.Context, string) (string, bool) {
+			return "", false
+		},
+	})
+	w := loginPOSTForm(a, "email=nobody%40example.com&password=x")
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Invalid email or password") {
+		t.Fatalf("expected generic message, got %q", w.Body.String())
+	}
+}
+
+// TestBcrypt_LoginFailHint_NotCalledOnWrongPassword: the hint fires ONLY on
+// the not-found branch — never on a live account's wrong-password failure,
+// so it cannot distinguish a live account from a dead one.
+func TestBcrypt_LoginFailHint_NotCalledOnWrongPassword(t *testing.T) {
+	store := newFakeStore()
+	seedAccount(t, store, "u1", "op@example.com", "s3cret", "admin", true)
+	calls := 0
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:      store,
+		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:   "/admin",
+		SessionTTL: time.Hour,
+		LoginFailHint: func(context.Context, string) (string, bool) {
+			calls++
+			return "PENDING-APPROVAL-HINT", true
+		},
+	})
+	w := loginPOSTForm(a, "email=op%40example.com&password=wrong")
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	if calls != 0 {
+		t.Fatalf("hint must not run on the wrong-password branch, got %d calls", calls)
+	}
+	if !strings.Contains(w.Body.String(), "Invalid email or password") {
+		t.Fatalf("expected generic message, got %q", w.Body.String())
+	}
+}
+
+// TestBcrypt_LoginLinks_Render: configured links render under the login form.
+func TestBcrypt_LoginLinks_Render(t *testing.T) {
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:      newFakeStore(),
+		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:   "/admin",
+		SessionTTL: time.Hour,
+		LoginLinks: []shell.LoginLink{{Label: "Request access", URL: "/admin/register"}},
+	})
+	r := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, `href="/admin/register"`) || !strings.Contains(body, "Request access") {
+		t.Fatalf("login page missing configured link; body=%q", body)
+	}
+}
+
+// TestBcrypt_LoginLinks_NilRendersNone: no links → no links block at all.
+func TestBcrypt_LoginLinks_NilRendersNone(t *testing.T) {
+	a := newBcryptAuth(t, newFakeStore())
+	r := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+	if strings.Contains(w.Body.String(), `<nav class="login-links">`) {
+		t.Fatal("login-links nav rendered with nil LoginLinks")
+	}
+}
+
+// TestBcrypt_LoginLinks_IgnoredWithLoginTempl: a custom LoginTempl owns the
+// whole page — links must not leak into it.
+func TestBcrypt_LoginLinks_IgnoredWithLoginTempl(t *testing.T) {
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{
+		Store:      newFakeStore(),
+		HMACKey:    []byte("test-hmac-key-32-bytes-long-here"),
+		BasePath:   "/admin",
+		SessionTTL: time.Hour,
+		LoginLinks: []shell.LoginLink{{Label: "Request access", URL: "/admin/register"}},
+		LoginTempl: func(string) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("CUSTOM"))
+			})
+		},
+	})
+	r := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	w := httptest.NewRecorder()
+	a.LoginHandler().ServeHTTP(w, r)
+	if strings.Contains(w.Body.String(), "/admin/register") {
+		t.Fatal("LoginLinks leaked into a LoginTempl-overridden page")
+	}
 }
