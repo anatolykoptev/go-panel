@@ -114,6 +114,47 @@ func TestPgxAccountStore_RoundTrip(t *testing.T) {
 // additions: ListAccounts enumerates rows (including inactive) without lifting
 // password hashes, and SetActive flips the flag that gates login/session.
 // Same TEST_DATABASE_URL gate as the round-trip test above.
+func TestPgxAccountStore_CreateAccount_NormalizesEmail(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping PG integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	store := auth.NewPgxAccountStore(pool)
+	if err := store.EnsureSchema(ctx); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS panel_accounts CASCADE")
+	})
+
+	hash, _ := auth.HashPassword("s3cret-pw")
+	id, created, err := store.CreateAccount(ctx, "  Mixed.Case@Example.COM ", "Mx", hash, "user")
+	if err != nil || !created {
+		t.Fatalf("CreateAccount: created=%v err=%v", created, err)
+	}
+
+	var email string
+	if err := pool.QueryRow(ctx, "SELECT email FROM panel_accounts WHERE id = $1", id).Scan(&email); err != nil {
+		t.Fatalf("select email: %v", err)
+	}
+	if email != "mixed.case@example.com" {
+		t.Fatalf("email stored verbatim %q — write seam must normalize so the lower-trimmed login path can reach it", email)
+	}
+
+	// A differently-cased create is the SAME account — no duplicate slips
+	// past the unique index.
+	if _, dup, err := store.CreateAccount(ctx, "MIXED.CASE@example.com", "Dup", hash, "admin"); err != nil || dup {
+		t.Fatalf("case-variant must hit ON CONFLICT (idempotent), got created=%v err=%v", dup, err)
+	}
+}
+
 func TestPgxAccountStore_ListAccountsAndSetActive(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
