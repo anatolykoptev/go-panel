@@ -116,6 +116,7 @@ func Run(cfg Config) error {
 		BearerAuth:                 cfg.BearerAuth,
 		JSONResponse:               true,
 		SessionTimeout:             10 * time.Minute,
+		Stateless:                  new(bool),
 	}
 	return mcpserver.Serve(&mcp.Implementation{
 		Name:    "go-panel",
