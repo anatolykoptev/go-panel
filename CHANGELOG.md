@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.23.13](https://github.com/anatolykoptev/go-panel/compare/v0.23.12...v0.23.13) (2026-10-09)
+
+
+### Added
+
+* **auth,mcp:** export SessionFromRequest, account admin ops, panelmcp TenantResolver ([cd6061c](https://github.com/anatolykoptev/go-panel/commit/cd6061c7bea5939d35528031c08c23f7f3c1b24e))
+* **auth,mcp:** export SessionFromRequest, account admin ops, panelmcp TenantResolver ([c767bdd](https://github.com/anatolykoptev/go-panel/commit/c767bdd1bbd3058c4ff2e0828d559e48f6905e0e))
+* **auth,shell:** login-page links + LoginFailHint seam + email normalization ([2ed6803](https://github.com/anatolykoptev/go-panel/commit/2ed68030c1118f04dabadcbb118f771d7d62e83c))
+* **auth,shell:** login-page links + LoginFailHint seam + email normalization ([685553b](https://github.com/anatolykoptev/go-panel/commit/685553b058cbb7d3d80a8ee3c32c2d69c5c92e08))
+* **auth:** credential-epoch session revocation ([#158](https://github.com/anatolykoptev/go-panel/issues/158)) ([a6ff531](https://github.com/anatolykoptev/go-panel/commit/a6ff5313871ba693e0ec7a6603ca4170805020ba))
+* **resource,auth:** step-up re-auth on TOTP enrollment start+confirm ([285a96d](https://github.com/anatolykoptev/go-panel/commit/285a96d1ee82b26e120bee492ab675f5327ad13e))
+
+
+### Fixed
+
+* **auth:** normalize email at CreateAccount write seam ([c3c7bf0](https://github.com/anatolykoptev/go-panel/commit/c3c7bf0a509854e1fa10bf35c175bd02eec78570))
+* **auth:** normalize email at CreateAccount write seam ([745c90e](https://github.com/anatolykoptev/go-panel/commit/745c90e4e4d0eaeaa99c25f6af80372ccc65813a))
+* **deps:** bump toolchain to go1.26.9 — GO-2026-6617 ([#161](https://github.com/anatolykoptev/go-panel/issues/161)) ([61a9846](https://github.com/anatolykoptev/go-panel/commit/61a98468ca44b7da6232a57945d82d1337739ad6))
+* **mcp:** enable stateful sessions for standalone GET stream ([#160](https://github.com/anatolykoptev/go-panel/issues/160)) ([fcc1966](https://github.com/anatolykoptev/go-panel/commit/fcc1966da86af642a10ab729a216d5f03655e8bf))
+
 ## [0.23.12](https://github.com/anatolykoptev/go-panel/compare/v0.23.11...v0.23.12) (2026-08-22)
 
 
