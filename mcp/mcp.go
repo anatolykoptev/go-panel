@@ -42,7 +42,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"time"
 
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/go-panel/resource"
@@ -103,11 +102,13 @@ func Run(cfg Config) error {
 		logger = slog.Default()
 	}
 
+	// Stateless on purpose: GET /mcp answers 405 + Allow: POST, which rmcp reads as
+	// "no standalone stream". The 2026-10-08 stateful flip assumed that would stop
+	// an SSE error loop; the premise was disproved and it only added session expiry.
 	mcpCfg := mcpserver.Config{
 		Name:                       "go-panel",
 		Version:                    moduleVersion(),
 		Port:                       cfg.Port,
-		KeepAlive:                  30 * time.Second,
 		SchemaCache:                mcp.NewSchemaCache(),
 		DisableLocalhostProtection: true,
 		Context:                    ctx,
@@ -115,8 +116,6 @@ func Run(cfg Config) error {
 		MCPLogger:                  logger,
 		BearerAuth:                 cfg.BearerAuth,
 		JSONResponse:               true,
-		SessionTimeout:             10 * time.Minute,
-		Stateless:                  new(bool),
 	}
 	return mcpserver.Serve(&mcp.Implementation{
 		Name:    "go-panel",
