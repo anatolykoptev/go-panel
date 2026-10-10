@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.14](https://github.com/anatolykoptev/go-panel/compare/v0.23.13...v0.23.14) (2026-10-10)
+
+
+### Fixed
+
+* **mcp:** back to stateless + go-mcpserver v0.21.0 (MCP 2026-07-28) ([#162](https://github.com/anatolykoptev/go-panel/issues/162)) ([40fe03e](https://github.com/anatolykoptev/go-panel/commit/40fe03e6d10ab69f38ed81ba3df7af8c91ffc457))
+
 ## [0.23.13](https://github.com/anatolykoptev/go-panel/compare/v0.23.12...v0.23.13) (2026-10-09)
 
 
