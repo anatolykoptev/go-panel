@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.15](https://github.com/anatolykoptev/go-panel/compare/v0.23.14...v0.23.15) (2026-10-12)
+
+
+### Added
+
+* **auth:** NewMemoryLimiter (hard-capped) + SeedAccount ([#166](https://github.com/anatolykoptev/go-panel/issues/166)) ([a510303](https://github.com/anatolykoptev/go-panel/commit/a5103037a1474093b1f442a38d0bc263dd050fba))
+
 ## [0.23.14](https://github.com/anatolykoptev/go-panel/compare/v0.23.13...v0.23.14) (2026-10-10)
 
 
