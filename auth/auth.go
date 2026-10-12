@@ -3,9 +3,10 @@
 // Two implementations ship:
 //   - HMACAuth — single-user HMAC cookie (ported from go-nerv/internal/admin/auth.go).
 //     Ships in foundations; use for single-operator setups.
-//   - BcryptTOTPAuth — multi-user bcrypt + TOTP + Redis login RL (ported from
-//     oxpulse-admin). Stubbed behind the same Authenticator interface; wire in
-//     Phase 2 when a second editor is needed.
+//   - BcryptTOTPAuth — multi-user bcrypt accounts (AccountStore, PgxAccountStore)
+//     with optional TOTP second factor and an optional pluggable RateLimiter
+//     (e.g. NewMemoryLimiter in-process, or a Redis limiter). Implements the same
+//     Authenticator interface; SeedAccount bootstraps the first operator.
 //
 // # Session cookie format (v2)
 //
