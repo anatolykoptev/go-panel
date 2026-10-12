@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1118,5 +1119,74 @@ func TestBcrypt_LegacyTokenEpoch(t *testing.T) {
 	probe.ServeHTTP(w, req)
 	if w.Code == http.StatusOK {
 		t.Fatal("legacy token must be revoked by the first password rotation")
+	}
+}
+
+// recordingLimiter allows everything and records the keys it was asked about.
+type recordingLimiter struct {
+	mu   sync.Mutex
+	keys []string
+}
+
+func (r *recordingLimiter) Allow(_ context.Context, key string, _ int, _ time.Duration) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.keys = append(r.keys, key)
+	return true, nil
+}
+
+func (r *recordingLimiter) has(prefix string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, k := range r.keys {
+		if strings.HasPrefix(k, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// driveLoginAndMFA runs one password POST then one (wrong-code) MFA POST.
+func driveLoginAndMFA(t *testing.T, cfg auth.BcryptConfig) {
+	t.Helper()
+	store := newFakeTOTPStore()
+	_ = enrollTOTP(t, store, "u1", "op@example.com", "s3cret", "admin")
+	cfg.Store = store
+	cfg.HMACKey = []byte("test-hmac-key-32-bytes-long-here")
+	cfg.BasePath = "/admin"
+	cfg.SessionTTL = time.Hour
+	cfg.TOTPEncryptionKey = testTOTPEncKey
+	cfg.LoginRate = testLoginRate
+	cfg.TOTPRate = testTOTPRate
+	a := auth.NewBcryptTOTPAuth(cfg)
+	mfa := mfaCookie(loginPOST(a, "op@example.com", "s3cret"))
+	if mfa == nil {
+		t.Fatal("expected mfa_pending cookie")
+	}
+	_ = mfaLoginPost(a, mfa, "000000")
+}
+
+func TestBcrypt_TOTPRateLimiter_SeparateInstanceIsolatesTOTPKeys(t *testing.T) {
+	login, totp := &recordingLimiter{}, &recordingLimiter{}
+	driveLoginAndMFA(t, auth.BcryptConfig{RateLimiter: login, TOTPRateLimiter: totp})
+	if !login.has("bcrypt_login:") {
+		t.Error("login limiter never saw a login key")
+	}
+	if login.has("bcrypt_totp:") {
+		t.Error("TOTP key reached the login limiter: a login-IP flood could evict the TOTP lockout")
+	}
+	if !totp.has("bcrypt_totp:") {
+		t.Error("TOTPRateLimiter never saw the TOTP key")
+	}
+	if totp.has("bcrypt_login:") {
+		t.Error("login key reached the TOTP limiter")
+	}
+}
+
+func TestBcrypt_TOTPRateLimiter_NilFallsBackToRateLimiter(t *testing.T) {
+	shared := &recordingLimiter{}
+	driveLoginAndMFA(t, auth.BcryptConfig{RateLimiter: shared})
+	if !shared.has("bcrypt_login:") || !shared.has("bcrypt_totp:") {
+		t.Fatalf("with nil TOTPRateLimiter the single RateLimiter must see both key families, got %v", shared.keys)
 	}
 }

@@ -41,6 +41,7 @@ type BcryptTOTPAuth struct {
 	observer           Observer
 	revocationFailOpen bool
 	rateLimiter        RateLimiter
+	totpLimiter        RateLimiter
 	loginRate          RateRule
 	totpRate           RateRule
 	clientIP           func(*http.Request) string
@@ -91,6 +92,16 @@ type BcryptConfig struct {
 	// matches identity.RateLimiter verbatim (see ratelimit.go), so no adapter
 	// or second limiter implementation is needed.
 	RateLimiter RateLimiter
+	// TOTPRateLimiter throttles TOTP verification and recovery-code
+	// consumption (TOTPRate, keyed per account). Nil (default) falls back to
+	// RateLimiter, so existing configs are unchanged. Set it to a SEPARATE
+	// instance when RateLimiter is a MemoryLimiter: login keys are created by
+	// anyone who can reach the login form, so a flood of spoofed client IPs
+	// could otherwise push the operator's TOTP lockout out of the shared map.
+	// TOTP keys are created only after a correct password, so that map cannot
+	// be flooded by an unauthenticated client. RateLimiter must still be set
+	// when the store supports TOTP.
+	TOTPRateLimiter RateLimiter
 	// LoginRate is the (limit, window) rule applied when RateLimiter is set.
 	// Ignored (and may be left zero) when RateLimiter is nil.
 	LoginRate RateRule
@@ -169,6 +180,10 @@ func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 	if clientIPFn == nil {
 		clientIPFn = defaultClientIP
 	}
+	totpLimiter := cfg.TOTPRateLimiter
+	if totpLimiter == nil {
+		totpLimiter = cfg.RateLimiter
+	}
 	return &BcryptTOTPAuth{
 		store:              cfg.Store,
 		totpStore:          totpStore,
@@ -186,6 +201,7 @@ func NewBcryptTOTPAuth(cfg BcryptConfig) *BcryptTOTPAuth {
 		observer:           obs,
 		revocationFailOpen: cfg.RevocationFailOpen,
 		rateLimiter:        cfg.RateLimiter,
+		totpLimiter:        totpLimiter,
 		loginRate:          cfg.LoginRate,
 		totpRate:           cfg.TOTPRate,
 		clientIP:           clientIPFn,
@@ -490,16 +506,16 @@ func (a *BcryptTOTPAuth) checkRateLimit(w http.ResponseWriter, r *http.Request) 
 	return true
 }
 
-// checkTOTPRate enforces BcryptConfig.RateLimiter/TOTPRate against the
+// checkTOTPRate enforces BcryptConfig.TOTPRateLimiter (else RateLimiter)/TOTPRate against the
 // account ID. FAIL-CLOSED: both an over-quota deny and a limiter error
 // reject the attempt with 429 + Retry-After before the TOTP verification.
 func (a *BcryptTOTPAuth) checkTOTPRate(w http.ResponseWriter, r *http.Request, accountID string) bool {
-	if a.rateLimiter == nil {
+	if a.totpLimiter == nil {
 		return true
 	}
 	start := time.Now()
 	key := rlTOTPAccountPrefix + accountID
-	allowed, err := a.rateLimiter.Allow(r.Context(), key, a.totpRate.Limit, a.totpRate.Window)
+	allowed, err := a.totpLimiter.Allow(r.Context(), key, a.totpRate.Limit, a.totpRate.Window)
 	if err != nil {
 		slog.Error("auth: TOTP rate-limit error — denying (fail-closed)", "err", err)
 		a.observer.Observe(OpBcryptLogin, OutcomeLimiterError, time.Since(start))
