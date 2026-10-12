@@ -28,6 +28,12 @@ const (
 	statusDraft         = "draft"
 )
 
+const (
+	colName     = "name"
+	colCategory = "category"
+	colStatus   = "status"
+)
+
 var staticItems = []resource.Row{
 	{ID: "1", Cells: []resource.Cell{{Value: "Кофейня Симпл"}, {Value: placeTypeCafe}, {Value: statusPublished}}, Href: "/admin/places/1"},
 	{ID: "2", Cells: []resource.Cell{{Value: "Хинкальная Дарьял"}, {Value: placeTypeRestaurant}, {Value: statusPublished}}, Href: "/admin/places/2"},
@@ -62,8 +68,8 @@ func placesLister(_ context.Context, q resource.ListQuery) ([]resource.Row, int,
 func placesFetchRow(_ context.Context, id string) (map[string]string, error) {
 	for _, r := range staticItems {
 		if r.ID == id {
-			out := map[string]string{"name": "", "category": "", "status": ""}
-			for i, col := range []string{"name", "category", "status"} {
+			out := map[string]string{colName: "", colCategory: "", colStatus: ""}
+			for i, col := range []string{colName, colCategory, colStatus} {
 				if i < len(r.Cells) {
 					out[col] = r.Cells[i].Value
 				}
@@ -108,16 +114,16 @@ func main() {
 		Group: "Content",
 		Sort: admintable.Spec{
 			Columns: []admintable.Column{
-				{Key: "name", Label: "Name", Sortable: true, SQLExpr: "p.name"},
-				{Key: "category", Label: "Category", Sortable: true, SQLExpr: "p.category_slug"},
-				{Key: "status", Label: "Status", Sortable: false, SQLExpr: "p.status"},
+				{Key: colName, Label: "Name", Sortable: true, SQLExpr: "p.name"},
+				{Key: colCategory, Label: "Category", Sortable: true, SQLExpr: "p.category_slug"},
+				{Key: colStatus, Label: "Status", Sortable: false, SQLExpr: "p.status"},
 			},
-			DefaultKey: "name",
+			DefaultKey: colName,
 			DefaultDir: admintable.Asc,
 		},
 		Filter: admintable.FilterSpec{Filters: []admintable.Filter{
-			{Key: "status", SQLExpr: "p.status", Match: admintable.Eq, Allowed: []string{"published", "draft"}},
-			{Key: "category", SQLExpr: "p.category_slug", Match: admintable.Eq, Allowed: []string{"cafe", "restaurant", "bar"}},
+			{Key: colStatus, SQLExpr: "p.status", Match: admintable.Eq, Allowed: []string{"published", "draft"}},
+			{Key: colCategory, SQLExpr: "p.category_slug", Match: admintable.Eq, Allowed: []string{"cafe", "restaurant", "bar"}},
 			{Key: "q", SQLExprs: []string{"p.name"}, Match: admintable.ILike},
 		}},
 		Scope:  tenant.Scope{Column: "p.city_slug"},
