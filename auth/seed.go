@@ -8,7 +8,7 @@ import (
 )
 
 // ErrInvalidSeed is returned by SeedAccount for an empty password or an email
-// that is not shaped like local@domain.
+// that is not shaped like local@domain, or an empty (or whitespace-only) role.
 var ErrInvalidSeed = errors.New("auth: invalid seed account input")
 
 // SeedAccount idempotently creates the first (operator) account at boot.
@@ -28,9 +28,19 @@ var ErrInvalidSeed = errors.New("auth: invalid seed account input")
 // NOTHING makes it a no-op: (id "", created false, nil). The id of a
 // deactivated account is not recoverable through AccountStore.
 //
-// Returns the account id and whether this call created it.
+// Role is not validated beyond being non-empty: there is no role registry
+// (RoleOwner is the only constant), so unknown roles are stored as given.
+//
+// Returns the account id and whether this call created it. General contract:
+// id may be EMPTY when created is false. Both a deactivated row and an active
+// row with a NULL password hash miss GetByEmail and then hit ON CONFLICT DO
+// NOTHING in CreateAccount. Callers must not use id unless created is true or
+// the lookup branch returned it.
 func SeedAccount(ctx context.Context, store AccountStore, email, password, name, role string) (id string, created bool, err error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+	if strings.TrimSpace(role) == "" {
+		return "", false, fmt.Errorf("%w: empty role", ErrInvalidSeed)
+	}
 	if password == "" {
 		return "", false, fmt.Errorf("%w: empty password", ErrInvalidSeed)
 	}

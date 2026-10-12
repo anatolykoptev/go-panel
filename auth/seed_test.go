@@ -164,3 +164,16 @@ func TestSeedAccount_UnhashablePasswordAborts(t *testing.T) {
 		t.Fatal("must not create when hashing failed")
 	}
 }
+
+func TestSeedAccount_RejectsEmptyRoleWithoutTouchingStore(t *testing.T) {
+	for _, role := range []string{"", "   ", "\t\n"} {
+		f := &seedFake{}
+		_, created, err := auth.SeedAccount(context.Background(), f, "ops@example.com", "pw", "Ops", role)
+		if !errors.Is(err, auth.ErrInvalidSeed) || created {
+			t.Fatalf("role %q: got (created=%v, err=%v), want ErrInvalidSeed", role, created, err)
+		}
+		if f.getCalls+f.createCalls+f.updateCalls != 0 {
+			t.Fatalf("role %q: store touched", role)
+		}
+	}
+}

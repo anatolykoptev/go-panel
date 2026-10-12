@@ -227,3 +227,49 @@ func TestMemoryLimiter_ConcurrentUse(t *testing.T) {
 		t.Fatalf("allowed = %d, want >= %d", got, limit)
 	}
 }
+
+func TestMemoryLimiter_BlockedKeySurvivesUnderLimitFlood(t *testing.T) {
+	// The blocked key has the SOONEST-ending window, so a plain soonest-first
+	// eviction would drop it first and hand a brute-forcer a fresh counter.
+	l := auth.NewMemoryLimiter(auth.WithClock(newFakeClock().Now), auth.WithMaxKeys(5))
+	mustAllow(t, l, "blocked", 1, time.Minute, true)
+	mustAllow(t, l, "blocked", 1, time.Minute, false)
+	for i := 0; i < 4; i++ {
+		mustAllow(t, l, fmt.Sprintf("seed%d", i), 5, 10*time.Minute, true)
+	}
+	for i := 0; i < 50; i++ {
+		mustAllow(t, l, fmt.Sprintf("flood%d", i), 5, 10*time.Minute, true)
+		if n := l.Len(); n > 5 {
+			t.Fatalf("tracked keys = %d, want <= 5", n)
+		}
+	}
+	mustAllow(t, l, "blocked", 1, time.Minute, false)
+}
+
+func TestMemoryLimiter_AllBlockedEvictsSoonestAndAllowsNewKey(t *testing.T) {
+	l := auth.NewMemoryLimiter(auth.WithClock(newFakeClock().Now), auth.WithMaxKeys(3))
+	for _, k := range []struct {
+		key string
+		win time.Duration
+	}{{"a", time.Minute}, {"b", 5 * time.Minute}, {"c", 10 * time.Minute}} {
+		mustAllow(t, l, k.key, 1, k.win, true) // count == limit: blocked from now on
+	}
+	mustAllow(t, l, "d", 1, time.Hour, true) // new key is never denied
+	if n := l.Len(); n != 3 {
+		t.Fatalf("tracked keys = %d, want 3", n)
+	}
+	mustAllow(t, l, "b", 1, 5*time.Minute, false)
+	mustAllow(t, l, "c", 1, 10*time.Minute, false)
+	mustAllow(t, l, "a", 1, time.Minute, true) // soonest-ending blocked key was the one evicted
+}
+
+func TestMemoryLimiter_NonPositiveWindowFailsClosed(t *testing.T) {
+	l := auth.NewMemoryLimiter(auth.WithClock(newFakeClock().Now))
+	for _, w := range []time.Duration{0, -time.Second} {
+		mustAllow(t, l, "k", 5, w, false)
+		mustAllow(t, l, "k", 5, w, false)
+	}
+	if n := l.Len(); n != 0 {
+		t.Fatalf("tracked keys = %d, want 0 (nothing stored for a rejected rule)", n)
+	}
+}

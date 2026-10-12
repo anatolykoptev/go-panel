@@ -13,6 +13,7 @@ const defaultMemoryLimiterMaxKeys = 10000
 // memWindow is one key's fixed window.
 type memWindow struct {
 	count int
+	limit int       // the limit of the latest Allow call; count >= limit means blocked
 	end   time.Time // the window is over once now >= end
 }
 
@@ -27,14 +28,23 @@ type memWindow struct {
 //
 // Memory is hard-capped (WithMaxKeys, default 10000). A NEW key arriving at the
 // cap first sweeps expired entries, then, if still full, evicts the entry whose
-// window ends soonest. A new key is never denied because the map is full:
-// fail-closed on capacity would let a flood of spoofed keys lock the operator
-// out. The cost is that an evicted key restarts with a fresh window, so under a
-// flood larger than the cap an attacker can reset their own counter; process-
-// local limiting is a brute-force speed bump, not a distributed guarantee.
+// window ends soonest among keys still UNDER their limit, falling back to the
+// soonest-ending key overall only when every key is blocked. Blocked keys are
+// the ones that matter (a brute-forcer's), so they outlive innocent traffic. A
+// new key is never denied because the map is full: fail-closed on capacity
+// would let a flood of spoofed keys lock the operator out. The cost is that an
+// evicted key restarts with a fresh window, so a flood larger than the cap can
+// still reset a counter once every tracked key is blocked; process-local
+// limiting is a brute-force speed bump, not a distributed guarantee.
 //
-// Allow returns ctx.Err() when ctx is done and never errors otherwise. Safe for
-// concurrent use.
+// Use a SEPARATE instance for BcryptConfig.TOTPRateLimiter. Login keys are
+// created by anyone who can reach the login form (spoofed client IPs fill the
+// map), whereas TOTP keys exist only for password holders, so a dedicated TOTP
+// map cannot be flooded by an unauthenticated client.
+//
+// A rule with window <= 0 is rejected fail-closed: Allow returns (false, nil)
+// and stores nothing. limit <= 0 also denies. Allow returns ctx.Err() when ctx
+// is done and never errors otherwise. Safe for concurrent use.
 type MemoryLimiter struct {
 	mu      sync.Mutex
 	hits    map[string]memWindow
@@ -80,6 +90,9 @@ func (l *MemoryLimiter) Allow(ctx context.Context, key string, limit int, window
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	if window <= 0 {
+		return false, nil // a zero-length window would never bind: fail closed
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -93,6 +106,7 @@ func (l *MemoryLimiter) Allow(ctx context.Context, key string, limit int, window
 	if !tracked || !now.Before(w.end) {
 		w = memWindow{end: now.Add(window)}
 	}
+	w.limit = limit
 	allowed := w.count < limit
 	if allowed {
 		w.count++ // denied hits are not counted: no overflow, no window extension
@@ -102,14 +116,16 @@ func (l *MemoryLimiter) Allow(ctx context.Context, key string, limit int, window
 }
 
 // makeRoom frees at least one slot for a new key in a single pass: it drops
-// every expired window and remembers the live window ending soonest; if
-// nothing expired, that one is evicted. Caller holds l.mu.
+// every expired window and tracks two live candidates, the soonest-ending key
+// still under its limit and the soonest-ending key overall. If nothing expired
+// it evicts the under-limit candidate when there is one, else the overall one.
+// Caller holds l.mu.
 func (l *MemoryLimiter) makeRoom(now time.Time) {
 	var (
-		soonestKey string
-		soonestEnd time.Time
-		haveLive   bool
-		swept      bool
+		underKey, anyKey   string
+		underEnd, anyEnd   time.Time
+		haveUnder, haveAny bool
+		swept              bool
 	)
 	for k, w := range l.hits {
 		if !now.Before(w.end) {
@@ -117,11 +133,18 @@ func (l *MemoryLimiter) makeRoom(now time.Time) {
 			swept = true
 			continue
 		}
-		if !haveLive || w.end.Before(soonestEnd) {
-			soonestKey, soonestEnd, haveLive = k, w.end, true
+		if !haveAny || w.end.Before(anyEnd) {
+			anyKey, anyEnd, haveAny = k, w.end, true
+		}
+		if w.count < w.limit && (!haveUnder || w.end.Before(underEnd)) {
+			underKey, underEnd, haveUnder = k, w.end, true
 		}
 	}
-	if !swept && haveLive {
-		delete(l.hits, soonestKey)
+	switch {
+	case swept:
+	case haveUnder:
+		delete(l.hits, underKey)
+	case haveAny:
+		delete(l.hits, anyKey)
 	}
 }
