@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.17](https://github.com/anatolykoptev/go-panel/compare/v0.23.16...v0.23.17) (2026-10-15)
+
+
+### Added
+
+* localisable chrome strings, filter group captions, profile display name ([#172](https://github.com/anatolykoptev/go-panel/issues/172)) ([7b4095b](https://github.com/anatolykoptev/go-panel/commit/7b4095b54b321a3759e590ce3636907108b1c178))
+
 ## [0.23.16](https://github.com/anatolykoptev/go-panel/compare/v0.23.15...v0.23.16) (2026-10-15)
 
 
