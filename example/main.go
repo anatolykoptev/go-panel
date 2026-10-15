@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"log/slog"
 	"net/http"
 	"os"
@@ -37,7 +38,7 @@ const (
 var staticItems = []resource.Row{
 	{ID: "1", Cells: []resource.Cell{{Value: "Кофейня Симпл"}, {Value: placeTypeCafe}, {Value: statusPublished}}, Href: "/admin/places/1"},
 	{ID: "2", Cells: []resource.Cell{{Value: "Хинкальная Дарьял"}, {Value: placeTypeRestaurant}, {Value: statusPublished}}, Href: "/admin/places/2"},
-	{ID: "3", Cells: []resource.Cell{{Value: "Бар Голубка"}, {Value: placeTypeBar}, {Value: statusDraft}}},
+	{ID: "3", Emphasis: true, Cells: []resource.Cell{{Value: "Бар Голубка"}, {Value: placeTypeBar}, {Value: statusDraft}}},
 	{ID: "4", Cells: []resource.Cell{{Value: "Пиццерия Дио Мио"}, {Value: placeTypeRestaurant}, {Value: statusPublished}}},
 	{ID: "5", Cells: []resource.Cell{{Value: "Кафе-бар Street Food"}, {Value: placeTypeCafe}, {Value: statusPublished}}},
 }
@@ -91,19 +92,44 @@ func main() {
 	username := "admin"
 	password := "demo"
 
+	p := buildPanel([]byte(hmacKey), username, password)
+
+	mux := http.NewServeMux()
+	mux.Handle("/admin/", p.Handler())
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin/", http.StatusFound)
+	})
+
+	addr := ":8080"
+	logger.Info("go-panel example listening", "addr", addr, "username", username, "password", password)
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	if err := srv.ListenAndServe(); err != nil {
+		logger.Error("server failed", "err", err)
+		os.Exit(1)
+	}
+}
+
+// buildPanel assembles the demo panel: the places resource plus the component
+// showcase page. Split out of main so the showcase can be tested end to end.
+func buildPanel(hmacKey []byte, username, password string) *resource.Panel {
 	a := auth.NewHMACAuth(auth.HMACConfig{
 		Username:   username,
 		Password:   password,
-		HMACKey:    []byte(hmacKey),
+		HMACKey:    hmacKey,
 		BasePath:   "/admin",
 		SessionTTL: 12 * time.Hour,
 		Secure:     false, // dev only — set true in prod behind TLS
 	})
 
+	// The CSRF key is a separate secret from the session HMAC key; the demo
+	// derives it so one env var is enough. A real deployment sets its own.
+	csrfKey := sha256.Sum256(append([]byte("go-panel-example-csrf:"), hmacKey...))
+
 	p := resource.New(resource.Config{
 		Title:    "go-panel demo",
 		BasePath: "/admin",
 		Auth:     a,
+		CSRFKey:  csrfKey[:],
 		Resolver: tenant.PathResolver{Segment: 2},
 	})
 
@@ -121,6 +147,9 @@ func main() {
 			DefaultKey: colName,
 			DefaultDir: admintable.Asc,
 		},
+		FilterLabels: map[string]map[string]string{
+			colStatus: {statusPublished: "Published", statusDraft: "Draft"},
+		},
 		Filter: admintable.FilterSpec{Filters: []admintable.Filter{
 			{Key: colStatus, SQLExpr: "p.status", Match: admintable.Eq, Allowed: []string{"published", "draft"}},
 			{Key: colCategory, SQLExpr: "p.category_slug", Match: admintable.Eq, Allowed: []string{"cafe", "restaurant", "bar"}},
@@ -135,17 +164,6 @@ func main() {
 
 	resource.Register(p, placesResource)
 
-	mux := http.NewServeMux()
-	mux.Handle("/admin/", p.Handler())
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/admin/", http.StatusFound)
-	})
-
-	addr := ":8080"
-	logger.Info("go-panel example listening", "addr", addr, "username", username, "password", password)
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	if err := srv.ListenAndServe(); err != nil {
-		logger.Error("server failed", "err", err)
-		os.Exit(1)
-	}
+	mountShowcase(p)
+	return p
 }

@@ -1,0 +1,182 @@
+package main
+
+import "github.com/anatolykoptev/go-panel/components"
+
+// showcaseData is everything the showcase page needs, assembled per request so
+// each POST control carries a freshly issued CSRF token.
+type showcaseData struct {
+	Token string
+}
+
+func post(d showcaseData, url string) *components.PostAction {
+	return &components.PostAction{URL: url, Token: d.Token}
+}
+
+func showcaseQueue(d showcaseData) []components.QueueRow {
+	return []components.QueueRow{
+		{
+			ID: "q-1", Badge: "New", BadgeTone: components.ToneOrange, Meta: "not opened · 3 h",
+			Title: "Anna Belova", Subtitle: "Coffee shop", Href: showcasePath,
+			Secondary: "30 000 · from page «Best coffee shops»",
+			Actions: []components.RowAction{
+				{Label: "Open", Variant: components.VariantGhost, Href: showcasePath},
+				{Label: "Take", Variant: components.VariantPrimary, Post: post(d, "/admin/showcase/take")},
+			},
+		},
+		{
+			ID: "q-2", Badge: "Overdue 5 h", BadgeTone: components.ToneRed, Meta: "lead from 12 Oct",
+			Title: "Denis Orlov", Subtitle: "Barbershop",
+			Secondary: "Taken · follow up by 14 Oct 13:00",
+			Actions: []components.RowAction{
+				{Label: "Reschedule", Variant: components.VariantSecondary, Href: showcasePath},
+				{Label: "Call", Variant: components.VariantPrimary, Href: "tel:+10000000000"},
+			},
+		},
+		{
+			ID: "q-3", Badge: "In 9 days", BadgeTone: components.ToneYellow, Meta: "placement",
+			Title: "Fitness Atlant", Subtitle: "Top-2 dentists",
+			Secondary: "Placed until 23 Oct · 60 000",
+			Actions:   []components.RowAction{{Label: "Renew", Variant: components.VariantPrimary, Href: showcasePath}},
+		},
+	}
+}
+
+func showcaseKPIs() []components.KPI {
+	return []components.KPI{
+		{Label: "Revenue, month", Value: "184 600", Delta: "12%", Trend: components.TrendUp, Note: "vs September"},
+		{Label: "Leads, month", Value: "15", Delta: "3", Trend: components.TrendUp, Note: "conversion 13%"},
+		{Label: "Slots taken", Value: "4 / 24", Delta: "1 slot", Trend: components.TrendDown},
+		{Label: "Ad clicks", Value: "1 280", Delta: "8%", Trend: components.TrendUp, Note: "vs September", Spark: []int{3, 5, 4, 7, 6, 9}},
+	}
+}
+
+func showcaseFunnel() components.Funnel {
+	return components.Funnel{
+		Bars: []components.FunnelBar{
+			{Label: "New", Count: 4, Percent: 27, Tone: components.ToneOrange},
+			{Label: labelWorking, Count: 4, Percent: 27, Tone: components.ToneBlue},
+			{Label: "Negotiating", Count: 3, Percent: 20, Tone: components.TonePurple},
+			{Label: "Placed", Count: 2, Percent: 13, Tone: components.ToneGreen},
+			{Label: "Lost", Count: 2, Percent: 13, Tone: components.ToneGray},
+		},
+		Note: "Conversion New → Placed: 13% (2 of 15)",
+	}
+}
+
+func showcaseStepper(d showcaseData) components.Stepper {
+	step := func(label string, st components.StepState, tone components.Tone, slug string) components.Step {
+		return components.Step{Label: label, State: st, Tone: tone, Post: post(d, "/admin/showcase/status/"+slug)}
+	}
+	lost := step("Lost", components.StepUpcoming, components.ToneGray, "lost")
+	return components.Stepper{
+		Label: "Lead status",
+		Steps: []components.Step{
+			step("New", components.StepDone, components.ToneOrange, "new"),
+			step(labelWorking, components.StepDone, components.ToneBlue, "working"),
+			step("Negotiating", components.StepCurrent, components.TonePurple, "negotiating"),
+			step("Placed", components.StepNext, components.ToneGreen, "placed"),
+		},
+		Terminal: &lost,
+		Hint:     "Next step: Placed — books the slots",
+	}
+}
+
+func showcaseTimeline() []components.TimelineItem {
+	return []components.TimelineItem{
+		{Kind: components.TimelineNote, Label: "Note", Body: "Sent the proposal by e-mail, waiting for accounting.", Author: "op", Time: "14 Oct, 21:54"},
+		{Kind: components.TimelineStatus, Label: "Status change",
+			From: components.TimelineChip{Label: labelWorking, Tone: components.ToneBlue},
+			To:   components.TimelineChip{Label: "Negotiating", Tone: components.TonePurple}, Author: "op", Time: "14 Oct, 19:54"},
+		{Kind: components.TimelineStatus, Label: "Status change",
+			From: components.TimelineChip{Label: "New", Tone: components.ToneOrange},
+			To:   components.TimelineChip{Label: labelWorking, Tone: components.ToneBlue}, Author: "op", Time: "13 Oct, 20:54"},
+		{Kind: components.TimelineEvent, Body: "Lead received", Time: "13 Oct, 19:54"},
+	}
+}
+
+templ section(title string) {
+	<section style="margin-bottom:2rem">
+		<h3 class="detail-section-title">{ title }</h3>
+		{ children... }
+	</section>
+}
+
+// Showcase renders every redesign component so a reviewer can look at them in
+// both themes and at phone width: /admin/showcase/.
+templ Showcase(d showcaseData) {
+	<div class="page-header">
+		<h2>Component showcase</h2>
+		<p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline</p>
+	</div>
+	@section("Buttons") {
+		<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+			<button type="button" class="btn btn-primary">Primary</button>
+			<button type="button" class="btn btn-secondary">Secondary</button>
+			<button type="button" class="btn btn-ghost">Ghost</button>
+			<button type="button" class="btn btn-danger">Danger</button>
+			<button type="button" class="btn btn-primary btn-sm">Small</button>
+			<button type="button" class="btn btn-primary btn-lg">Large</button>
+			<button type="button" class="btn btn-primary" disabled>Disabled</button>
+			<a class="btn btn-secondary" href={ showcasePath }>As link</a>
+		</div>
+	}
+	@section("Chips") {
+		<div style="display:flex;gap:.5rem;flex-wrap:wrap">
+			<span class="badge badge-orange">New</span>
+			<span class="badge badge-blue">Working</span>
+			<span class="badge badge-purple">Negotiating</span>
+			<span class="badge badge-green">Placed</span>
+			<span class="badge badge-gray">Lost</span>
+			<span class="badge badge-red">Overdue</span>
+			<span class="badge badge-yellow">In 9 days</span>
+		</div>
+	}
+	@section("KPI strip") {
+		@components.KPIStrip(showcaseKPIs())
+	}
+	@section("Queue") {
+		<div class="detail-section" style="padding:0">
+			@components.QueueList(showcaseQueue(d))
+		</div>
+	}
+	@section("Funnel") {
+		<div class="detail-section">
+			@components.FunnelView(showcaseFunnel())
+		</div>
+	}
+	@section("Stepper") {
+		<div class="detail-section">
+			@components.StepperView(showcaseStepper(d))
+		</div>
+	}
+	@section("Timeline") {
+		<div class="detail-section">
+			@components.Timeline(showcaseTimeline())
+		</div>
+	}
+	@section("Definition list") {
+		<div class="detail-section">
+			<dl class="dl-compact">
+				<div><dt>Created</dt><dd>13.10.2026 19:54</dd></div>
+				<div><dt>Source</dt><dd>example.org</dd></div>
+				<div><dt>Client</dt><dd>not created</dd></div>
+			</dl>
+		</div>
+	}
+	@section("Form controls") {
+		<div class="detail-section" style="max-width:32rem">
+			<div style="margin-bottom:1rem"><label for="sc-status" style="display:block;margin-bottom:.375rem">Status</label>
+				<select id="sc-status" class="pm7-input">
+					<option>New</option>
+					<option selected>Working</option>
+					<option>Negotiating</option>
+				</select></div>
+			<div style="margin-bottom:1rem"><label for="sc-name" style="display:block;margin-bottom:.375rem">Name</label>
+				<input id="sc-name" class="pm7-input" type="text" value="Anna Belova" placeholder="Name"/></div>
+			<div style="margin-bottom:1rem"><label for="sc-when" style="display:block;margin-bottom:.375rem">Follow up by</label>
+				<input id="sc-when" class="pm7-input" type="datetime-local" value="2026-10-15T12:00"/></div>
+			<div><label for="sc-note" style="display:block;margin-bottom:.375rem">Note</label>
+				<textarea id="sc-note" class="pm7-input" rows="3" placeholder="Note for the team">Called, asked for a proposal.</textarea></div>
+		</div>
+	}
+}

@@ -120,6 +120,13 @@ templ layoutStyles() {
 			--accent-light:#1e40af;
 			--green-light:#065f46;
 			--red-light:#991b1b;
+			--orange-light:#9a3412;
+			--purple-light:#5b21b6;
+			--yellow-light:#92400e;
+			--btn-primary-bg:#2563eb;
+			--btn-primary-hover:#1d4ed8;
+			--btn-danger-bg:#b91c1c;
+			--btn-danger-hover:#991b1b;
 			--badge-gray-fg:#4f5b6b;
 			--row-hover-bg:rgba(59,130,246,.07);
 			--overlay-bg:rgba(0,0,0,.4);
@@ -187,6 +194,14 @@ templ layoutStyles() {
 			--accent-light:#93c5fd;
 			--green-light:#6ee7b7;
 			--red-light:#fca5a5;
+			--orange-light:#fdba74;
+			--purple-light:#c4b5fd;
+			--yellow-light:#fcd34d;
+			--btn-primary-bg:#2563eb;
+			--btn-primary-hover:#1d4ed8;
+			--btn-danger-bg:#b91c1c;
+			--btn-danger-hover:#991b1b;
+			--pm7-input:var(--bg-deep);
 			--badge-gray-fg:#9dafc8;
 			--row-hover-bg:rgba(59,130,246,.06);
 			--overlay-bg:rgba(0,0,0,.5);
@@ -303,6 +318,9 @@ templ layoutStyles() {
 		.badge-green{background:var(--green-dim);color:var(--green-light)}
 		.badge-red{background:var(--red-dim);color:var(--red-light)}
 		.badge-gray{background:var(--bg-elevated);color:var(--badge-gray-fg);border:1px solid var(--border-subtle)}
+		.badge-orange{background:var(--orange-dim);color:var(--orange-light)}
+		.badge-purple{background:var(--purple-dim);color:var(--purple-light)}
+		.badge-yellow{background:var(--yellow-dim);color:var(--yellow-light)}
 		/* A resource with many columns produces a table wider than the
 		   viewport — the header row alone sets a floor, because every th is
 		   white-space:nowrap and cannot wrap. Without a scroll container that
@@ -518,5 +536,144 @@ templ layoutStyles() {
 		.sparkline{vertical-align:middle;display:inline-block}
 		.sparkline-line{stroke:var(--accent);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
 		.sparkline-zero{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
+		/* ── Colour scheme + form controls ─────────────────────────────────────
+		   pm7.css paints .pm7-input with --pm7-input and --pm7-foreground. The
+		   light palette sets --pm7-input:#fff on bare :root; :root.dark did not
+		   override it, so in the dark theme a select/input/textarea/datetime-local
+		   rendered pale text on a white fill. The dark block now sets --pm7-input,
+		   and the rules below pin fill, text and border to go-panel tokens so the
+		   control no longer depends on which pm7 token happens to be defined.
+		   color-scheme makes the native pieces (datetime picker icon, select
+		   popup, scrollbars) follow the cookie theme instead of the OS. */
+		:root{color-scheme:light}
+		:root.dark{color-scheme:dark}
+		input.pm7-input,select.pm7-input,textarea.pm7-input{background-color:var(--bg-deep);color:var(--text-primary);border-color:var(--border)}
+		input.pm7-input::placeholder,textarea.pm7-input::placeholder{color:var(--text-secondary)}
+		select.pm7-input{padding-right:2rem;background-image:linear-gradient(45deg,transparent 50%,var(--text-secondary) 50%),linear-gradient(135deg,var(--text-secondary) 50%,transparent 50%);background-position:calc(100% - 1.0625rem) 50%,calc(100% - .75rem) 50%;background-size:.3125rem .3125rem;background-repeat:no-repeat}
+		select.pm7-input option{background-color:var(--bg-surface);color:var(--text-primary)}
+		input.pm7-input:focus-visible,select.pm7-input:focus-visible,textarea.pm7-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+		/* ── Tone: one set of custom properties shared by funnel bars, stepper
+		   steps and timeline dots. A closed enum (components.Tone) maps to these
+		   class names — callers never pass a class string. */
+		.tone-neutral,.tone-gray{--tone-bg:var(--bg-elevated);--tone-fg:var(--badge-gray-fg);--tone-line:var(--text-muted)}
+		.tone-blue{--tone-bg:var(--accent-dim);--tone-fg:var(--accent-light);--tone-line:var(--accent)}
+		.tone-green{--tone-bg:var(--green-dim);--tone-fg:var(--green-light);--tone-line:var(--green)}
+		.tone-red{--tone-bg:var(--red-dim);--tone-fg:var(--red-light);--tone-line:var(--red)}
+		.tone-orange{--tone-bg:var(--orange-dim);--tone-fg:var(--orange-light);--tone-line:var(--orange)}
+		.tone-purple{--tone-bg:var(--purple-dim);--tone-fg:var(--purple-light);--tone-line:var(--purple)}
+		.tone-yellow{--tone-bg:var(--yellow-dim);--tone-fg:var(--yellow-light);--tone-line:var(--yellow)}
+		/* ── Buttons: .btn + one variant. White text sits on --btn-primary-bg /
+		   --btn-danger-bg (both >= 5:1), not on --accent (3.7:1). */
+		.btn{display:inline-flex;align-items:center;justify-content:center;gap:.375rem;min-height:2.25rem;padding:.375rem .875rem;border-radius:var(--radius);border:1px solid transparent;background:transparent;color:var(--text-primary);font-family:inherit;font-size:.8125rem;font-weight:600;line-height:1.2;text-decoration:none;white-space:nowrap;cursor:pointer;transition:background-color .15s ease-out,border-color .15s ease-out,color .15s ease-out}
+		.btn:hover{opacity:1}
+		.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+		.btn-primary{background:var(--btn-primary-bg);color:#fff}
+		.btn-primary:hover{background:var(--btn-primary-hover)}
+		.btn-secondary{background:transparent;color:var(--text-primary);border-color:var(--border)}
+		.btn-secondary:hover{background:var(--bg-elevated);border-color:var(--text-muted)}
+		.btn-ghost{background:transparent;color:var(--accent-link)}
+		.btn-ghost:hover{background:var(--accent-glow)}
+		.btn-danger{background:var(--btn-danger-bg);color:#fff}
+		.btn-danger:hover{background:var(--btn-danger-hover)}
+		.btn-sm{min-height:1.75rem;padding:.1875rem .625rem;font-size:.75rem}
+		.btn-lg{min-height:2.75rem;padding:.5rem 1.125rem;font-size:.875rem}
+		.btn-block{display:flex;width:100%}
+		.btn:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed;pointer-events:none}
+		@media(prefers-reduced-motion:reduce){.btn{transition:none}}
+		/* ── Definition list: mono 11px label over a 14px value. */
+		.dl-compact{display:flex;flex-direction:column;gap:.75rem;margin:0}
+		.dl-compact>div{display:flex;flex-direction:column;gap:.125rem;min-width:0}
+		.dl-compact dt{font-family:var(--font-mono);font-size:.6875rem;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary)}
+		.dl-compact dd{margin:0;font-size:.875rem;color:var(--text-primary);overflow-wrap:anywhere}
+		/* ── Queue row (components.QueueRow): marker | main | actions. */
+		.queue-list{display:flex;flex-direction:column}
+		.queue-row{display:grid;grid-template-columns:9.5rem minmax(0,1fr) auto;gap:1rem;align-items:center;min-height:4.5rem;padding:.75rem 1rem;border-bottom:1px solid var(--border-subtle)}
+		.queue-row:last-child{border-bottom:0}
+		.queue-marker{display:flex;flex-direction:column;align-items:flex-start;gap:.25rem;min-width:0}
+		.queue-meta{font-size:.75rem;color:var(--text-secondary)}
+		.queue-main{min-width:0}
+		.queue-title{font-weight:600;font-size:.875rem;color:var(--text-primary)}
+		a.queue-title:hover{text-decoration:underline}
+		.queue-subtitle{margin-left:.5rem;font-size:.8125rem;color:var(--text-secondary)}
+		.queue-secondary{margin-top:.125rem;font-size:.8125rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+		.queue-actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:flex-end}
+		.queue-actions form{margin:0}
+		/* ── Funnel (components.Funnel): label + count + share, then the bar. */
+		.funnel{display:flex;flex-direction:column;gap:.875rem;margin:0;padding:0;list-style:none}
+		.funnel-head{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;font-size:.8125rem;color:var(--text-primary)}
+		.funnel-count{font-family:var(--font-mono);font-weight:600}
+		.funnel-pct{margin-left:.5rem;font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary)}
+		.funnel-track{height:.375rem;margin-top:.3125rem;border-radius:9999px;background:var(--bg-elevated);overflow:hidden}
+		.funnel-bar{height:100%;border-radius:9999px;background:var(--tone-line)}
+		.funnel-note{margin-top:.75rem;font-size:.75rem;color:var(--text-secondary)}
+		/* ── Stepper (components.Stepper): lifecycle steps + a detached terminal step. */
+		.stepper{display:flex;align-items:center;gap:0;flex-wrap:wrap;row-gap:.5rem}
+		.stepper-item{display:flex;align-items:center}
+		.stepper-item+.stepper-item::before{content:"";display:block;width:1rem;height:1px;background:var(--border)}
+		.stepper-item form{margin:0}
+		.stepper-sep{width:1px;align-self:stretch;min-height:1.75rem;margin:0 .75rem;background:var(--border)}
+		.stepper-step{position:relative;display:inline-flex;align-items:center;gap:.375rem;min-height:2.25rem;padding:.375rem .875rem;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-family:inherit;font-size:.8125rem;line-height:1.2;white-space:nowrap}
+		button.stepper-step{cursor:pointer}
+		button.stepper-step:hover{border-color:var(--text-muted);color:var(--text-primary)}
+		button.stepper-step:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+		.stepper-step.is-done{color:var(--text-secondary)}
+		.stepper-step.is-current{background:var(--tone-bg);color:var(--tone-fg);border-color:var(--tone-line);font-weight:700}
+		.stepper-step.is-next{border-color:var(--accent);color:var(--accent-link);font-weight:600}
+		.stepper-glyph{font-size:.875rem}
+		.stepper-state{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+		.stepper-hint{margin-top:.5rem;font-size:.8125rem;color:var(--text-secondary)}
+		/* ── Timeline (components.Timeline): dot + 1px line, caller orders newest first. */
+		.timeline{list-style:none;margin:0;padding:0}
+		.timeline-item{position:relative;padding:0 0 1rem 1.75rem}
+		.timeline-item::before{content:"";position:absolute;left:.1875rem;top:.4375rem;width:.5625rem;height:.5625rem;border-radius:50%;background:var(--text-muted)}
+		.timeline-item::after{content:"";position:absolute;left:.4375rem;top:1.1875rem;bottom:-.3125rem;width:1px;background:var(--border)}
+		.timeline-item:last-child{padding-bottom:0}
+		.timeline-item:last-child::after{display:none}
+		.timeline-event::before{background:var(--accent)}
+		.timeline-body{font-size:.875rem;color:var(--text-primary);overflow-wrap:anywhere;white-space:pre-wrap}
+		.timeline-change{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+		.timeline-arrow{color:var(--text-secondary)}
+		.timeline-meta{margin-top:.1875rem;font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary)}
+		/* ── KPI strip (components.KPIStrip): one bordered container, divided cells.
+		   Delta is arrow + text + colour; colour alone never carries direction. */
+		.kpi-strip{display:flex;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-surface);overflow:hidden;margin-bottom:1.25rem}
+		.kpi-cell{flex:1 1 0;min-width:0;padding:1rem 1.25rem;border-left:1px solid var(--border-subtle)}
+		.kpi-cell:first-child{border-left:0}
+		.kpi-label{font-family:var(--font-mono);font-size:.6875rem;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary)}
+		.kpi-value{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-top:.25rem;font-family:var(--font-mono);font-size:1.75rem;font-weight:700;line-height:1.2;color:var(--text-primary)}
+		.kpi-delta{margin-top:.25rem;font-size:.75rem;font-weight:600;color:var(--text-secondary)}
+		.kpi-delta-up{color:var(--green-light)}
+		.kpi-delta-down{color:var(--red-light)}
+		.kpi-delta-new{color:var(--accent-light)}
+		.kpi-note{font-weight:400;color:var(--text-secondary)}
+		/* ── Emphasised list row (resource.Row.Emphasis). Weight, not colour. */
+		.crm-table tbody tr.row-emphasis>td{font-weight:600;color:var(--text-primary)}
+		/* ── Narrow screens. */
+		@media(max-width:767px){
+			.btn{min-height:2.75rem}
+			.btn-sm{min-height:2.25rem}
+			.queue-row{grid-template-columns:minmax(0,1fr);gap:.5rem}
+			.queue-secondary{white-space:normal}
+			.queue-actions{justify-content:stretch}
+			.queue-actions form,.queue-actions>.btn{flex:1 1 0}
+			.queue-actions .btn{width:100%}
+			.stepper{flex-wrap:nowrap;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:.25rem}
+			.stepper-item,.stepper-sep{flex:0 0 auto;scroll-snap-align:center}
+			.stepper-step{min-height:2.75rem}
+			.kpi-strip{overflow-x:auto;scroll-snap-type:x mandatory}
+			.kpi-cell{flex:0 0 70%;scroll-snap-align:start}
+			/* List tables degrade to stacked cards: each row is a card, each cell
+			   reads "Label: value". The header row stays (as a wrapped line of sort
+			   links) so sorting keeps working. Opt-in per table via the data-stack attribute (the class list stays exactly "crm-table"). */
+			.crm-table[data-stack]{display:block;background:transparent;border:0;border-radius:0}
+			.crm-table[data-stack] thead,.crm-table[data-stack] tbody{display:block}
+			.crm-table[data-stack] thead tr{display:flex;flex-wrap:wrap;gap:.25rem 1rem;padding:.25rem .25rem .5rem}
+			.crm-table[data-stack] thead th,.crm-table[data-stack] thead th:first-child{display:block;padding:0;border:0;background:transparent;width:auto!important}
+			.crm-table[data-stack] tbody tr{display:block;margin-bottom:.625rem;padding:.375rem 0;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
+			.crm-table[data-stack] td,.crm-table[data-stack] td:first-child{display:block;padding:.3125rem 1rem;border-bottom:0;text-align:left!important}
+			.crm-table[data-stack] td[data-label]:not([data-label=""])::before{content:attr(data-label) ": ";font-family:var(--font-mono);font-size:.6875rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary)}
+			.crm-table[data-stack] td[colspan]{padding:1rem}
+			.crm-table[data-stack] td[colspan]::before{content:none}
+		}
 	</style>
 }

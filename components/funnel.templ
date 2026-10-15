@@ -1,0 +1,75 @@
+package components
+
+import (
+	"fmt"
+	"strconv"
+)
+
+// FunnelBar is one labelled bar. Count is the absolute number; Percent is the
+// share the caller wants printed (the caller owns the denominator — a window,
+// a total, a previous stage). Tone picks the bar colour.
+type FunnelBar struct {
+	Label   string
+	Count   int
+	Percent int
+	Tone    Tone
+}
+
+// Funnel renders labelled bars. Bar length is Count relative to the largest
+// Count in the set (a non-zero Count always shows at least a sliver), so the
+// shape is comparable between bars; the text beside it carries the exact
+// numbers, and each bar is role="img" with an aria-label — colour and length
+// are never the only carrier. Note, when non-empty, is a footnote line.
+type Funnel struct {
+	Bars []FunnelBar
+	Note string
+}
+
+const funnelMinWidthPct = 2
+
+func funnelMax(bars []FunnelBar) int {
+	m := 0
+	for _, b := range bars {
+		m = max(m, b.Count)
+	}
+	return m
+}
+
+// funnelWidth is the bar width percent, clamped to [0,100].
+func funnelWidth(count, maxCount int) int {
+	if count <= 0 || maxCount <= 0 {
+		return 0
+	}
+	w := count * 100 / maxCount
+	return min(100, max(funnelMinWidthPct, w))
+}
+
+func funnelStyle(w int) templ.SafeCSS {
+	return templ.SafeCSS("width:" + strconv.Itoa(w) + "%")
+}
+
+func funnelAria(b FunnelBar) string {
+	return fmt.Sprintf("%s: %d (%d%%)", b.Label, b.Count, b.Percent)
+}
+
+templ FunnelView(f Funnel) {
+	{{ maxCount := funnelMax(f.Bars) }}
+	<div>
+		<ul class="funnel">
+			for _, b := range f.Bars {
+				<li>
+					<div class="funnel-head">
+						<span>{ b.Label }</span>
+						<span><span class="funnel-count">{ strconv.Itoa(b.Count) }</span><span class="funnel-pct">{ strconv.Itoa(b.Percent) }%</span></span>
+					</div>
+					<div class="funnel-track">
+						<div class={ "funnel-bar", toneClass(b.Tone) } style={ funnelStyle(funnelWidth(b.Count, maxCount)) } role="img" aria-label={ funnelAria(b) }></div>
+					</div>
+				</li>
+			}
+		</ul>
+		if f.Note != "" {
+			<p class="funnel-note">{ f.Note }</p>
+		}
+	</div>
+}

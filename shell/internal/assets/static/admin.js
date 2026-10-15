@@ -600,6 +600,22 @@
   document.addEventListener('htmx:afterSwap',function(e){
     armUndoTimers(e.target && e.target.parentNode ? e.target.parentNode : document);
   });
+  // Stepper — on narrow screens the steps scroll horizontally inside .stepper;
+  // bring the current step to the middle of its own box. Scrolls the container,
+  // not the page (scrollIntoView would also move the document).
+  function centerSteppers(root){
+    var cur=root.querySelectorAll('.stepper [aria-current="step"]');
+    for(var i=0;i<cur.length;i++){
+      var box=cur[i].closest('.stepper');
+      if(!box||box.scrollWidth<=box.clientWidth) continue;
+      var b=box.getBoundingClientRect(), c=cur[i].getBoundingClientRect();
+      box.scrollLeft+=(c.left+c.width/2)-(b.left+b.width/2);
+    }
+  }
+  centerSteppers(document);
+  document.addEventListener('htmx:afterSwap',function(e){
+    centerSteppers(e.target&&e.target.parentNode?e.target.parentNode:document);
+  });
   // Esc — close drawer and return focus to hamburger.
   document.addEventListener('keydown',function(e){
     if(e.key!=='Escape') return;

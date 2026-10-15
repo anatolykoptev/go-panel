@@ -1,0 +1,29 @@
+package components
+
+// postFields renders the hidden inputs a POST action carries: the CSRF token
+// (only when non-empty) followed by the caller's extra fields.
+templ postFields(p PostAction) {
+	if p.Token != "" {
+		<input type="hidden" name={ CSRFField } value={ p.Token }/>
+	}
+	for _, f := range p.Fields {
+		<input type="hidden" name={ f.Name } value={ f.Value }/>
+	}
+}
+
+// postAttrs is the htmx enhancement of a POST form. Empty Target/Swap fall back
+// to the supplied defaults.
+func postAttrs(p PostAction, defTarget string) templ.Attributes {
+	target, swap := p.Target, p.Swap
+	if target == "" {
+		target = defTarget
+	}
+	if swap == "" {
+		swap = "outerHTML"
+	}
+	a := templ.Attributes{"hx-post": p.URL, "hx-swap": swap}
+	if target != "" {
+		a["hx-target"] = target
+	}
+	return a
+}

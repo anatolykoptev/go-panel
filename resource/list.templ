@@ -101,6 +101,25 @@ func viewsLabel(r Resource) string {
 	return "view"
 }
 
+// filterChipLabel is the chip text for an Allowed filter value: the label from
+// Resource.FilterLabels when declared, otherwise the submitted value itself.
+func filterChipLabel(r Resource, key, value string) string {
+	if l, ok := r.FilterLabels[key][value]; ok && l != "" {
+		return l
+	}
+	return value
+}
+
+// colLabel is the column header text for the cell at index i; it feeds the
+// data-label attribute the narrow-screen stacked-card CSS prints before the
+// value. Out-of-range (extra cells) returns "" and the CSS prints no label.
+func colLabel(d listPageData, i int) string {
+	if i < len(d.Resource.Sort.Columns) {
+		return d.Resource.Sort.Columns[i].Label
+	}
+	return ""
+}
+
 // viewLabel is the chip text for one view, falling back to its key.
 func viewLabel(v View) string {
 	if v.Label != "" {
@@ -200,7 +219,7 @@ templ filterBar(d listPageData) {
 								name={ f.Key }
 								value={ a }
 								class={ chipClass(d, f.Key, a) }
-							>{ a }</button>
+							>{ filterChipLabel(d.Resource, f.Key, a) }</button>
 						}
 					</div>
 				} else {
@@ -219,7 +238,7 @@ templ filterBar(d listPageData) {
 
 // listTable renders the sortable table with headers and rows.
 templ listTable(d listPageData) {
-	<table class="crm-table" id={ d.Resource.Name + "-table" }>
+	<table class="crm-table" data-stack="cards" id={ d.Resource.Name + "-table" }>
 		<thead>
 			<tr>
 				for _, col := range d.Resource.Sort.Columns {
@@ -278,19 +297,19 @@ templ listRows(d listPageData) {
 // neighbours, which is the one place nobody has a baseline for.
 templ listRow(d listPageData, row Row) {
 	{{ detailHref := rowDetailHref(d, row) }}
-	<tr>
+	<tr class={ templ.KV("row-emphasis", row.Emphasis) }>
 		for i, cell := range row.Cells {
 			if i == 0 && detailHref != "" {
-				<td style={ colCellStyle(d, i) }>
+				<td style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>
 					// Plain string, never templ.SafeURL: SafeURL is the opt-OUT
 					// of templ's URL sanitiser, so casting a consumer-supplied
 					// Row.Href to it renders javascript: verbatim in the href.
 					<a class="row-name" href={ detailHref }>{ cell.Value }</a>
 				</td>
 			} else if cell.HTML {
-				<td style={ colCellStyle(d, i) }>@templ.Raw(cell.Value)</td>
+				<td style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>@templ.Raw(cell.Value)</td>
 			} else {
-				<td style={ colCellStyle(d, i) }>{ cell.Value }</td>
+				<td style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>{ cell.Value }</td>
 			}
 		}
 		if d.Resource.Writer != nil {
