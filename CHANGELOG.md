@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.16](https://github.com/anatolykoptev/go-panel/compare/v0.23.15...v0.23.16) (2026-10-15)
+
+
+### Added
+
+* work-queue components, button system, phone lists, CSRF token accessor ([#169](https://github.com/anatolykoptev/go-panel/issues/169)) ([771c4f4](https://github.com/anatolykoptev/go-panel/commit/771c4f4b216f1413b3c659d1a3db8590ce7d618a))
+
 ## [0.23.15](https://github.com/anatolykoptev/go-panel/compare/v0.23.14...v0.23.15) (2026-10-12)
 
 
