@@ -1,0 +1,2 @@
+HTTP 200
+<tr class="row-deleted" data-undo-after="5000"><td colspan="2" class="row-deleted-label">Записи deleted</td><td style="text-align:right;white-space:nowrap"><button type="button" class="row-undo" hx-post="/admin/items/1/restore" hx-vals="{&#34;_csrf&#34;:&#34;CSRF&#34;}" hx-target="closest tr" hx-swap="outerHTML">Вернуть</button></td></tr>

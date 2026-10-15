@@ -470,6 +470,16 @@
     return document.documentElement.classList.contains('dark')?'dark':'light';
   }
 
+  // The label names the ACTION (switch to the other theme). The server renders
+  // both wordings on the button (data-label-to-light / data-label-to-dark) in
+  // the panel's language, so this script carries no user-visible text of its
+  // own; the English fallbacks only cover markup from before those attributes.
+  function themeToggleLabel(btn,dark){
+    return dark
+      ?(btn.getAttribute('data-label-to-light')||'Switch to light theme')
+      :(btn.getAttribute('data-label-to-dark')||'Switch to dark theme');
+  }
+
   function setTheme(theme){
     var dark=theme!=='light';
     document.documentElement.classList.toggle('dark',dark);
@@ -477,7 +487,7 @@
     document.cookie=THEME_COOKIE+'='+(dark?'dark':'light')+';path=/;max-age=604800;samesite=Lax';
     var btn=document.getElementById('theme-toggle');
     if(btn){
-      btn.setAttribute('aria-label',dark?'Switch to light theme':'Switch to dark theme');
+      btn.setAttribute('aria-label',themeToggleLabel(btn,dark));
       btn.setAttribute('aria-pressed',dark?'false':'true');
     }
   }
@@ -498,7 +508,7 @@
     var btn=document.getElementById('theme-toggle');
     if(!btn) return;
     var dark=currentTheme()==='dark';
-    btn.setAttribute('aria-label',dark?'Switch to light theme':'Switch to dark theme');
+    btn.setAttribute('aria-label',themeToggleLabel(btn,dark));
     btn.setAttribute('aria-pressed',dark?'false':'true');
   });
 })();

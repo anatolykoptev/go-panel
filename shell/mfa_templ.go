@@ -8,6 +8,8 @@ package shell
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import "github.com/anatolykoptev/go-panel/i18n"
+
 func MFAPage(basePath string, errMsg string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -29,6 +31,7 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		s := i18n.From(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -38,82 +41,147 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<html lang=\"en\" class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<html lang=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var3 string
-		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var2).String())
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(s.Lang)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 1, Col: 0}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 8, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Two-Factor Authentication</title><link rel=\"stylesheet\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var4 templ.SafeURL
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(basePath + "/static/pm7.css")
+		var templ_7745c5c3_Var4 string
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.CSSClasses(templ_7745c5c3_Var2).String())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 10, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><style>\n\t\t\t\t:root{\n\t\t\t\t\t--pm7-background:#060b18;--pm7-foreground:#e8edf5;--pm7-muted:#131c31;\n\t\t\t\t\t--pm7-muted-foreground:#7b8ba8;--pm7-border:#1e2d4a;--pm7-input:#0c1222;\n\t\t\t\t\t--pm7-primary:#3b82f6;--pm7-primary-hover:#2563eb;--pm7-primary-foreground:#fff;\n\t\t\t\t\t--pm7-radius:.625rem;\n\t\t\t\t\t--bg-deep:#060b18;--bg-surface:#131c31;--accent:#3b82f6;\n\t\t\t\t\t--accent-glow:rgba(59,130,246,.15);--text-primary:#e8edf5;\n\t\t\t\t\t--text-secondary:#7b8ba8;--border:#1e2d4a;\n\t\t\t\t\t--font-sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;\n\t\t\t\t}\n\t\t\t\t*{box-sizing:border-box}\n\t\t\t\tbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-deep);color:var(--text-primary);font-family:var(--font-sans);font-size:.875rem;padding:1.5rem}\n\t\t\t\t.login-shell{width:100%;max-width:22rem}\n\t\t\t\t.login-card{width:100%;padding:2rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:.75rem}\n\t\t\t\t.login-title{margin:0 0 1.5rem;font-size:1.125rem;font-weight:700;color:var(--text-primary);text-align:center;letter-spacing:.01em}\n\t\t\t\t.login-error{margin-bottom:1rem;padding:.5rem .75rem;border-radius:.375rem;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;font-size:.8125rem;text-align:center}\n\t\t\t\t.login-field{margin-bottom:1rem}\n\t\t\t\t.login-field label{display:block;margin-bottom:.375rem;font-size:.8125rem;color:var(--text-secondary)}\n\t\t\t\t.login-form .pm7-input{width:100%;padding:.5rem .75rem;background:var(--bg-deep);border:1px solid var(--border);border-radius:.5rem;color:var(--text-primary);font-size:.875rem;outline:none;transition:border-color .15s,box-shadow .15s}\n\t\t\t\t.login-form .pm7-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}\n\t\t\t\t.pw-wrap{position:relative}\n\t\t\t\t.pw-wrap .pm7-input{padding-right:2.75rem}\n\t\t\t\t.pw-toggle{position:absolute;top:0;right:0;height:100%;width:2.75rem;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:0}\n\t\t\t\t.pw-toggle:hover{color:var(--text-primary)}\n\t\t\t\t.pw-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:.5rem}\n\t\t\t\t.pw-toggle svg{width:1.125rem;height:1.125rem;display:block}\n\t\t\t\t.pw-toggle svg[hidden]{display:none}\n\t\t\t\t.login-submit{width:100%;margin-top:.25rem;padding:.625rem;background:var(--accent);color:#fff;border:none;border-radius:.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:background-color .15s}\n\t\t\t\t.login-submit:hover{background:var(--pm7-primary-hover)}\n\t\t\t</style></head><body><main class=\"login-shell\"><div class=\"pm7-card login-card\"><div class=\"pm7-card-content\"><h1 class=\"login-title\">Two-Factor Authentication</h1>")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if errMsg != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div class=\"login-error\" role=\"alert\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var5 string
-			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(errMsg)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 49, Col: 66}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<form method=\"POST\" action=\"")
+		var templ_7745c5c3_Var5 string
+		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(s.TwoFactorTitle)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 12, Col: 29}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</title><link rel=\"stylesheet\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 templ.SafeURL
-		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(basePath + "/login"))
+		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinURLErrs(basePath + "/static/pm7.css")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 51, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 13, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"login-form\"><div class=\"login-field\"><label for=\"code\">Authentication code or recovery code</label> <input id=\"code\" name=\"code\" type=\"text\" autocomplete=\"one-time-code\" class=\"pm7-input\" autofocus></div><button type=\"submit\" class=\"pm7-button pm7-button--primary login-submit\">Verify</button></form></div></div></main><script src=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"><style>\n\t\t\t\t:root{\n\t\t\t\t\t--pm7-background:#060b18;--pm7-foreground:#e8edf5;--pm7-muted:#131c31;\n\t\t\t\t\t--pm7-muted-foreground:#7b8ba8;--pm7-border:#1e2d4a;--pm7-input:#0c1222;\n\t\t\t\t\t--pm7-primary:#3b82f6;--pm7-primary-hover:#2563eb;--pm7-primary-foreground:#fff;\n\t\t\t\t\t--pm7-radius:.625rem;\n\t\t\t\t\t--bg-deep:#060b18;--bg-surface:#131c31;--accent:#3b82f6;\n\t\t\t\t\t--accent-glow:rgba(59,130,246,.15);--text-primary:#e8edf5;\n\t\t\t\t\t--text-secondary:#7b8ba8;--border:#1e2d4a;\n\t\t\t\t\t--font-sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;\n\t\t\t\t}\n\t\t\t\t*{box-sizing:border-box}\n\t\t\t\tbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-deep);color:var(--text-primary);font-family:var(--font-sans);font-size:.875rem;padding:1.5rem}\n\t\t\t\t.login-shell{width:100%;max-width:22rem}\n\t\t\t\t.login-card{width:100%;padding:2rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:.75rem}\n\t\t\t\t.login-title{margin:0 0 1.5rem;font-size:1.125rem;font-weight:700;color:var(--text-primary);text-align:center;letter-spacing:.01em}\n\t\t\t\t.login-error{margin-bottom:1rem;padding:.5rem .75rem;border-radius:.375rem;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;font-size:.8125rem;text-align:center}\n\t\t\t\t.login-field{margin-bottom:1rem}\n\t\t\t\t.login-field label{display:block;margin-bottom:.375rem;font-size:.8125rem;color:var(--text-secondary)}\n\t\t\t\t.login-form .pm7-input{width:100%;padding:.5rem .75rem;background:var(--bg-deep);border:1px solid var(--border);border-radius:.5rem;color:var(--text-primary);font-size:.875rem;outline:none;transition:border-color .15s,box-shadow .15s}\n\t\t\t\t.login-form .pm7-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}\n\t\t\t\t.pw-wrap{position:relative}\n\t\t\t\t.pw-wrap .pm7-input{padding-right:2.75rem}\n\t\t\t\t.pw-toggle{position:absolute;top:0;right:0;height:100%;width:2.75rem;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:0}\n\t\t\t\t.pw-toggle:hover{color:var(--text-primary)}\n\t\t\t\t.pw-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:.5rem}\n\t\t\t\t.pw-toggle svg{width:1.125rem;height:1.125rem;display:block}\n\t\t\t\t.pw-toggle svg[hidden]{display:none}\n\t\t\t\t.login-submit{width:100%;margin-top:.25rem;padding:.625rem;background:var(--accent);color:#fff;border:none;border-radius:.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:background-color .15s}\n\t\t\t\t.login-submit:hover{background:var(--pm7-primary-hover)}\n\t\t\t</style></head><body><main class=\"login-shell\"><div class=\"pm7-card login-card\"><div class=\"pm7-card-content\"><h1 class=\"login-title\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(basePath + "/static/pm7.js")
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(s.TwoFactorTitle)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 61, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 50, Col: 58}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"></script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</h1>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if errMsg != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div class=\"login-error\" role=\"alert\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var8 string
+			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(errMsg)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 52, Col: 66}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<form method=\"POST\" action=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var9 templ.SafeURL
+		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(basePath + "/login"))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 54, Col: 79}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" class=\"login-form\"><div class=\"login-field\"><label for=\"code\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var10 string
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(s.TwoFactorCode)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 56, Col: 59}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</label> <input id=\"code\" name=\"code\" type=\"text\" autocomplete=\"one-time-code\" class=\"pm7-input\" autofocus></div><button type=\"submit\" class=\"pm7-button pm7-button--primary login-submit\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var11 string
+		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(s.Verify)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 59, Col: 104}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</button></form></div></div></main><script src=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var12 string
+		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(basePath + "/static/pm7.js")
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 64, Col: 45}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\"></script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

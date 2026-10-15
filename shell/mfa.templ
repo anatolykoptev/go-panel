@@ -1,12 +1,15 @@
 package shell
 
+import "github.com/anatolykoptev/go-panel/i18n"
+
 templ MFAPage(basePath string, errMsg string) {
+{{ s := i18n.From(ctx) }}
 <!DOCTYPE html>
-<html lang="en" class={ themeClass("") }>
+<html lang={ s.Lang } class={ themeClass("") }>
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>Two-Factor Authentication</title>
+    <title>{ s.TwoFactorTitle }</title>
     <link rel="stylesheet" href={ basePath + "/static/pm7.css" }/>
 <style>
 				:root{
@@ -44,16 +47,16 @@ templ MFAPage(basePath string, errMsg string) {
     <main class="login-shell">
         <div class="pm7-card login-card">
             <div class="pm7-card-content">
-                <h1 class="login-title">Two-Factor Authentication</h1>
+                <h1 class="login-title">{ s.TwoFactorTitle }</h1>
                 if errMsg != "" {
                     <div class="login-error" role="alert">{ errMsg }</div>
                 }
                 <form method="POST" action={ templ.SafeURL(basePath + "/login") } class="login-form">
                     <div class="login-field">
-                        <label for="code">Authentication code or recovery code</label>
+                        <label for="code">{ s.TwoFactorCode }</label>
                         <input id="code" name="code" type="text" autocomplete="one-time-code" class="pm7-input" autofocus/>
                     </div>
-                    <button type="submit" class="pm7-button pm7-button--primary login-submit">Verify</button>
+                    <button type="submit" class="pm7-button pm7-button--primary login-submit">{ s.Verify }</button>
                 </form>
             </div>
         </div>

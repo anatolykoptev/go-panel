@@ -7,7 +7,11 @@ import (
 
 	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/csrf"
+	"github.com/anatolykoptev/go-panel/i18n"
 )
+
+// strs is the request's panel Strings (English defaults off a panel request).
+func strs(r *http.Request) Strings { return i18n.From(r.Context()) }
 
 // totpEnrollPageData is the view-model for totpEnrollContent.
 type totpEnrollPageData struct {
@@ -33,7 +37,7 @@ func (e *totpEnrollment) renderEnrollForm(w http.ResponseWriter, r *http.Request
 		CSRFToken:  csrf.Issue(e.panel.csrfKey, e.panel.sessionValue(r), csrf.DefaultTTL),
 		ErrorMsg:   errMsg,
 	}
-	e.render(w, r, "Set Up Two-Factor Authentication", totpEnrollContent(d))
+	e.render(w, r, strs(r).TOTPSetupTitle, totpEnrollContent(d))
 }
 
 // reRenderEnrollWithError re-derives the pending secret (StartTOTPEnrollment
@@ -55,13 +59,13 @@ func (e *totpEnrollment) reRenderEnrollWithError(w http.ResponseWriter, r *http.
 // renderAlreadyEnabled shows the "2FA is already on" page for GET /enroll
 // when acct.TOTPEnabled is already true.
 func (e *totpEnrollment) renderAlreadyEnabled(w http.ResponseWriter, r *http.Request) {
-	e.render(w, r, "Two-Factor Authentication", totpAlreadyEnabledContent(e.panel.basePath, e.url("disable")))
+	e.render(w, r, strs(r).TwoFactorTitle, totpAlreadyEnabledContent(e.panel.basePath, e.url("disable")))
 }
 
 // renderConfirmSuccess shows the newly enabled 2FA + the recovery codes,
 // exactly once.
 func (e *totpEnrollment) renderConfirmSuccess(w http.ResponseWriter, r *http.Request, codes []string) {
-	e.render(w, r, "Two-Factor Authentication Enabled", totpConfirmSuccessContent(e.panel.basePath, codes))
+	e.render(w, r, strs(r).TOTPEnabledTitle, totpConfirmSuccessContent(e.panel.basePath, codes))
 }
 
 // renderReauthForm renders the shared password re-auth form used by both
@@ -74,11 +78,11 @@ func (e *totpEnrollment) renderReauthForm(w http.ResponseWriter, r *http.Request
 
 // renderDisabled shows the "2FA disabled" confirmation page.
 func (e *totpEnrollment) renderDisabled(w http.ResponseWriter, r *http.Request) {
-	e.render(w, r, "Two-Factor Authentication Disabled", totpDisabledContent(e.panel.basePath))
+	e.render(w, r, strs(r).TOTPDisabledTitle, totpDisabledContent(e.panel.basePath))
 }
 
 // renderRegenerateSuccess shows the freshly rotated recovery codes, exactly
 // once.
 func (e *totpEnrollment) renderRegenerateSuccess(w http.ResponseWriter, r *http.Request, codes []string) {
-	e.render(w, r, "Recovery Codes Regenerated", totpRegenerateSuccessContent(e.panel.basePath, codes))
+	e.render(w, r, strs(r).RecoveryRegenTitle, totpRegenerateSuccessContent(e.panel.basePath, codes))
 }

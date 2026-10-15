@@ -1,5 +1,7 @@
 package resource
 
+import "github.com/anatolykoptev/go-panel/i18n"
+
 // detailColAlign builds the inline style for a detail-table <th>/<td> from
 // DetailColumn.Align. Mirrors colHeaderStyle in list.templ. An empty Align
 // yields an empty style attribute (style=""), which is inert — templ does NOT
@@ -26,18 +28,19 @@ type detailPageData struct {
 // detailPageContent renders the full detail page content (back link + sections).
 // Wrapped by Layout for all detail requests (detail pages are always full-page — no htmx fragment path).
 templ detailPageContent(d detailPageData) {
+	{{ s := i18n.From(ctx) }}
 	<div class="page-header">
 		<a
 			href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name) }
 			style="display:inline-flex;align-items:center;gap:.375rem;font-size:.8125rem;color:var(--text-secondary);text-decoration:none;margin-bottom:.75rem"
 		>
 			<span aria-hidden="true">&#8592;</span>
-			Back to { d.Resource.Title }
+			{ s.BackTo(d.Resource.Title) }
 		</a>
 	</div>
 	<div class="detail-page">
 		if len(d.Sections) == 0 {
-			<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:.8125rem">No detail available.</p>
+			<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:.8125rem">{ s.NoDetail }</p>
 		}
 		for _, section := range d.Sections {
 			@detailSection(section)
@@ -47,11 +50,11 @@ templ detailPageContent(d detailPageData) {
 				method="POST"
 				action={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + d.ID + "/delete") }
 				style="margin-top:1.5rem"
-				data-confirm={ "Delete this " + d.Resource.Title + "? This cannot be undone." }
+				data-confirm={ s.ConfirmDelete(d.Resource.Title) }
 			>
 				<input type="hidden" name={ csrfFormField } value={ d.CSRFToken }/>
 				<button type="submit" style="background:var(--danger,#dc2626);color:#fff;border:none;padding:.5rem 1rem;border-radius:.375rem;cursor:pointer;font-size:.8125rem">
-					Delete
+					{ s.Delete }
 				</button>
 			</form>
 		}

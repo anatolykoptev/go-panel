@@ -32,6 +32,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -42,6 +43,7 @@ import (
 
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/csrf"
+	"github.com/anatolykoptev/go-panel/i18n"
 	"github.com/anatolykoptev/go-panel/locale"
 	"github.com/anatolykoptev/go-panel/render"
 	"github.com/anatolykoptev/go-panel/shell"
@@ -224,7 +226,17 @@ type Resource struct {
 	// startup — a label for a chip that does not exist is a typo, not data).
 	FilterLabels map[string]map[string]string
 
-	// ViewsLabel is the caption shown beside the view chips. Defaults to "view".
+	// FilterGroupLabels maps filter key -> the caption printed before that
+	// filter's chips (and used in a text filter's search placeholder). Without
+	// an entry the caption is the raw Filter.Key ("STATUS", "FOLLOW_UP"), exactly
+	// as before. admintable.Filter has no label of its own, so the caption is
+	// declared here, beside FilterLabels. Register panics if a key is not one of
+	// Filter.Filters' keys (fail-fast at startup — a caption for a filter that
+	// does not exist is a typo, not data).
+	FilterGroupLabels map[string]string
+
+	// ViewsLabel is the caption shown beside the view chips. Empty falls back to
+	// Config.Strings.ViewsLabel ("view" by default).
 	ViewsLabel string
 
 	// RequiredRole is the SOLE authorization lever for this resource, applied
@@ -370,7 +382,12 @@ type Panel struct {
 	csrfKey     []byte
 	locales     locale.Set          // configured i18n locales; zero value = single-locale
 	profileCfg  shell.ProfileConfig // static defaults for the sidebar profile block
-	resources   []Resource          // registered Resources, in Register order
+	// profileName resolves the sidebar display name from the session user id;
+	// nil = show the id. See Config.ProfileName.
+	profileName func(ctx context.Context, userID string) string
+	// strings is Config.Strings merged over the English defaults, once, at New.
+	strings   i18n.Strings
+	resources []Resource // registered Resources, in Register order
 	// pagePaths holds every URL suffix MountPage has claimed (Path and each
 	// Alias), so a route mounted LATER can tell whether it would shadow one.
 	// Needed because MountPage runs during setup while finalize() runs after
@@ -477,6 +494,18 @@ type Config struct {
 	// switcher and Translatable fields are edited per locale; the active locale
 	// is handed to Writer.Load / Writer.Save via context (locale.From(ctx)).
 	Locales locale.Set
+	// Strings is the panel chrome's wording: buttons, headings, empty states,
+	// validation messages, the login page. The zero value renders the English
+	// text the panel always had. Set only the fields you want changed — an unset
+	// field falls back to its default — or start from RussianStrings().
+	Strings Strings
+	// ProfileName resolves the display name shown in the sidebar profile block
+	// from the session's user id (an email or a uuid is rarely what an operator
+	// wants to read). nil keeps today's behaviour: the raw id. An empty return
+	// also falls back to the id. It is called once per full-page render, with
+	// the request context, and only when no name was set via SetProfile. A
+	// panic inside it is recovered and logged; the page renders with the id.
+	ProfileName func(ctx context.Context, userID string) string
 }
 
 // New creates a Panel with the given config.
@@ -513,6 +542,8 @@ func New(cfg Config) *Panel {
 		title:       title,
 		csrfKey:     cfg.CSRFKey,
 		locales:     cfg.Locales,
+		strings:     cfg.Strings.WithDefaults(),
+		profileName: cfg.ProfileName,
 	}
 	// Mount standard routes.
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
@@ -540,7 +571,18 @@ func New(cfg Config) *Panel {
 // tenant a request names.
 func (p *Panel) Handler() http.Handler {
 	p.finalize()
-	return withBasePath(p.basePath, withTenantResolution(p.resolver, p.mux))
+	return withBasePath(p.basePath, p.withStrings(withTenantResolution(p.resolver, p.mux)))
+}
+
+// withStrings puts the panel's Strings on every request it serves, so every
+// template, handler and authenticator mounted on the panel renders in one
+// language. Wrapped inside withBasePath and outside tenant resolution for the
+// same reason as the base path: it is a property of the panel, not the request,
+// and the login routes (mounted on the mux) must see it too.
+func (p *Panel) withStrings(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(i18n.WithMerged(r.Context(), p.strings)))
+	})
 }
 
 // basePathCtxKey carries the panel's mount prefix on the request context.
@@ -666,7 +708,8 @@ func (p *Panel) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	// No accessible resources registered — return a minimal placeholder page.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte("<html><body><h1>Admin</h1><p>No resources registered yet.</p></body></html>"))
+	_, _ = w.Write([]byte("<html><body><h1>" + html.EscapeString(p.strings.IndexHeading) +
+		"</h1><p>" + html.EscapeString(p.strings.IndexEmpty) + "</p></body></html>"))
 }
 
 // NavItems returns a snapshot of registered nav items (for testing/introspection).
@@ -741,6 +784,7 @@ func Register(p *Panel, r Resource) {
 	validateRoleConfig(p, r)
 	validateViewsConfig(r)
 	validateFilterLabels(r)
+	validateFilterGroupLabels(r)
 	validateTrashConfig(r)
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
@@ -1326,7 +1370,7 @@ func saveHandler(p *Panel, r Resource) http.HandlerFunc {
 		}
 
 		// Server-side validation over the active locale's field set.
-		errs := validateFields(fields, values)
+		errs := validateFields(p.strings, fields, values)
 		if errs.hasErrors() {
 			renderValidationErrors(w, req, p, rr, id, loc, values, errs)
 			return
@@ -2040,6 +2084,17 @@ func validateFilterLabels(r Resource) {
 			if !slices.Contains(allowed, value) {
 				panic(fmt.Sprintf("resource.Register %q: FilterLabels[%q] has label for %q, which is not in Allowed", r.Name, key, value))
 			}
+		}
+	}
+}
+
+// validateFilterGroupLabels panics at Register if FilterGroupLabels captions a
+// key that is not one of the resource's filters.
+func validateFilterGroupLabels(r Resource) {
+	for key := range r.FilterGroupLabels {
+		known := slices.ContainsFunc(r.Filter.Filters, func(f admintable.Filter) bool { return f.Key == key })
+		if !known {
+			panic(fmt.Sprintf("resource.Register %q: FilterGroupLabels key %q is not a filter key", r.Name, key))
 		}
 	}
 }

@@ -47,7 +47,7 @@ func (e *totpEnrollment) enrollStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		e.renderReauthForm(w, r, "enroll", "Set Up Two-Factor Authentication", "Continue", "")
+		e.renderReauthForm(w, r, "enroll", strs(r).TOTPSetupTitle, strs(r).Continue, "")
 		return
 	}
 	if !e.verifyCSRF(w, r) {
@@ -56,7 +56,7 @@ func (e *totpEnrollment) enrollStart(w http.ResponseWriter, r *http.Request) {
 	pw := r.FormValue("current_password") //nolint:gosec // G120 false positive: verifyCSRF (above) already ran parseForm's http.MaxBytesReader cap before any FormValue read
 	secret, uri, err := auth.StartTOTPEnrollmentWithReauth(r.Context(), e.accountStore, e.totpStore, e.encKey, e.issuer, acct, pw)
 	if errors.Is(err, auth.ErrReauthFailed) {
-		e.renderReauthForm(w, r, "enroll", "Set Up Two-Factor Authentication", "Continue", "Incorrect password.")
+		e.renderReauthForm(w, r, "enroll", strs(r).TOTPSetupTitle, strs(r).Continue, strs(r).ErrIncorrectPassword)
 		return
 	}
 	if errors.Is(err, auth.ErrTOTPAlreadyEnabled) {
@@ -130,7 +130,7 @@ func (e *totpEnrollment) confirm(w http.ResponseWriter, r *http.Request) {
 		// Never re-render the secret on a failed re-auth — the pending seed
 		// must stay invisible until the password verifies (enrollStart's
 		// gate is the single page that discloses it).
-		e.renderReauthForm(w, r, "enroll", "Set Up Two-Factor Authentication", "Continue", "Incorrect password.")
+		e.renderReauthForm(w, r, "enroll", strs(r).TOTPSetupTitle, strs(r).Continue, strs(r).ErrIncorrectPassword)
 		return
 	}
 	if errors.Is(err, auth.ErrTOTPAlreadyEnabled) {
@@ -138,7 +138,7 @@ func (e *totpEnrollment) confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, auth.ErrTOTPCodeInvalid) {
-		e.reRenderEnrollWithError(w, r, acct, "Invalid or already-used code. Enter the current code from your authenticator app.")
+		e.reRenderEnrollWithError(w, r, acct, strs(r).ErrTOTPInvalidCode)
 		return
 	}
 	if err != nil {
@@ -162,7 +162,7 @@ func (e *totpEnrollment) disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		e.renderReauthForm(w, r, "disable", "Disable Two-Factor Authentication", "Disable 2FA", "")
+		e.renderReauthForm(w, r, "disable", strs(r).TOTPDisableTitle, strs(r).TOTPDisable, "")
 		return
 	}
 	if !e.verifyCSRF(w, r) {
@@ -171,7 +171,7 @@ func (e *totpEnrollment) disable(w http.ResponseWriter, r *http.Request) {
 	pw := r.FormValue("current_password") //nolint:gosec // G120 false positive: verifyCSRF (above) already ran parseForm's http.MaxBytesReader cap before any FormValue read
 	err := auth.DisableTOTPWithReauth(r.Context(), e.accountStore, e.totpStore, acct, pw)
 	if errors.Is(err, auth.ErrReauthFailed) {
-		e.renderReauthForm(w, r, "disable", "Disable Two-Factor Authentication", "Disable 2FA", "Incorrect password.")
+		e.renderReauthForm(w, r, "disable", strs(r).TOTPDisableTitle, strs(r).TOTPDisable, strs(r).ErrIncorrectPassword)
 		return
 	}
 	if err != nil {
@@ -194,7 +194,7 @@ func (e *totpEnrollment) regenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		e.renderReauthForm(w, r, "regenerate", "Regenerate Recovery Codes", "Regenerate Codes", "")
+		e.renderReauthForm(w, r, "regenerate", strs(r).RecoveryRegenerate, strs(r).RecoveryRegenerateBtn, "")
 		return
 	}
 	if !e.verifyCSRF(w, r) {
@@ -203,7 +203,7 @@ func (e *totpEnrollment) regenerate(w http.ResponseWriter, r *http.Request) {
 	pw := r.FormValue("current_password") //nolint:gosec // G120 false positive: verifyCSRF (above) already ran parseForm's http.MaxBytesReader cap before any FormValue read
 	codes, err := auth.RegenerateRecoveryCodesWithReauth(r.Context(), e.accountStore, e.totpStore, acct, pw)
 	if errors.Is(err, auth.ErrReauthFailed) {
-		e.renderReauthForm(w, r, "regenerate", "Regenerate Recovery Codes", "Regenerate Codes", "Incorrect password.")
+		e.renderReauthForm(w, r, "regenerate", strs(r).RecoveryRegenerate, strs(r).RecoveryRegenerateBtn, strs(r).ErrIncorrectPassword)
 		return
 	}
 	if errors.Is(err, auth.ErrTOTPNotEnabled) {
