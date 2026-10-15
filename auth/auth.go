@@ -51,6 +51,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anatolykoptev/go-panel/i18n"
 	"github.com/anatolykoptev/go-panel/shell"
 )
 
@@ -229,7 +230,7 @@ func (a *HMACAuth) LoginHandler() http.Handler {
 				return
 			}
 			w.WriteHeader(http.StatusUnauthorized)
-			a.renderLogin(r.Context(), w, "Invalid username or password")
+			a.renderLogin(r.Context(), w, i18n.From(r.Context()).ErrInvalidUsernameOrPassword)
 			return
 		}
 		if a.Verified(r) {
@@ -290,7 +291,7 @@ func (a *HMACAuth) renderLogin(ctx context.Context, w http.ResponseWriter, errMs
 	// Default: the pm7 design-system login page. Keeping it in the framework
 	// means every consumer gets a styled, standards-consistent login without
 	// wiring LoginTempl. Override via cfg.LoginTempl for a custom page.
-	if err := shell.LoginPage(a.basePath, shell.LoginIdentifier{Label: "Username", Name: "username", Type: "text", Autocomplete: "username"}, errMsg, a.cfg.LoginLinks).Render(ctx, w); err != nil {
+	if err := shell.LoginPage(a.basePath, shell.LoginIdentifier{Label: i18n.From(ctx).LoginUser, Name: "username", Type: "text", Autocomplete: "username"}, errMsg, a.cfg.LoginLinks).Render(ctx, w); err != nil {
 		slog.Error("auth: failed to render login page", "err", err)
 	}
 }

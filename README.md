@@ -44,6 +44,7 @@ oxpulse-admin, go-grad.
 |---|---|---|
 | [`admintable`](./admintable/) | SQL-injection-safe `Spec` (sort) + `FilterSpec` (filter) + pagination | stable |
 | [`auth`](./auth/) | Pluggable session: `HMACAuth` (single-user, per-login nonce) + `BcryptTOTPAuth` (multi-user, bcrypt + roles; TOTP 2FA in progress, not yet wired at login) | stable |
+| [`i18n`](./i18n/) | `Strings`: every word the panel chrome speaks, English defaults + a Russian preset | stable |
 | [`csrf`](./csrf/) | Double-submit CSRF tokens bound to session cookie (32-byte key floor) | stable |
 | [`render`](./render/) | htmx fragment vs full-page, goldmark markdown | stable |
 | [`resource`](./resource/) | **Core**: `Resource` declaration → list + CRUD form handlers (`Writer`, `OptionsFunc`) + nav entry + role-gating (`RequiredRole`) | stable |
@@ -74,6 +75,38 @@ data, not markup. Capabilities (all opt-in, zero-value = off, backward-compatibl
 
 `NavItem`/`Resource` carry function/slice fields → **not comparable** (never use as a map key
 or with `==`).
+
+## Language of the chrome (Strings)
+
+Every word the panel prints itself — row actions, headings, empty states, validation messages, the
+sidebar, the login and second-factor pages, 2FA enrollment, the Trash — lives in one
+`resource.Strings` value. Unset, it is the English text the panel always had. Set only what you want
+changed (an unset field falls back to its default), or start from the Russian preset:
+
+```go
+s := resource.RussianStrings()
+s.New = "+ Добавить" // adjust one word
+
+p := resource.New(resource.Config{
+    Strings: s,
+    ProfileName: func(ctx context.Context, userID string) string { return users.DisplayName(ctx, userID) },
+    // ...
+})
+resource.Register(p, resource.Resource{
+    // Captions for the filter groups (default: the raw Filter.Key, e.g. "STATUS").
+    FilterGroupLabels: map[string]string{"status": "Статус"},
+    // ...
+})
+```
+
+Text that embeds a value (a title, a count) is a func field, so a language that declines nouns puts
+the value where its grammar wants it. What the panel does not translate: your own `Resource.Title`,
+column and field labels, cell values (you write those), and the plain-text bodies of HTTP error
+responses (`bad request`, `render failed`).
+
+`Config.ProfileName` turns the session user id shown in the sidebar into a display name. nil, or an
+empty return, keeps showing the id; it is called once per full-page render and a panic inside it is
+logged and ignored.
 
 ## Quickstart
 

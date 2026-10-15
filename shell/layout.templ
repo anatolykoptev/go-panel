@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 
+	"github.com/anatolykoptev/go-panel/i18n"
 	"github.com/anatolykoptev/go-panel/shell/internal/assets"
 )
 
@@ -82,11 +83,11 @@ func profileLogoutURL(p ProfileConfig) string {
 
 // themeToggleLabel returns the aria-label for the theme toggle button,
 // naming the action (switch to the other theme) per the a11y requirement.
-func themeToggleLabel(theme string) string {
+func themeToggleLabel(s i18n.Strings, theme string) string {
 	if themeClass(theme) == ThemeLight {
-		return "Switch to dark theme"
+		return s.SwitchToDarkTheme
 	}
-	return "Switch to light theme"
+	return s.SwitchToLightTheme
 }
 
 // themeTogglePressed returns the aria-pressed value for the theme toggle
@@ -159,8 +160,9 @@ func toNavGroups(nav []NavItem, collapsedGroups map[string]bool) []navGrouped {
 // New state (sidebar collapse) is threaded via context.Context so this
 // signature stays frozen: use shell.ContextWithChrome before calling Render.
 templ Layout(title string, nav []NavItem, content templ.Component) {
+	{{ s := i18n.From(ctx) }}
 	<!DOCTYPE html>
-	<html lang="en" class={ ChromeFromContext(ctx).ThemeClass() }>
+	<html lang={ s.Lang } class={ ChromeFromContext(ctx).ThemeClass() }>
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -175,11 +177,11 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 					<div class="sidebar-header">
 						<h1>{ title }</h1>
 						<div class="sidebar-header-actions">
-							<button type="button" class="theme-toggle" id="theme-toggle" aria-label={ themeToggleLabel(ChromeFromContext(ctx).Theme) } aria-pressed={ themeTogglePressed(ChromeFromContext(ctx).Theme) }>
+							<button type="button" class="theme-toggle" id="theme-toggle" aria-label={ themeToggleLabel(s, ChromeFromContext(ctx).Theme) } data-label-to-light={ s.SwitchToLightTheme } data-label-to-dark={ s.SwitchToDarkTheme } aria-pressed={ themeTogglePressed(ChromeFromContext(ctx).Theme) }>
 								<span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
 								<span class="theme-icon-sun" aria-hidden="true">&#9728;</span>
 							</button>
-							<button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button>
+							<button type="button" class="sidebar-toggle" id="sidebar-toggle" title={ s.ToggleSidebar }>&#9776;</button>
 						</div>
 					</div>
 					<nav class="sidebar-nav">
@@ -223,27 +225,27 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 								</div>
 							</div>
 							if prof.SettingsURL != "" {
-								<a class="sidebar-item" href={ templ.SafeURL(prof.SettingsURL) } aria-label="Settings">
+								<a class="sidebar-item" href={ templ.SafeURL(prof.SettingsURL) } aria-label={ s.Settings }>
 									<span class="sidebar-icon">&#x2699;</span>
-									<span class="sidebar-label">Settings</span>
-									<span class="sidebar-tooltip">Settings</span>
+									<span class="sidebar-label">{ s.Settings }</span>
+									<span class="sidebar-tooltip">{ s.Settings }</span>
 								</a>
 							}
 							<form method="POST" action={ templ.SafeURL(profileLogoutURL(prof)) } style="margin:0;padding:0;display:block">
-								<button type="submit" class="sidebar-item sidebar-item--logout" aria-label="Logout" style="anchor-name: --nav-logout">
+								<button type="submit" class="sidebar-item sidebar-item--logout" aria-label={ s.Logout } style="anchor-name: --nav-logout">
 									<span class="sidebar-icon">&#x2192;</span>
-									<span class="sidebar-label">Logout</span>
-									<span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span>
+									<span class="sidebar-label">{ s.Logout }</span>
+									<span class="sidebar-tooltip" style="position-anchor: --nav-logout">{ s.Logout }</span>
 								</button>
 							</form>
 						} else {
 							// Bare Logout — backward-compat for single-user consumers (HMACAuth)
 							// or when Profile.Name is empty.
 							<form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block">
-								<button type="submit" class="sidebar-item" aria-label="Logout" style="anchor-name: --nav-logout">
+								<button type="submit" class="sidebar-item" aria-label={ s.Logout } style="anchor-name: --nav-logout">
 									<span class="sidebar-icon">&#x2192;</span>
-									<span class="sidebar-label">Logout</span>
-									<span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span>
+									<span class="sidebar-label">{ s.Logout }</span>
+									<span class="sidebar-tooltip" style="position-anchor: --nav-logout">{ s.Logout }</span>
 								</button>
 							</form>
 						}
@@ -251,7 +253,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 				</aside>
 				<div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
 				<main class="main">
-					<button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button>
+					<button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label={ s.OpenNavigation }>&#9776;</button>
 					<div id="content">
 						@content
 					</div>
@@ -344,12 +346,13 @@ type LoginLink struct {
 // chrome (and renders correctly even if pm7.css fails to load). basePath prefixes
 // the static-asset and form-action URLs, e.g. "/admin".
 templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []LoginLink) {
+	{{ s := i18n.From(ctx) }}
 	<!DOCTYPE html>
-	<html lang="en" class={ themeClass("") }>
+	<html lang={ s.Lang } class={ themeClass("") }>
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
-			<title>Admin Login</title>
+			<title>{ s.LoginTitle }</title>
 			<link rel="stylesheet" href={ basePath + "/static/pm7.css" }/>
 			<style>
 				:root{
@@ -390,7 +393,7 @@ templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []L
 			<main class="login-shell">
 				<div class="pm7-card login-card">
 					<div class="pm7-card-content">
-						<h1 class="login-title">Admin</h1>
+						<h1 class="login-title">{ s.LoginHeading }</h1>
 						if errMsg != "" {
 							<div class="login-error" role="alert">{ errMsg }</div>
 						}
@@ -400,10 +403,10 @@ templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []L
 								<input id={ ident.Name } name={ ident.Name } type={ ident.Type } autocomplete={ ident.Autocomplete } required autofocus class="pm7-input"/>
 							</div>
 							<div class="login-field">
-								<label for="password">Password</label>
+								<label for="password">{ s.Password }</label>
 								<div class="pw-wrap">
 									<input id="password" name="password" type="password" autocomplete="current-password" required class="pm7-input"/>
-									<button type="button" class="pw-toggle" id="pw-toggle" aria-label="Show password" aria-pressed="false">
+									<button type="button" class="pw-toggle" id="pw-toggle" aria-label={ s.ShowPassword } data-label-show={ s.ShowPassword } data-label-hide={ s.HidePassword } aria-pressed="false">
 										<svg class="pw-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 											<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
 											<circle cx="12" cy="12" r="3"></circle>
@@ -414,7 +417,7 @@ templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []L
 									</button>
 								</div>
 							</div>
-							<button type="submit" class="pm7-button pm7-button--primary login-submit">Sign in</button>
+							<button type="submit" class="pm7-button pm7-button--primary login-submit">{ s.SignIn }</button>
 						</form>
 						if len(links) > 0 {
 							<nav class="login-links">
@@ -438,7 +441,7 @@ templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []L
 						var show=inp.type==='password';
 						inp.type=show?'text':'password';
 						btn.setAttribute('aria-pressed',show?'true':'false');
-						btn.setAttribute('aria-label',show?'Hide password':'Show password');
+						btn.setAttribute('aria-label',btn.getAttribute(show?'data-label-hide':'data-label-show'));
 						if(eye){eye.hidden=show;}
 						if(off){off.hidden=!show;}
 					});

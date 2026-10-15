@@ -14,11 +14,6 @@ import (
 // trashNavID is the nav item's ID and the URL segment the page mounts on.
 const trashNavID = "trash"
 
-// trashNavGroup is the sidebar heading the Trash link sits under. It is its own
-// group because the page belongs to the panel, not to any one resource's
-// subject area.
-const trashNavGroup = "System"
-
 // trashPageSize caps how many of one resource's deleted rows a section renders.
 // Nothing is ever purged, so a resource's trash only grows; the cap bounds the
 // page and the section prints the true total beside what it drew.
@@ -75,9 +70,13 @@ func (p *Panel) mountTrash() {
 	// toNavGroups files a Group-less item under the group that registered LAST,
 	// so a bare append would render this panel-wide page as one more resource
 	// inside whichever subject area came last.
+	//
+	// The heading (Strings.SystemGroup) is its own group because the page
+	// belongs to the panel, not to any one resource's subject area. A consumer
+	// whose resources already sit under that same heading joins it.
 	addNavLink(p, shell.NavItem{
 		ID:    trashNavID,
-		Label: "Trash",
+		Label: p.strings.TrashTitle,
 		Icon:  "🗑",
 		URL:   p.basePath + "/" + trashNavID,
 		// Hidden when this operator can reach none of the opted-in resources.
@@ -86,7 +85,7 @@ func (p *Panel) mountTrash() {
 		// trash" when none of it is yours. Cheap by construction: role checks,
 		// never a query.
 		Visible: func(ctx context.Context) bool { return len(p.trashResourcesFor(ctx)) > 0 },
-	}, trashNavGroup)
+	}, p.strings.SystemGroup)
 }
 
 // trashResourcesFor returns the opted-in resources this operator may see,

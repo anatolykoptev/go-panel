@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anatolykoptev/go-panel/i18n"
 	"github.com/anatolykoptev/go-panel/shell"
 )
 
@@ -391,7 +392,7 @@ func (a *BcryptTOTPAuth) renderLogin(ctx context.Context, w http.ResponseWriter,
 		return
 	}
 	const emailField = "email"
-	ident := shell.LoginIdentifier{Label: "Email", Name: emailField, Type: emailField, Autocomplete: emailField}
+	ident := shell.LoginIdentifier{Label: i18n.From(ctx).LoginEmail, Name: emailField, Type: emailField, Autocomplete: emailField}
 	if err := shell.LoginPage(a.basePath, ident, errMsg, a.loginLinks).Render(ctx, w); err != nil {
 		slog.Error("auth: failed to render login page", "err", err)
 	}
@@ -495,12 +496,12 @@ func (a *BcryptTOTPAuth) checkRateLimit(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		slog.Error("auth: login rate-limit error — denying (fail-closed)", "err", err)
 		a.observer.Observe(OpBcryptLogin, OutcomeLimiterError, time.Since(start))
-		a.rejectThrottled(w, r, a.loginRate, "Too many login attempts. Please try again later.", a.renderLogin)
+		a.rejectThrottled(w, r, a.loginRate, i18n.From(r.Context()).ErrTooManyLoginAttempts, a.renderLogin)
 		return false
 	}
 	if !allowed {
 		a.observer.Observe(OpBcryptLogin, OutcomeRateLimited, time.Since(start))
-		a.rejectThrottled(w, r, a.loginRate, "Too many login attempts. Please try again later.", a.renderLogin)
+		a.rejectThrottled(w, r, a.loginRate, i18n.From(r.Context()).ErrTooManyLoginAttempts, a.renderLogin)
 		return false
 	}
 	return true
@@ -519,12 +520,12 @@ func (a *BcryptTOTPAuth) checkTOTPRate(w http.ResponseWriter, r *http.Request, a
 	if err != nil {
 		slog.Error("auth: TOTP rate-limit error — denying (fail-closed)", "err", err)
 		a.observer.Observe(OpBcryptLogin, OutcomeLimiterError, time.Since(start))
-		a.rejectThrottled(w, r, a.totpRate, "Too many verification attempts. Please try again later.", a.renderMFA)
+		a.rejectThrottled(w, r, a.totpRate, i18n.From(r.Context()).ErrTooManyCodeAttempts, a.renderMFA)
 		return false
 	}
 	if !allowed {
 		a.observer.Observe(OpBcryptLogin, OutcomeRateLimited, time.Since(start))
-		a.rejectThrottled(w, r, a.totpRate, "Too many verification attempts. Please try again later.", a.renderMFA)
+		a.rejectThrottled(w, r, a.totpRate, i18n.From(r.Context()).ErrTooManyCodeAttempts, a.renderMFA)
 		return false
 	}
 	return true
@@ -562,7 +563,7 @@ func (a *BcryptTOTPAuth) verifyPassword(w http.ResponseWriter, r *http.Request, 
 		// Equalize timing with the verify path: an unknown/inactive email must
 		// cost the same bcrypt work as a wrong password (no enumeration oracle).
 		_ = VerifyPassword(password, dummyPasswordHash)
-		msg := "Invalid email or password"
+		msg := i18n.From(r.Context()).ErrInvalidEmailOrPassword
 		if a.loginFailHint != nil {
 			if hint, ok := a.loginFailHint(r.Context(), email); ok {
 				msg = hint
@@ -576,7 +577,7 @@ func (a *BcryptTOTPAuth) verifyPassword(w http.ResponseWriter, r *http.Request, 
 	if !VerifyPassword(password, acct.PasswordHash) {
 		a.observer.Observe(OpBcryptLogin, OutcomeInvalidCredentials, time.Since(start))
 		w.WriteHeader(http.StatusUnauthorized)
-		a.renderLogin(r.Context(), w, "Invalid email or password")
+		a.renderLogin(r.Context(), w, i18n.From(r.Context()).ErrInvalidEmailOrPassword)
 		return nil, false
 	}
 	return acct, true
@@ -593,7 +594,7 @@ func (a *BcryptTOTPAuth) dispatchMFA(w http.ResponseWriter, r *http.Request, acc
 	if a.totpStore == nil || a.totpEncKey == nil {
 		slog.Error("auth: TOTPStore configured without TOTPEncryptionKey or vice versa")
 		w.WriteHeader(http.StatusUnauthorized)
-		a.renderLogin(r.Context(), w, "Two-factor authentication is unavailable")
+		a.renderLogin(r.Context(), w, i18n.From(r.Context()).Err2FAUnavailable)
 		return
 	}
 	tok, err := a.makeTokenWithDomain(acct.ID, acct.Role, mfaPendingMacDomain, a.mfaPendingTTL)
@@ -633,7 +634,7 @@ func (a *BcryptTOTPAuth) verifyMFA(w http.ResponseWriter, r *http.Request, mfa *
 	// re-parsing the body without the size cap visible in the same function.
 	code := strings.TrimSpace(r.Form.Get("code"))
 	if code == "" {
-		a.verifyMFAFail(w, r, start, "Enter a verification code or recovery code")
+		a.verifyMFAFail(w, r, start, i18n.From(r.Context()).ErrCodeRequired)
 		return
 	}
 	if !a.verifyMFAFactor(w, r, acct, code, start) {
@@ -654,7 +655,7 @@ func (a *BcryptTOTPAuth) verifyMFAAccount(w http.ResponseWriter, r *http.Request
 	if err != nil || acct == nil || !acct.Active || acct.Role != mfa.Role || !acct.TOTPEnabled {
 		a.clearMFACookie(w)
 		w.WriteHeader(http.StatusUnauthorized)
-		a.renderLogin(r.Context(), w, "Invalid session or account")
+		a.renderLogin(r.Context(), w, i18n.From(r.Context()).ErrInvalidSession)
 		if err != nil && !errors.Is(err, ErrAccountNotFound) {
 			a.observer.Observe(OpBcryptLogin, OutcomeError, time.Since(start))
 		} else {
@@ -685,22 +686,22 @@ func (a *BcryptTOTPAuth) verifyTOTPCode(w http.ResponseWriter, r *http.Request, 
 	ctx := r.Context()
 	encrypted, err := a.totpStore.GetTOTPSecret(ctx, acct.ID)
 	if err != nil {
-		a.verifyMFAFail(w, r, start, "Invalid code or recovery code")
+		a.verifyMFAFail(w, r, start, i18n.From(r.Context()).ErrInvalidCode)
 		return false
 	}
 	decrypted, err := DecryptTOTPSecret(encrypted, a.totpEncKey)
 	if err != nil {
-		a.verifyMFAFail(w, r, start, "Invalid code or recovery code")
+		a.verifyMFAFail(w, r, start, i18n.From(r.Context()).ErrInvalidCode)
 		return false
 	}
 	now := time.Now()
 	if !ValidateTOTPCodeAt(string(decrypted), code, totpConfirmSkew, now) {
-		a.verifyMFAFail(w, r, start, "Invalid code or recovery code")
+		a.verifyMFAFail(w, r, start, i18n.From(r.Context()).ErrInvalidCode)
 		return false
 	}
 	ok, err := a.totpStore.ConsumeTOTPStep(ctx, acct.ID, TOTPStepAt(now))
 	if err != nil || !ok {
-		a.verifyMFAFail(w, r, start, "Invalid code or recovery code")
+		a.verifyMFAFail(w, r, start, i18n.From(r.Context()).ErrInvalidCode)
 		return false
 	}
 	return true
@@ -710,7 +711,7 @@ func (a *BcryptTOTPAuth) verifyTOTPCode(w http.ResponseWriter, r *http.Request, 
 func (a *BcryptTOTPAuth) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, acct *Account, code string, start time.Time) bool {
 	ok, err := a.totpStore.ConsumeRecoveryCode(r.Context(), acct.ID, HashRecoveryCode(code))
 	if err != nil || !ok {
-		a.verifyMFAFail(w, r, start, "Invalid code or recovery code")
+		a.verifyMFAFail(w, r, start, i18n.From(r.Context()).ErrInvalidCode)
 		return false
 	}
 	return true

@@ -10,6 +10,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/anatolykoptev/go-panel/auth"
+	"github.com/anatolykoptev/go-panel/i18n"
 	"github.com/anatolykoptev/go-panel/shell"
 )
 
@@ -25,7 +26,10 @@ import (
 func (p *Panel) RenderPage(w http.ResponseWriter, r *http.Request, title, activeID string, content templ.Component) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	shell.SecurityHeaders(w)
-	ctx := shell.ContextWithChrome(r.Context(), p.chromeStateFrom(r))
+	// Strings are also set here, not only by Handler: a consumer's own route
+	// that calls RenderPage may never have passed through the panel's mux, and
+	// its sidebar must not fall back to English.
+	ctx := i18n.WithMerged(shell.ContextWithChrome(r.Context(), p.chromeStateFrom(r)), p.strings)
 	return shell.Layout(title, p.navItemsFor(r.Context(), activeID), content).Render(ctx, w)
 }
 
@@ -124,12 +128,36 @@ func (p *Panel) profileFor(r *http.Request) shell.ProfileConfig {
 		return prof
 	}
 	if prof.Name == "" {
-		prof.Name = s.UserID
+		prof.Name = p.displayName(r.Context(), s.UserID)
 	}
 	if prof.Role == "" {
 		prof.Role = s.Role
 	}
 	return prof
+}
+
+// displayName is the sidebar name for userID: Config.ProfileName's answer, or
+// the raw id when it is unset, returns empty, or panics.
+//
+// The recover is deliberate and narrow. ProfileName is consumer code that runs
+// inside every full-page render, typically a store lookup; a nil dereference
+// there would turn "the operator's name is not shown" into "no admin page
+// loads at all". The panic is logged, so it is not silent, and the page falls
+// back to the id — what it showed before ProfileName existed.
+func (p *Panel) displayName(ctx context.Context, userID string) (name string) {
+	if p.profileName == nil {
+		return userID
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.ErrorContext(ctx, "resource: Config.ProfileName panicked; showing the user id", "panic", rec)
+			name = userID
+		}
+	}()
+	if n := p.profileName(ctx, userID); n != "" {
+		return n
+	}
+	return userID
 }
 
 // RenderPageHTML is RenderPage for callers holding already-rendered,
@@ -164,7 +192,7 @@ func (p *Panel) RenderPageHTML(w http.ResponseWriter, r *http.Request, title, ac
 // (currently Russian) message string verbatim.
 func (p *Panel) RenderError(ctx context.Context, w http.ResponseWriter, title string, nav []shell.NavItem, content templ.Component, label, message string) {
 	var buf bytes.Buffer
-	if err := shell.Layout(title, nav, content).Render(ctx, &buf); err != nil {
+	if err := shell.Layout(title, nav, content).Render(i18n.WithMerged(ctx, p.strings), &buf); err != nil {
 		slog.ErrorContext(ctx, "resource: render failed", "label", label, "err", err)
 		http.Error(w, message, http.StatusInternalServerError)
 		return

@@ -239,18 +239,18 @@ type formErrors map[string]string
 
 // validateFields validates posted form values against the given field set (the
 // active locale's fields). Returns formErrors (may be empty on success).
-func validateFields(fields []Field, values map[string]string) formErrors {
+func validateFields(s Strings, fields []Field, values map[string]string) formErrors {
 	errs := make(formErrors)
 	for _, fld := range fields {
 		val := values[fld.Key]
 		if fld.Required && val == "" {
-			errs[fld.Key] = fld.Label + " is required"
+			errs[fld.Key] = s.FieldRequired(fld.Label)
 			continue
 		}
 		if val == "" {
 			continue
 		}
-		if msg := validateField(fld, val); msg != "" {
+		if msg := validateField(s, fld, val); msg != "" {
 			errs[fld.Key] = msg
 		}
 	}
@@ -259,26 +259,26 @@ func validateFields(fields []Field, values map[string]string) formErrors {
 
 // validateField validates a single non-empty field value against its Kind.
 // Returns an error message string, or "" if valid.
-func validateField(fld Field, val string) string {
+func validateField(s Strings, fld Field, val string) string {
 	switch fld.Kind {
 	case FieldNumber:
-		if msg := validateNumber(fld, val); msg != "" {
+		if msg := validateNumber(s, fld, val); msg != "" {
 			return msg
 		}
 	case FieldDate:
-		if msg := validateDate(fld, val); msg != "" {
+		if msg := validateDate(s, fld, val); msg != "" {
 			return msg
 		}
 	case FieldDateTime:
-		if msg := validateDateTime(fld, val); msg != "" {
+		if msg := validateDateTime(s, fld, val); msg != "" {
 			return msg
 		}
 	case FieldSelect:
-		if msg := validateSelect(fld, val); msg != "" {
+		if msg := validateSelect(s, fld, val); msg != "" {
 			return msg
 		}
 	case FieldJSON:
-		if msg := validateJSON(fld, val); msg != "" {
+		if msg := validateJSON(s, fld, val); msg != "" {
 			return msg
 		}
 	case FieldCheckbox:
@@ -292,17 +292,17 @@ func validateField(fld Field, val string) string {
 	return ""
 }
 
-func validateNumber(fld Field, val string) string {
+func validateNumber(s Strings, fld Field, val string) string {
 	var f float64
 	if err := json.Unmarshal([]byte(val), &f); err != nil {
-		return fld.Label + " must be a number"
+		return s.FieldNotNumber(fld.Label)
 	}
 	return ""
 }
 
-func validateDate(fld Field, val string) string {
+func validateDate(s Strings, fld Field, val string) string {
 	if _, err := time.Parse("2006-01-02", val); err != nil {
-		return fld.Label + " must be a valid date (YYYY-MM-DD)"
+		return s.FieldNotDate(fld.Label)
 	}
 	return ""
 }
@@ -310,28 +310,28 @@ func validateDate(fld Field, val string) string {
 // validateDateTime accepts both the browser's datetime-local submission
 // format ("2006-01-02T15:04") and the space-separated human form
 // ("2006-01-02 15:04").
-func validateDateTime(fld Field, val string) string {
+func validateDateTime(s Strings, fld Field, val string) string {
 	if _, err := time.Parse("2006-01-02T15:04", val); err == nil {
 		return ""
 	}
 	if _, err := time.Parse("2006-01-02 15:04", val); err == nil {
 		return ""
 	}
-	return fld.Label + " must be a valid date and time (YYYY-MM-DD HH:MM)"
+	return s.FieldNotDateTime(fld.Label)
 }
 
-func validateSelect(fld Field, val string) string {
+func validateSelect(s Strings, fld Field, val string) string {
 	for _, opt := range fld.Options {
 		if opt.Value == val {
 			return ""
 		}
 	}
-	return fld.Label + " is not a valid choice"
+	return s.FieldNotChoice(fld.Label)
 }
 
-func validateJSON(fld Field, val string) string {
+func validateJSON(s Strings, fld Field, val string) string {
 	if !json.Valid([]byte(val)) {
-		return fld.Label + " must be valid JSON"
+		return s.FieldNotJSON(fld.Label)
 	}
 	return ""
 }

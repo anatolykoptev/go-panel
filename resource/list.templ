@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/anatolykoptev/go-kit/admintable"
+	"github.com/anatolykoptev/go-panel/i18n"
 )
 
 // listPageData holds all data needed to render a resource list page.
@@ -93,12 +94,22 @@ func viewChipClass(d listPageData, key string) string {
 	return "filter-chip"
 }
 
-// viewsLabel is the caption beside the view chips.
-func viewsLabel(r Resource) string {
+// viewsLabel is the caption beside the view chips: the resource's own, else
+// the panel Strings'.
+func viewsLabel(s i18n.Strings, r Resource) string {
 	if r.ViewsLabel != "" {
 		return r.ViewsLabel
 	}
-	return "view"
+	return s.ViewsLabel
+}
+
+// filterCaption is the caption of one filter: Resource.FilterGroupLabels when
+// declared, otherwise the raw Filter.Key, as before the labels existed.
+func filterCaption(r Resource, key string) string {
+	if c, ok := r.FilterGroupLabels[key]; ok && c != "" {
+		return c
+	}
+	return key
 }
 
 // filterChipLabel is the chip text for an Allowed filter value: the label from
@@ -131,16 +142,17 @@ func viewLabel(v View) string {
 // listPageContent renders the full list page content (page header + filter bar + table + pagination).
 // Wrapped by Layout for non-htmx requests; used directly for htmx fragment swap.
 templ listPageContent(d listPageData) {
+	{{ s := i18n.From(ctx) }}
 	if d.RestorableID != "" && d.CSRFToken != "" {
 		// Rendered server-side rather than raised in JS: it survives a reload,
 		// needs no client state, and works under the admin CSP, which drops
 		// inline handlers. admin.js only fades it — if that never loads the
 		// toast stays, which is the safe direction.
 		<div class="undo-toast" data-undo-after="5000" role="status">
-			<span>{ d.Resource.Title } deleted</span>
+			<span>{ s.Deleted(d.Resource.Title) }</span>
 			<form method="POST" action={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/" + d.RestorableID + "/restore") }>
 				<input type="hidden" name={ csrfFormField } value={ d.CSRFToken }/>
-				<button type="submit" class="row-undo">Вернуть</button>
+				<button type="submit" class="row-undo">{ s.Undo }</button>
 			</form>
 		</div>
 	}
@@ -148,14 +160,14 @@ templ listPageContent(d listPageData) {
 		<div style="display:flex;align-items:center;justify-content:space-between;gap:1rem">
 			<div>
 				<h2>{ d.Resource.Title }</h2>
-				<p>{ strconv.Itoa(d.Total) } total</p>
+				<p>{ s.Total(d.Total) }</p>
 			</div>
 			if d.Resource.Writer != nil {
 				<a
 					href={ templ.SafeURL(d.BasePath + "/" + d.Resource.Name + "/new") }
 					class="pm7-button pm7-button--primary"
 					style="text-decoration:none;white-space:nowrap"
-				>+ New</a>
+				>{ s.New }</a>
 			}
 		</div>
 	</div>
@@ -188,6 +200,7 @@ templ listRowsAppend(d listPageData) {
 
 // filterBar renders the filter chips for ILike text search and Eq/AnyOf chip selectors.
 templ filterBar(d listPageData) {
+	{{ s := i18n.From(ctx) }}
 	if len(d.Resource.Filter.Filters) > 0 || len(d.Resource.Views) > 0 {
 		<form
 			class="filter-bar"
@@ -198,7 +211,7 @@ templ filterBar(d listPageData) {
 		>
 			if len(d.Resource.Views) > 0 {
 				<div style="display:flex;gap:.25rem;align-items:center">
-					<span style="font-family:var(--font-mono);font-size:.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">{ viewsLabel(d.Resource) }</span>
+					<span style="font-family:var(--font-mono);font-size:.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">{ viewsLabel(s, d.Resource) }</span>
 					for _, v := range d.Resource.Views {
 						<button
 							type="submit"
@@ -212,7 +225,7 @@ templ filterBar(d listPageData) {
 			for _, f := range d.Resource.Filter.Filters {
 				if len(f.Allowed) > 0 {
 					<div style="display:flex;gap:.25rem;align-items:center">
-						<span style="font-family:var(--font-mono);font-size:.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">{ f.Key }</span>
+						<span style="font-family:var(--font-mono);font-size:.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">{ filterCaption(d.Resource, f.Key) }</span>
 						for _, a := range f.Allowed {
 							<button
 								type="submit"
@@ -227,7 +240,7 @@ templ filterBar(d listPageData) {
 						type="search"
 						name={ f.Key }
 						value={ d.Selected.Get(f.Key) }
-						placeholder={ "Search " + f.Key + "..." }
+						placeholder={ s.SearchPlaceholder(filterCaption(d.Resource, f.Key)) }
 						style="padding:.375rem .625rem;background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-sans);font-size:.8125rem"
 					/>
 				}
@@ -238,6 +251,7 @@ templ filterBar(d listPageData) {
 
 // listTable renders the sortable table with headers and rows.
 templ listTable(d listPageData) {
+	{{ s := i18n.From(ctx) }}
 	<table class="crm-table" data-stack="cards" id={ d.Resource.Name + "-table" }>
 		<thead>
 			<tr>
@@ -272,7 +286,7 @@ templ listTable(d listPageData) {
 						colspan={ listColspan(d) }
 						style="text-align:center;color:var(--text-muted);padding:2rem"
 					>
-						No results
+						{ s.NoResults }
 					</td>
 				</tr>
 			}
@@ -296,6 +310,7 @@ templ listRows(d listPageData) {
 // drift, and the drift shows only in the swapped row — next to its unswapped
 // neighbours, which is the one place nobody has a baseline for.
 templ listRow(d listPageData, row Row) {
+	{{ s := i18n.From(ctx) }}
 	{{ detailHref := rowDetailHref(d, row) }}
 	<tr class={ templ.KV("row-emphasis", row.Emphasis) }>
 		for i, cell := range row.Cells {
@@ -317,7 +332,7 @@ templ listRow(d listPageData, row Row) {
 				<a
 					href={ rowPath(d, row.ID, "/edit") }
 					style="font-size:.75rem;color:var(--text-secondary);text-decoration:none"
-				>Edit</a>
+				>{ s.Edit }</a>
 				if d.Resource.Writer.Restore != nil && d.CSRFToken != "" {
 					<button
 						type="button"
@@ -326,8 +341,8 @@ templ listRow(d listPageData, row Row) {
 						hx-vals={ csrfVals(d.CSRFToken) }
 						hx-target="closest tr"
 						hx-swap="outerHTML"
-						aria-label={ "Delete " + row.ID }
-					>Delete</button>
+						aria-label={ s.DeleteRowLabel(row.ID) }
+					>{ s.Delete }</button>
 				}
 			</td>
 		}
@@ -344,9 +359,10 @@ templ listRow(d listPageData, row Row) {
 // direction — a stale visible row is recoverable, a silently vanished one is
 // indistinguishable from a delete the operator did not intend.
 templ deletedRow(d listPageData, id string, label string) {
+	{{ s := i18n.From(ctx) }}
 	<tr class="row-deleted" data-undo-after="5000">
 		<td colspan={ listColspanExceptActions(d) } class="row-deleted-label">
-			{ label } deleted
+			{ s.Deleted(label) }
 		</td>
 		<td style="text-align:right;white-space:nowrap">
 			<button
@@ -356,7 +372,7 @@ templ deletedRow(d listPageData, id string, label string) {
 				hx-vals={ csrfVals(d.CSRFToken) }
 				hx-target="closest tr"
 				hx-swap="outerHTML"
-			>Вернуть</button>
+			>{ s.Undo }</button>
 		</td>
 	</tr>
 }
@@ -373,6 +389,7 @@ templ pagination(d listPageData) {
 // paginationInner renders the page links + Load-more; shared by the normal
 // render and the OOB replacement in listRowsAppend.
 templ paginationInner(d listPageData) {
+	{{ s := i18n.From(ctx) }}
 	if d.TotalPages > 1 {
 		<div class="pagination">
 			if d.Page > 1 {
@@ -383,7 +400,7 @@ templ paginationInner(d listPageData) {
 					hx-swap="outerHTML"
 					hx-push-url="true"
 					style="padding:.375rem .75rem;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);text-decoration:none"
-				>&larr; Prev</a>
+				>&larr; { s.Prev }</a>
 			}
 			<span style="padding:.375rem .75rem;color:var(--text-muted);font-family:var(--font-mono);font-size:.8125rem">
 				{ fmt.Sprintf("%d / %d", d.Page, d.TotalPages) }
@@ -396,14 +413,14 @@ templ paginationInner(d listPageData) {
 					hx-swap="outerHTML"
 					hx-push-url="true"
 					style="padding:.375rem .75rem;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);text-decoration:none"
-				>Next &rarr;</a>
+				>{ s.Next } &rarr;</a>
 				<a
 					href={ templ.SafeURL(pageURL(d, d.Page+1)) }
 					hx-get={ appendURL(d) }
 					hx-target={ "#" + d.Resource.Name + "-table tbody" }
 					hx-swap="beforeend"
 					style="padding:.375rem .75rem;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);text-decoration:none"
-				>Load more &darr;</a>
+				>{ s.LoadMore } &darr;</a>
 			}
 		</div>
 	}

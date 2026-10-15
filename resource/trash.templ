@@ -1,8 +1,9 @@
 package resource
 
 import (
-	"fmt"
 	"strconv"
+
+	"github.com/anatolykoptev/go-panel/i18n"
 )
 
 // trashPageData is the whole Trash page: one section per resource that opted
@@ -42,12 +43,13 @@ type trashSection struct {
 
 // trashPageContent renders the Trash page body inside the standard shell.
 templ trashPageContent(d trashPageData) {
+	{{ s := i18n.From(ctx) }}
 	<div class="page-header">
-		<h2>Trash</h2>
-		<p>Deleted rows are kept, never destroyed. Restore one here at any time.</p>
+		<h2>{ s.TrashTitle }</h2>
+		<p>{ s.TrashIntro }</p>
 	</div>
 	if len(d.Sections) == 0 {
-		<p style="color:var(--text-muted);padding:2rem 0">Trash is empty.</p>
+		<p style="color:var(--text-muted);padding:2rem 0">{ s.TrashEmpty }</p>
 	}
 	for _, s := range d.Sections {
 		@trashSectionBlock(d, s)
@@ -59,6 +61,7 @@ templ trashPageContent(d trashPageData) {
 // lowest common denominator, and the cell that identifies a row differs per
 // resource.
 templ trashSectionBlock(d trashPageData, s trashSection) {
+	{{ str := i18n.From(ctx) }}
 	<section style="margin-bottom:2.5rem">
 		<h3 style="font-size:.875rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);margin-bottom:.75rem">
 			if s.Resource.Icon != "" {
@@ -75,7 +78,7 @@ templ trashSectionBlock(d trashPageData, s trashSection) {
 		</h3>
 		if s.Err {
 			<p class="trash-unreadable" role="status">
-				Could not read this resource's trash. The rows are still there — see the server log.
+				{ str.TrashUnreadable }
 			</p>
 		} else {
 			<div class="crm-table-scroll">
@@ -97,7 +100,7 @@ templ trashSectionBlock(d trashPageData, s trashSection) {
 			</div>
 			if s.Total > len(s.Rows) {
 				<p style="color:var(--text-muted);font-size:.8125rem;margin-top:.5rem">
-					{ fmt.Sprintf("Showing the %d most recently deleted of %d.", len(s.Rows), s.Total) }
+					{ str.TrashShowing(len(s.Rows), s.Total) }
 				</p>
 			}
 		}
@@ -111,6 +114,7 @@ templ trashSectionBlock(d trashPageData, s trashSection) {
 // dead link on a recovery page is worse than no link, because the operator
 // reads the 404 as "the row really is gone".
 templ trashRow(d trashPageData, s trashSection, row Row) {
+	{{ str := i18n.From(ctx) }}
 	<tr>
 		for i, cell := range row.Cells {
 			if cell.HTML {
@@ -130,8 +134,8 @@ templ trashRow(d trashPageData, s trashSection, row Row) {
 				class="row-undo"
 				hx-post={ d.BasePath + "/" + s.Resource.Name + "/" + row.ID + "/restore" }
 				hx-vals={ csrfVals(d.CSRFToken) }
-				aria-label={ "Restore " + row.ID }
-			>Вернуть</button>
+				aria-label={ str.RestoreRowLabel(row.ID) }
+			>{ str.Undo }</button>
 		</td>
 	</tr>
 }

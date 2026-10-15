@@ -304,7 +304,7 @@ func TestTrash_NameCollisionPanicsAtStartup(t *testing.T) {
 // resources.
 //
 // Falsification: in resource/trash.go, delete the
-// `p.nav = append(p.nav, shell.NavItem{Group: trashNavGroup})` line → RED.
+// `p.nav = append(p.nav, shell.NavItem{Group: p.strings.SystemGroup})` line → RED.
 func TestTrash_SidebarLinkHasItsOwnHeading(t *testing.T) {
 	p := newWriterPanel()
 	r := trashResource("items", trashRows(1), 1, nil)
