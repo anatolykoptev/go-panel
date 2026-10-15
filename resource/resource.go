@@ -81,6 +81,9 @@ type Row struct {
 	ID    string
 	Cells []Cell // ordered to match Sort.Columns
 	Href  string // optional detail link
+	// Emphasis renders the row bold (class "row-emphasis") — e.g. an unread
+	// item. Weight rather than colour, so it survives both themes.
+	Emphasis bool
 }
 
 // DetailItem is one label-value row inside a DetailSection.
@@ -212,6 +215,14 @@ type Resource struct {
 	//
 	// Register panics on an empty or duplicate Key (fail-fast at startup).
 	Views []View
+
+	// FilterLabels maps filter key -> submitted value -> chip text, for the
+	// closed-set (Allowed) filters. Without an entry a chip shows its submitted
+	// value, exactly as before; with one, the chip shows the label while still
+	// submitting the value. Register panics if a key is not a filter with
+	// Allowed values or a value is not one of its Allowed values (fail-fast at
+	// startup — a label for a chip that does not exist is a typo, not data).
+	FilterLabels map[string]map[string]string
 
 	// ViewsLabel is the caption shown beside the view chips. Defaults to "view".
 	ViewsLabel string
@@ -729,6 +740,7 @@ func Register(p *Panel, r Resource) {
 	}
 	validateRoleConfig(p, r)
 	validateViewsConfig(r)
+	validateFilterLabels(r)
 	validateTrashConfig(r)
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
@@ -2007,4 +2019,49 @@ func sanitizeForLog(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// validateFilterLabels panics at Register if FilterLabels names a filter that
+// has no Allowed set, or a value outside it.
+func validateFilterLabels(r Resource) {
+	for key, labels := range r.FilterLabels {
+		var allowed []string
+		found := false
+		for _, f := range r.Filter.Filters {
+			if f.Key == key && len(f.Allowed) > 0 {
+				allowed, found = f.Allowed, true
+				break
+			}
+		}
+		if !found {
+			panic(fmt.Sprintf("resource.Register %q: FilterLabels key %q is not a filter with Allowed values", r.Name, key))
+		}
+		for value := range labels {
+			if !slices.Contains(allowed, value) {
+				panic(fmt.Sprintf("resource.Register %q: FilterLabels[%q] has label for %q, which is not in Allowed", r.Name, key, value))
+			}
+		}
+	}
+}
+
+// CSRFToken returns a CSRF token bound to r's session, for a custom MountPage
+// handler that renders a form or htmx control posting to a MountAction route
+// (or any other CSRF-verified route). Embed it in a hidden input named
+// csrf.FormField ("_csrf") — components.PostAction does this.
+//
+// Fail-closed: when the panel has no usable CSRFKey, or its authenticator has
+// no session cookie to bind to, CSRFToken logs and returns "". A form rendered
+// with "" posts no token and every verified route answers 403 — a visibly dead
+// button, never a silently unprotected one. MountAction already fails at mount
+// time for the same misconfiguration; this covers a page that mounts without it.
+func (p *Panel) CSRFToken(r *http.Request) string {
+	if len(p.csrfKey) < minCSRFKeyLen {
+		slog.Error("resource: CSRFToken called without a usable Config.CSRFKey", "path", r.URL.Path)
+		return ""
+	}
+	if _, ok := p.auth.(sessionCookier); !ok {
+		slog.Error("resource: CSRFToken: authenticator has no SessionCookieName()", "path", r.URL.Path)
+		return ""
+	}
+	return csrf.Issue(p.csrfKey, p.sessionValue(r), csrf.DefaultTTL)
 }

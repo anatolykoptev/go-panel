@@ -1,0 +1,133 @@
+package components
+
+// StepState is where a Stepper step sits in the lifecycle.
+type StepState int
+
+const (
+	// StepUpcoming is a step further along than the next one (dimmed).
+	StepUpcoming StepState = iota
+	// StepDone is behind the current step (check mark).
+	StepDone
+	// StepCurrent is where the record is now (tone fill, bold, aria-current).
+	StepCurrent
+	// StepNext is the suggested next move (accent outline).
+	StepNext
+)
+
+// Step is one lifecycle step. Tone colours the step only while it is current.
+// When Post is set the step is a real <button> inside a POST form; otherwise it
+// is a static <span>.
+type Step struct {
+	Label string
+	State StepState
+	Tone  Tone
+	Post  *PostAction
+}
+
+// StepperLabels is the screen-reader text appended to a step's state. Zero
+// values fall back to English; set all three for another language.
+type StepperLabels struct {
+	Done, Current, Next string
+}
+
+// Stepper is an ordered lifecycle plus an optional detached terminal step (a
+// failure/cancel outcome that is not "the step after the last"). Hint is the
+// line under the control ("Next step: ...").
+type Stepper struct {
+	// Label names the group for assistive tech.
+	Label    string
+	Steps    []Step
+	Terminal *Step
+	Hint     string
+	Labels   StepperLabels
+}
+
+func stepClass(s Step) string {
+	switch s.State {
+	case StepDone:
+		return "stepper-step is-done"
+	case StepCurrent:
+		return "stepper-step is-current " + toneClass(s.Tone)
+	case StepNext:
+		return "stepper-step is-next"
+	default:
+		return "stepper-step"
+	}
+}
+
+func stepGlyph(s Step) string {
+	if s.State == StepDone {
+		return "✓"
+	}
+	return ""
+}
+
+func stepStateText(s Step, l StepperLabels) string {
+	pick := func(v, def string) string {
+		if v != "" {
+			return v
+		}
+		return def
+	}
+	switch s.State {
+	case StepDone:
+		return pick(l.Done, "done")
+	case StepCurrent:
+		return pick(l.Current, "current")
+	case StepNext:
+		return pick(l.Next, "next")
+	default:
+		return ""
+	}
+}
+
+func stepAttrs(s Step) templ.Attributes {
+	if s.State == StepCurrent {
+		return templ.Attributes{"aria-current": "step"}
+	}
+	return nil
+}
+
+templ stepInner(s Step, l StepperLabels) {
+	if g := stepGlyph(s); g != "" {
+		<span class="stepper-glyph" aria-hidden="true">{ g }</span>
+	}
+	<span>{ s.Label }</span>
+	if t := stepStateText(s, l); t != "" {
+		<span class="stepper-state">{ " (" + t + ")" }</span>
+	}
+}
+
+templ stepItem(s Step, l StepperLabels) {
+	<div class="stepper-item">
+		if s.Post != nil {
+			<form method="post" action={ s.Post.URL } { postAttrs(*s.Post, "")... }>
+				@postFields(*s.Post)
+				<button type="submit" class={ stepClass(s) } { stepAttrs(s)... }>
+					@stepInner(s, l)
+				</button>
+			</form>
+		} else {
+			<span class={ stepClass(s) } { stepAttrs(s)... }>
+				@stepInner(s, l)
+			</span>
+		}
+	</div>
+}
+
+templ StepperView(st Stepper) {
+	<div>
+		<div class="stepper" role="group" aria-label={ st.Label }>
+			for _, s := range st.Steps {
+				@stepItem(s, st.Labels)
+			}
+			if st.Terminal != nil {
+				<div class="stepper-sep" aria-hidden="true"></div>
+				@stepItem(*st.Terminal, st.Labels)
+			}
+		</div>
+		if st.Hint != "" {
+			<p class="stepper-hint">{ st.Hint }</p>
+		}
+	</div>
+}

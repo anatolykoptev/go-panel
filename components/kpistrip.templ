@@ -1,0 +1,57 @@
+package components
+
+// KPI is one cell of a KPIStrip. Delta is text ("12% vs last month"); Trend
+// picks arrow + colour (TrendNone hides the delta line). Note is a muted
+// suffix on the delta line. Spark, when non-empty, draws a sparkline beside
+// the value.
+type KPI struct {
+	Label string
+	Value string
+	Delta string
+	Trend Trend
+	Note  string
+	Spark []int
+}
+
+func kpiDeltaClass(t Trend) string {
+	switch t {
+	case TrendUp:
+		return "kpi-delta kpi-delta-up"
+	case TrendDown:
+		return "kpi-delta kpi-delta-down"
+	case TrendNew:
+		return "kpi-delta kpi-delta-new"
+	default:
+		return "kpi-delta"
+	}
+}
+
+// KPIStrip renders KPIs in one bordered container with divided cells — the slim
+// metric strip above a work queue, as opposed to Grid of StatCardView tiles.
+// Direction is arrow + text + colour, never colour alone. On narrow screens the
+// strip scrolls horizontally inside its own box.
+templ KPIStrip(cells []KPI) {
+	<div class="kpi-strip">
+		for _, c := range cells {
+			<div class="kpi-cell">
+				<div class="kpi-label">{ c.Label }</div>
+				<div class="kpi-value">
+					<span>{ c.Value }</span>
+					if len(c.Spark) > 0 {
+						@Sparkline(c.Spark)
+					}
+				</div>
+				if (c.Trend != TrendNone && c.Delta != "") || c.Note != "" {
+					<div class={ kpiDeltaClass(c.Trend) }>
+						if c.Trend != TrendNone && c.Delta != "" {
+							<span>{ trendGlyph(c.Trend) }{ c.Delta }</span>
+						}
+						if c.Note != "" {
+							<span class="kpi-note">{ " " + c.Note }</span>
+						}
+					</div>
+				}
+			</div>
+		}
+	</div>
+}

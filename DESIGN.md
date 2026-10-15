@@ -51,8 +51,12 @@ classes. No CDN, no external font host — deployments behind ТСПУ must work
 `--accent` `#3b82f6` (links, active state, focus) · `--green` `#10b981` ·
 `--yellow` `#f59e0b` · `--red` `#ef4444` · `--purple` `#a78bfa` · `--teal`
 `#0ea5e9` · `--orange` `#f97316`. Each has a `-dim` companion for backgrounds
-(`--red-dim`, `--green-dim`, …). Colour carries meaning here; it is never
-decoration.
+(`--red-dim`, `--green-dim`, …) and, for text ON that background, a `-light`
+companion (`--orange-light`, `--purple-light`, `--yellow-light`, `--green-light`,
+…) — chip text uses the `-light` token, never the raw colour. Colour carries
+meaning here; it is never decoration. Button fills are separate tokens
+(`--btn-primary-bg`, `--btn-danger-bg` + `-hover`), darker than `--accent` so
+white label text clears 4.5:1.
 
 ### Type and shape
 
@@ -128,7 +132,7 @@ The selected chip carries `.active`. That was dead CSS until 2026-08-21 — the
 class existed from the start and nothing applied it, so no admin list had ever
 shown which filter was on.
 
-### Badges — `.badge` + `.badge-blue` / `-green` / `-red` / `-gray`
+### Badges — `.badge` + `.badge-blue` / `-green` / `-red` / `-gray` / `-orange` / `-purple` / `-yellow`
 
 Monospace `.6875rem`, tinted `-dim` background. For closed enums only — a badge
 built from an open string is how markup gets injected. Build the markup from a
@@ -164,6 +168,36 @@ non-list page. Nested cards are always wrong. Most content does not need one.
 `components.StatCard{Label, Value, Spark []int}` rendered through
 `components.Grid(...)`. The `Spark` field draws a sparkline. Do not write a
 number-plus-label block by hand; this is it.
+
+### Buttons — `.btn` + `-primary` / `-secondary` / `-ghost` / `-danger`
+
+Sizes `-sm` / `-lg`, `-block`; `disabled` / `aria-disabled="true"` dims and blocks
+the pointer; `:focus-visible` draws the `--accent` ring. 36px high on desktop,
+44px at ≤767px. One primary per row or region. Danger is for a confirmed
+destructive step, not a decoration — a reversible delete is a ghost link.
+Form controls (`.pm7-input` select/input/textarea/datetime-local) take their
+fill and text from `--bg-deep` / `--text-primary` in both themes.
+
+### Definition list — `.dl-compact`
+
+`<dl class="dl-compact"><div><dt>…</dt><dd>…</dd></div>…</dl>`: mono 11px label
+over a 14px value, for record metadata.
+
+### Work-queue components — `components.QueueList` / `QueueRowView`, `FunnelView`, `StepperView`, `Timeline`, `KPIStrip`
+
+Pure templ, auto-escaped, importing only templ + stdlib. Colour is always a
+closed `components.Tone` (never a class string) and always accompanied by text.
+A control that changes state is a `components.PostAction`: a real
+`<form method=post>` with `hx-post` on top (works without JS, answers 303), and
+the CSRF token comes from `Panel.CSRFToken(r)`. `/admin/showcase/` in
+`example/` renders each of them.
+
+### Lists on phones, emphasis, chip labels
+
+A list `<table class="crm-table" data-stack="cards">` becomes stacked cards at
+≤767px (each cell prints its `data-label` column header; the header row stays as
+sort links). `Row.Emphasis` bolds a row (unread). `Resource.FilterLabels`
+separates a filter chip's text from the value it submits.
 
 ### Detail views — `.detail-page` / `.detail-section` / `.detail-items`
 

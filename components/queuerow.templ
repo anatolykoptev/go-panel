@@ -1,0 +1,105 @@
+package components
+
+// maxQueueActions is the most actions a QueueRow shows. More than three
+// controls in one row stops being a queue and becomes a toolbar.
+const maxQueueActions = 3
+
+// RowAction is one control on a QueueRow: a link (Href) or a POST form (Post).
+// When both are set Post wins. Variant picks the look; one primary per row.
+type RowAction struct {
+	Label   string
+	Variant Variant
+	Href    string
+	Post    *PostAction
+}
+
+// QueueRow is one item of an action queue. Rows are a list, never a table: each
+// carries different things (a lead, an expiring placement, an unpaid invoice).
+//
+// Every string field is HTML-escaped by templ. Href values are URL-sanitised by
+// templ (javascript: becomes about:invalid#TemplFailedSanitizationURL).
+type QueueRow struct {
+	// ID, when non-empty, becomes the DOM id so a fragment response can be
+	// targeted precisely.
+	ID string
+	// Badge + BadgeTone is the type chip; Meta is the line under it ("3 h ago").
+	Badge     string
+	BadgeTone Tone
+	Meta      string
+	// Title (bold) and Subtitle (muted, beside it); Href makes the Title a link.
+	Title    string
+	Subtitle string
+	Href     string
+	// Secondary is the one line of context under the title.
+	Secondary string
+	// Actions: at most three are rendered.
+	Actions []RowAction
+}
+
+func queueActions(r QueueRow) []RowAction {
+	if len(r.Actions) > maxQueueActions {
+		return r.Actions[:maxQueueActions]
+	}
+	return r.Actions
+}
+
+func queueRowAttrs(r QueueRow) templ.Attributes {
+	if r.ID == "" {
+		return nil
+	}
+	return templ.Attributes{"id": r.ID}
+}
+
+// QueueList renders rows inside .queue-list.
+templ QueueList(rows []QueueRow) {
+	<div class="queue-list" role="list">
+		for _, r := range rows {
+			@QueueRowView(r)
+		}
+	</div>
+}
+
+// QueueRowView renders one .queue-row. It is exported on its own so an htmx
+// action handler can return exactly this fragment (hx-target "closest
+// .queue-row", hx-swap outerHTML).
+templ QueueRowView(r QueueRow) {
+	<div class="queue-row" role="listitem" { queueRowAttrs(r)... }>
+		<div class="queue-marker">
+			if r.Badge != "" {
+				<span class={ badgeClass(r.BadgeTone) }>{ r.Badge }</span>
+			}
+			if r.Meta != "" {
+				<span class="queue-meta">{ r.Meta }</span>
+			}
+		</div>
+		<div class="queue-main">
+			<div>
+				if r.Href != "" {
+					<a class="queue-title" href={ r.Href }>{ r.Title }</a>
+				} else {
+					<span class="queue-title">{ r.Title }</span>
+				}
+				if r.Subtitle != "" {
+					<span class="queue-subtitle">{ r.Subtitle }</span>
+				}
+			</div>
+			if r.Secondary != "" {
+				<div class="queue-secondary">{ r.Secondary }</div>
+			}
+		</div>
+		if len(r.Actions) > 0 {
+			<div class="queue-actions">
+				for _, a := range queueActions(r) {
+					if a.Post != nil {
+						<form method="post" action={ a.Post.URL } { postAttrs(*a.Post, "closest .queue-row")... }>
+							@postFields(*a.Post)
+							<button type="submit" class={ btnClass(a.Variant) }>{ a.Label }</button>
+						</form>
+					} else {
+						<a class={ btnClass(a.Variant) } href={ a.Href }>{ a.Label }</a>
+					}
+				}
+			</div>
+		}
+	</div>
+}

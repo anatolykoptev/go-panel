@@ -1,0 +1,75 @@
+package components
+
+import "strings"
+
+// TimelineKind is the closed set of timeline entry shapes.
+type TimelineKind int
+
+const (
+	// TimelineNote shows Body.
+	TimelineNote TimelineKind = iota
+	// TimelineStatus shows From -> To chips.
+	TimelineStatus
+	// TimelineEvent shows Body as a system event (accent dot).
+	TimelineEvent
+)
+
+// TimelineChip is a status chip inside a status-change entry.
+type TimelineChip struct {
+	Label string
+	Tone  Tone
+}
+
+// TimelineItem is one entry. Label is the kind caption ("Note", "Status
+// change"); the meta line joins Label, Author and Time, skipping empty parts.
+// All text is HTML-escaped. The caller orders items (newest first).
+type TimelineItem struct {
+	Kind     TimelineKind
+	Label    string
+	Body     string
+	From, To TimelineChip
+	Author   string
+	Time     string
+}
+
+func timelineClass(k TimelineKind) string {
+	switch k {
+	case TimelineStatus:
+		return "timeline-item timeline-status"
+	case TimelineEvent:
+		return "timeline-item timeline-event"
+	default:
+		return "timeline-item timeline-note"
+	}
+}
+
+func timelineMeta(it TimelineItem) string {
+	parts := make([]string, 0, 3)
+	for _, p := range []string{it.Label, it.Author, it.Time} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+templ Timeline(items []TimelineItem) {
+	<ol class="timeline">
+		for _, it := range items {
+			<li class={ timelineClass(it.Kind) }>
+				if it.Kind == TimelineStatus {
+					<div class="timeline-change">
+						<span class={ badgeClass(it.From.Tone) }>{ it.From.Label }</span>
+						<span class="timeline-arrow" aria-label="to">→</span>
+						<span class={ badgeClass(it.To.Tone) }>{ it.To.Label }</span>
+					</div>
+				} else {
+					<div class="timeline-body">{ it.Body }</div>
+				}
+				if m := timelineMeta(it); m != "" {
+					<div class="timeline-meta">{ m }</div>
+				}
+			</li>
+		}
+	</ol>
+}
