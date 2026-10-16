@@ -1,0 +1,120 @@
+name: nightly
+
+# Full Go test suite with the race detector, scheduled nightly on the
+# self-hosted krolik runner. The merge gate's `go test -race ./...` skips
+# DB-gated tests (TEST_DATABASE_URL and SEMANTIC_TEST_DSN), so this workflow
+# provisions an ephemeral Postgres with the same shape as the preflight gate
+# and a container name prefixed `go-panel-nightly-` to avoid collisions.
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-race-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+
+jobs:
+  race-detector:
+    runs-on: [self-hosted, krolik]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Reap stale nightly postgres containers
+        run: |
+          # --rm containers survive a runner SIGKILL where if:always() never
+          # fires — reap any prefix-scoped orphan before starting a fresh one.
+          docker ps -aq --filter "name=go-panel-nightly-pg-" | xargs -r docker rm -f
+
+      - name: Start ephemeral Postgres
+        id: pg
+        run: |
+          set -euo pipefail
+          name="go-panel-nightly-pg-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "container=$name" >> "$GITHUB_OUTPUT"
+          docker run -d --rm --name "$name" \
+            -e POSTGRES_USER=panel \
+            -e POSTGRES_PASSWORD=panel \
+            -e POSTGRES_DB=panel_test \
+            -p 127.0.0.1::5432 \
+            krolik-postgres-age:17 >/dev/null
+          ready=0
+          for i in $(seq 1 30); do
+            if docker exec "$name" pg_isready -h 127.0.0.1 -p 5432 -U panel -q 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::postgres did not become ready in time"
+            docker logs "$name" || true
+            exit 1
+          fi
+          port=$(docker port "$name" 5432/tcp | head -1 | cut -d: -f2)
+          echo "port=$port" >> "$GITHUB_OUTPUT"
+
+      - name: go test -race ./...
+        run: |
+          set -euo pipefail
+          port=${{ steps.pg.outputs.port }}
+          container="${{ steps.pg.outputs.container }}"
+
+          # 1. Non-DB packages (DB-gated tests skip because no DSN is set).
+          go test -race ./...
+
+          # 2. auth DB-gated tests: run only the tests that reference
+          #    TEST_DATABASE_URL, with a live Postgres. Running the whole ./auth
+          #    package with TEST_DATABASE_URL set invalidates the test cache and
+          #    re-runs the slow bcrypt tests, which already ran above; derive the
+          #    run pattern from the source (same as scripts/preflight-db.sh).
+          fail=0
+          run_auth() {
+            db_files=$(grep -rl 'TEST_DATABASE_URL' --include='*_test.go' ./auth || true)
+            db_funcs=$(printf '%s\n' "$db_files" | xargs -r grep -hoE '^func (Test[A-Za-z0-9_]+)' | awk '{print $2}' | sort -u)
+            if [ -z "$db_funcs" ]; then
+              echo "FATAL: no ./auth/*_test.go references TEST_DATABASE_URL" >&2
+              return 1
+            fi
+            run_pattern="^($(printf '%s' "$db_funcs" | paste -sd'|'))\$"
+            listed=$(GOWORK=off go test -list "$run_pattern" ./auth/... 2>/dev/null | grep -c '^Test' || true)
+            if [ "$listed" -eq 0 ]; then
+              echo "FATAL: derived pattern '${run_pattern}' matched zero tests" >&2
+              return 1
+            fi
+            echo "=== auth (${listed} test(s) referencing TEST_DATABASE_URL, live Postgres) ==="
+            TEST_DATABASE_URL="postgres://panel:panel@127.0.0.1:${port}/panel_test?sslmode=disable" \
+              go test -race -count=1 -timeout=15m -run "$run_pattern" ./auth/...
+          }
+          run_auth || fail=1
+
+          # 3. semantic DB-gated tests: need pgvector, so create a dedicated DB
+          #    and enable the vector extension before running.
+          run_semantic() {
+            docker exec "$container" psql -U panel -d postgres -c "DROP DATABASE IF EXISTS panel_semantic_test" >/dev/null 2>&1 || true
+            docker exec "$container" psql -U panel -d postgres -c "CREATE DATABASE panel_semantic_test" >/dev/null
+            docker exec "$container" psql -U panel -d panel_semantic_test -c "CREATE EXTENSION IF NOT EXISTS vector" >/dev/null
+            echo "=== semantic (pgvector DB tests) ==="
+            SEMANTIC_TEST_DSN="postgres://panel:panel@127.0.0.1:${port}/panel_semantic_test?sslmode=disable" \
+              go test -race -count=1 -timeout=15m ./semantic/...
+          }
+          run_semantic || fail=1
+
+          exit $fail
+
+      - name: Stop ephemeral Postgres
+        if: always()
+        run: docker rm -f "${{ steps.pg.outputs.container }}" >/dev/null 2>&1 || true
