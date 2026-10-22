@@ -211,7 +211,7 @@ templ filterBar(d listPageData) {
 		>
 			if len(d.Resource.Views) > 0 {
 				<div style="display:flex;gap:.25rem;align-items:center">
-					<span style="font-family:var(--font-mono);font-size:.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">{ viewsLabel(s, d.Resource) }</span>
+					<span style="font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em">{ viewsLabel(s, d.Resource) }</span>
 					for _, v := range d.Resource.Views {
 						<button
 							type="submit"
@@ -225,7 +225,7 @@ templ filterBar(d listPageData) {
 			for _, f := range d.Resource.Filter.Filters {
 				if len(f.Allowed) > 0 {
 					<div style="display:flex;gap:.25rem;align-items:center">
-						<span style="font-family:var(--font-mono);font-size:.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">{ filterCaption(d.Resource, f.Key) }</span>
+						<span style="font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em">{ filterCaption(d.Resource, f.Key) }</span>
 						for _, a := range f.Allowed {
 							<button
 								type="submit"
@@ -241,7 +241,7 @@ templ filterBar(d listPageData) {
 						name={ f.Key }
 						value={ d.Selected.Get(f.Key) }
 						placeholder={ s.SearchPlaceholder(filterCaption(d.Resource, f.Key)) }
-						style="padding:.375rem .625rem;background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-sans);font-size:.8125rem"
+						style="padding:.375rem .625rem;background:var(--pm7-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-sans);font-size:.8125rem"
 					/>
 				}
 			}

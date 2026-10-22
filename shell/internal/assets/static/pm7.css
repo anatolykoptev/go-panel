@@ -32,7 +32,7 @@
   --pm7-warning-dark: #92400e;
   --pm7-error: #ef4444;
   --pm7-error-foreground: #ffffff;
-  --pm7-info: #3b82f6;
+  --pm7-info: #0078d4;
   --pm7-info-foreground: #ffffff;
   --pm7-info-light: #dbeafe;
   --pm7-info-dark: #1e40af;
@@ -92,76 +92,76 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Main colors from old site */
-    --pm7-background: #121212;
-    --pm7-foreground: #e0e0e0;
-    --pm7-text-primary: #e0e0e0;
-    --pm7-text-secondary: #999999;
-    
-    /* Primary color adjusted for dark mode */
-    --pm7-primary: #3b9eff;
-    --pm7-primary-hover: #2a8fe5;
-    --pm7-primary-active: #1976D2;
+    /* Canon v2.1 graphite palette (VS Code Dark Modern) */
+    --pm7-background: #141414;
+    --pm7-foreground: #d6d6d6;
+    --pm7-text-primary: #d6d6d6;
+    --pm7-text-secondary: #9a9a9a;
+
+    /* Accent — VS Code blue */
+    --pm7-primary: #0078d4;
+    --pm7-primary-hover: #006abe;
+    --pm7-primary-active: #005a9e;
     --pm7-primary-foreground: #ffffff;
-    
-    /* Neutral colors */
-    --pm7-muted: #2d2d2d;
-    --pm7-muted-foreground: #e6e6e6;
-    
-    /* Border colors */
-    --pm7-border: #444;
-    --pm7-border-hover: #666666;
-    
-    /* Surface colors */
-    --pm7-surface: #1e1e1e;
-    --pm7-surface-hover: #2a2a2a;
-    --pm7-surface-active: #333;
-    
+
+    /* Neutrals */
+    --pm7-muted: #1f1f1f;
+    --pm7-muted-foreground: #9a9a9a;
+
+    /* Borders */
+    --pm7-border: #2b2b2b;
+    --pm7-border-hover: #3a3a3a;
+
+    /* Surfaces */
+    --pm7-surface: #1f1f1f;
+    --pm7-surface-hover: #282828;
+    --pm7-surface-active: #282828;
+
     /* Component specific */
-    --pm7-menu-bg: #1e1e1e;
-    --pm7-ring-offset: #121212;
-    --pm7-input: #1e1e1e;
-    
+    --pm7-menu-bg: #1f1f1f;
+    --pm7-ring-offset: #141414;
+    --pm7-input: #282828;
+
     /* Card specific */
-    --pm7-card-footer-bg: #1a1a1a;
-    
-    /* Additional dark mode colors from old site */
-    --pm7-sidebar-bg: #1E1E1E;
+    --pm7-card-footer-bg: #181818;
+
+    /* Layout surfaces */
+    --pm7-sidebar-bg: #141414;
     --pm7-sidebar-item-hover: var(--pm7-surface-hover);
     --pm7-sidebar-item-hover-dark: var(--pm7-surface-hover);
-    --pm7-sidebar-active: #2a2a2a;
+    --pm7-sidebar-active: #282828;
     --pm7-header-bg: var(--pm7-surface);
-    --pm7-header-dark-bg: #0a4b87;
-    --pm7-footer-bg: #1a1a1a;
-    --pm7-footer-text: #e0e0e0;
-    --pm7-tab-active-bg: #333;
-    --pm7-tab-active-border: #3b9eff;
-    --pm7-code-bg: #2d2d2d;
-    
-    /* Tooltip stays same in dark mode - already dark */
-    --pm7-tooltip-bg: #1a1a1a;
+    --pm7-header-dark-bg: #04395e;
+    --pm7-footer-bg: #181818;
+    --pm7-footer-text: #d6d6d6;
+    --pm7-tab-active-bg: #282828;
+    --pm7-tab-active-border: #0078d4;
+    --pm7-code-bg: #141414;
+
+    /* Tooltip */
+    --pm7-tooltip-bg: #181818;
     --pm7-tooltip-color: #ffffff;
-    
-    /* Status colors adjusted for dark mode */
-    --pm7-success-light: #052e16;
-    --pm7-success-dark: #22c55e;
-    --pm7-warning-light: #451a03;
-    --pm7-warning-dark: #f59e0b;
-    --pm7-info-light: #1e3a8a;
-    --pm7-info-dark: #3b82f6;
-    
-    /* Component focus shadows for dark mode */
-    --pm7-focus-shadow: 0 0 0 3px rgba(59, 158, 255, 0.2);
-    --pm7-error-focus-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
-    --pm7-success-focus-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
-    
+
+    /* Status colors — v2.1 status-hue table */
+    --pm7-success-light: #113327;
+    --pm7-success-dark: #52d99a;
+    --pm7-warning-light: #332711;
+    --pm7-warning-dark: #e8b04f;
+    --pm7-info-light: #0f2c44;
+    --pm7-info-dark: #4daafc;
+
+    /* Component focus shadows — accent #0078d4 */
+    --pm7-focus-shadow: 0 0 0 3px rgba(0, 120, 212, 0.2);
+    --pm7-error-focus-shadow: 0 0 0 3px rgba(242, 139, 130, 0.2);
+    --pm7-success-focus-shadow: 0 0 0 3px rgba(82, 217, 154, 0.2);
+
     /* Menu hover shadow for dark mode */
     --pm7-menu-hover-shadow: rgba(255, 255, 255, 0.05) 0px 5px 15px 0px, rgba(255, 255, 255, 0.1) 0px 15px 35px -5px;
-    
+
     /* Scrollbar colors for dark mode */
     --pm7-scrollbar-thumb: rgba(255, 255, 255, 0.2);
     --pm7-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
-    
+
     /* Theme Switch colors for dark mode */
     --pm7-theme-switch-bg: var(--pm7-background);
     --pm7-theme-switch-thumb-bg-light: #FFD43B;
@@ -169,83 +169,83 @@
     --pm7-theme-switch-icon-light: var(--pm7-foreground);
     --pm7-theme-switch-icon-dark: var(--pm7-background);
     --pm7-theme-switch-sun-color: #FFB800;
-    --pm7-theme-switch-moon-color: #93C5FD;
+    --pm7-theme-switch-moon-color: #4daafc;
   }
 }
 
 /* Dark mode class override - Using colors from old site */
 
 .dark {
-  /* Main colors from old site */
-  --pm7-background: #121212;
-  --pm7-foreground: #e0e0e0;
-  --pm7-text-primary: #e0e0e0;
-  --pm7-text-secondary: #999999;
-  
-  /* Primary color adjusted for dark mode */
-  --pm7-primary: #3b9eff;
-  --pm7-primary-hover: #2a8fe5;
-  --pm7-primary-active: #1976D2;
+  /* Canon v2.1 graphite palette (VS Code Dark Modern) — replaces old-site navy */
+  --pm7-background: #141414;
+  --pm7-foreground: #d6d6d6;
+  --pm7-text-primary: #d6d6d6;
+  --pm7-text-secondary: #9a9a9a;
+
+  /* Accent — VS Code blue */
+  --pm7-primary: #0078d4;
+  --pm7-primary-hover: #006abe;
+  --pm7-primary-active: #005a9e;
   --pm7-primary-foreground: #ffffff;
-  
-  /* Neutral colors */
-  --pm7-muted: #2d2d2d;
-  --pm7-muted-foreground: #e6e6e6;
-  
-  /* Border colors */
-  --pm7-border: #444;
-  --pm7-border-hover: #666666;
-  
-  /* Surface colors */
-  --pm7-surface: #1e1e1e;
-  --pm7-surface-hover: #2a2a2a;
-  --pm7-surface-active: #333;
-  
+
+  /* Neutrals */
+  --pm7-muted: #1f1f1f;
+  --pm7-muted-foreground: #9a9a9a;
+
+  /* Borders */
+  --pm7-border: #2b2b2b;
+  --pm7-border-hover: #3a3a3a;
+
+  /* Surfaces */
+  --pm7-surface: #1f1f1f;
+  --pm7-surface-hover: #282828;
+  --pm7-surface-active: #282828;
+
   /* Component specific */
-  --pm7-menu-bg: #1e1e1e;
-  --pm7-ring-offset: #121212;
-  --pm7-input: #1e1e1e;
-  
+  --pm7-menu-bg: #1f1f1f;
+  --pm7-ring-offset: #141414;
+  --pm7-input: #282828;
+
   /* Card specific */
-  --pm7-card-footer-bg: #1a1a1a;
-  
-  /* Additional dark mode colors from old site */
-  --pm7-sidebar-bg: #1E1E1E;
+  --pm7-card-footer-bg: #181818;
+
+  /* Layout surfaces */
+  --pm7-sidebar-bg: #141414;
   --pm7-sidebar-item-hover: var(--pm7-surface-hover);
   --pm7-sidebar-item-hover-dark: var(--pm7-surface-hover);
-  --pm7-sidebar-active: #2a2a2a;
+  --pm7-sidebar-active: #282828;
   --pm7-header-bg: var(--pm7-surface);
-  --pm7-header-dark-bg: #0a4b87;
-  --pm7-footer-bg: #1a1a1a;
-  --pm7-footer-text: #e0e0e0;
-  --pm7-tab-active-bg: #333;
-  --pm7-tab-active-border: #3b9eff;
-  --pm7-code-bg: #2d2d2d;
-  
-  /* Tooltip stays same in dark mode - already dark */
-  --pm7-tooltip-bg: #1a1a1a;
+  --pm7-header-dark-bg: #04395e;
+  --pm7-footer-bg: #181818;
+  --pm7-footer-text: #d6d6d6;
+  --pm7-tab-active-bg: #282828;
+  --pm7-tab-active-border: #0078d4;
+  --pm7-code-bg: #141414;
+
+  /* Tooltip */
+  --pm7-tooltip-bg: #181818;
   --pm7-tooltip-color: #ffffff;
-  
-  /* Status colors adjusted for dark mode */
-  --pm7-success-light: #052e16;
-  --pm7-success-dark: #22c55e;
-  --pm7-warning-light: #451a03;
-  --pm7-warning-dark: #f59e0b;
-  --pm7-info-light: #1e3a8a;
-  --pm7-info-dark: #3b82f6;
-  
-  /* Component focus shadows */
-  --pm7-focus-shadow: 0 0 0 3px rgba(28, 134, 239, 0.1);
-  --pm7-error-focus-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
-  --pm7-success-focus-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
-  
+
+  /* Status colors — v2.1 status-hue table (dim bg + bright text) */
+  --pm7-success-light: #113327;
+  --pm7-success-dark: #52d99a;
+  --pm7-warning-light: #332711;
+  --pm7-warning-dark: #e8b04f;
+  --pm7-info-light: #0f2c44;
+  --pm7-info-dark: #4daafc;
+
+  /* Component focus shadows — accent #0078d4 */
+  --pm7-focus-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+  --pm7-error-focus-shadow: 0 0 0 3px rgba(242, 139, 130, 0.1);
+  --pm7-success-focus-shadow: 0 0 0 3px rgba(82, 217, 154, 0.1);
+
   /* Menu hover shadow */
   --pm7-menu-hover-shadow: rgba(0, 0, 0, 0.08) 0px 5px 15px 0px, rgba(25, 28, 33, 0.2) 0px 15px 35px -5px;
-  
+
   /* Scrollbar colors */
   --pm7-scrollbar-thumb: rgba(0, 0, 0, 0.2);
   --pm7-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
-  
+
   /* Theme Switch colors for dark mode */
   --pm7-theme-switch-bg: var(--pm7-background);
   --pm7-theme-switch-thumb-bg-light: #FFD43B;
@@ -253,7 +253,7 @@
   --pm7-theme-switch-icon-light: var(--pm7-foreground);
   --pm7-theme-switch-icon-dark: var(--pm7-background);
   --pm7-theme-switch-sun-color: #FFB800;
-  --pm7-theme-switch-moon-color: #93C5FD;
+  --pm7-theme-switch-moon-color: #4daafc;
 }
 
 /* PM7 Spacing Design Tokens */
@@ -405,7 +405,7 @@
   --pm7-toast-shadow: var(--pm7-shadow-lg);
   
   /* Focus shadow */
-  --pm7-focus-shadow: 0 0 0 3px rgb(28 134 239 / 0.2);
+  --pm7-focus-shadow: 0 0 0 3px rgb(0 120 212 / 0.2);
 }
 
 /* Dark mode adjustments */
@@ -664,7 +664,7 @@ select {
   overflow: hidden;
   
   /* Focus */
-  --pm7-button-focus-shadow: 0 0 0 3px rgb(28 134 239 / 0.2);
+  --pm7-button-focus-shadow: none;
 }
 
 /* Remove button defaults */
@@ -680,7 +680,7 @@ select {
 /* Focus styles */
 
 .pm7-button:focus-visible {
-  outline: 2px solid transparent;
+  outline: 2px solid var(--accent, #0078d4);
   outline-offset: 2px;
   box-shadow: var(--pm7-button-focus-shadow);
 }
@@ -688,7 +688,7 @@ select {
 /* Dark mode focus shadow */
 
 .dark .pm7-button {
-  --pm7-button-focus-shadow: 0 0 0 3px rgb(59 158 255 / 0.3);
+  --pm7-button-focus-shadow: none;
 }
 
 /* Ensure anchor tags with button classes override link styles */
@@ -5090,7 +5090,7 @@ a.pm7-sidebar-item--active:focus,
 }
 
 .dark .pm7-callout--tip {
-  background-color: rgba(28, 134, 239, 0.1);
+  background-color: rgba(0, 120, 212, 0.1);
   color: var(--pm7-foreground);
 }
 
@@ -5224,7 +5224,7 @@ a.pm7-sidebar-item--active:focus,
 
 :root {
   /* Default gradient colors */
-  --pm7-gradient-border-1: #a855f7; /* Purple */
+  --pm7-gradient-border-1: #0078d4; /* Accent (v2.1 — violet retired) */
   --pm7-gradient-border-2: #eab308; /* Yellow */
   --pm7-gradient-border-3: #f97316; /* Orange */
   
@@ -5239,7 +5239,7 @@ a.pm7-sidebar-item--active:focus,
   /* Alternative gradients */
   --pm7-gradient-border-blue: linear-gradient(
     to right,
-    #3b82f6,
+    #0078d4,
     #0ea5e9,
     #06b6d4
   );

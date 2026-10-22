@@ -63,7 +63,7 @@ templ trashPageContent(d trashPageData) {
 templ trashSectionBlock(d trashPageData, s trashSection) {
 	{{ str := i18n.From(ctx) }}
 	<section style="margin-bottom:2.5rem">
-		<h3 style="font-size:.875rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);margin-bottom:.75rem">
+		<h3 style="font-size:1.0625rem;line-height:1.35;font-weight:600;color:var(--text-primary);margin-bottom:.75rem">
 			if s.Resource.Icon != "" {
 				<span aria-hidden="true">{ s.Resource.Icon }</span>
 			}

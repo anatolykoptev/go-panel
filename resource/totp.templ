@@ -7,7 +7,7 @@ import "github.com/anatolykoptev/go-panel/i18n"
 // form.templ -- this package has no separate stylesheet for form chrome).
 templ totpErrorBanner(msg string) {
 	if msg != "" {
-		<div style="margin-bottom:1rem;padding:.5rem .75rem;border-radius:.375rem;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#ef4444;font-size:.8125rem">{ msg }</div>
+		<div style="margin-bottom:1rem;padding:.5rem .75rem;border-radius:.375rem;background:var(--negative-bg);border:1px solid var(--negative);color:var(--negative);font-size:.8125rem">{ msg }</div>
 	}
 }
 

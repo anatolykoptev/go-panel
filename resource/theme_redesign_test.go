@@ -142,7 +142,7 @@ func TestTheme_FormControlsHaveExplicitFillBothThemes(t *testing.T) {
 	if strings.EqualFold(v, "#fff") || strings.EqualFold(v, "#ffffff") {
 		t.Fatalf("dark --pm7-input = %s (white)", v)
 	}
-	if !strings.Contains(body, "input.pm7-input,select.pm7-input,textarea.pm7-input{background-color:var(--bg-deep);color:var(--text-primary)") {
+	if !strings.Contains(body, "input.pm7-input,select.pm7-input,textarea.pm7-input{background-color:var(--pm7-input);color:var(--text-primary)") {
 		t.Error("no rule pinning input/select/textarea fill + text to go-panel tokens")
 	}
 	if !strings.Contains(body, ":root.dark{color-scheme:dark}") || !strings.Contains(body, ":root{color-scheme:light}") {
@@ -150,18 +150,29 @@ func TestTheme_FormControlsHaveExplicitFillBothThemes(t *testing.T) {
 	}
 }
 
-// TestTheme_NewTokensInBothBlocks: a token defined in only one block resolves
-// to nothing (invisible chip text) in the other theme.
+// TestTheme_NewTokensInBothBlocks: a token that resolves to nothing in a theme
+// is invisible chip text. A token declared once as an alias (e.g.
+// --orange-light:var(--special)) resolves per theme, so it must resolve to an
+// opaque colour in BOTH.
 func TestTheme_NewTokensInBothBlocks(t *testing.T) {
 	body := renderedStyles(t)
 	light, dark := blockTokens(t, body, ":root{"), blockTokens(t, body, ":root.dark{")
-	for _, tok := range []string{"--orange-light", "--purple-light", "--yellow-light",
-		"--btn-primary-bg", "--btn-primary-hover", "--btn-danger-bg", "--btn-danger-hover"} {
-		if light[tok] == "" || dark[tok] == "" {
-			t.Errorf("%s must be defined in both blocks (light=%q dark=%q)", tok, light[tok], dark[tok])
+	for name, block := range map[string]map[string]string{"light": light, "dark": dark} {
+		merged := map[string]string{}
+		for k, v := range light {
+			merged[k] = v
+		}
+		for k, v := range block {
+			merged[k] = v
+		}
+		for _, tok := range []string{"--orange-light", "--purple-light", "--yellow-light",
+			"--btn-primary-bg", "--btn-primary-hover", "--btn-danger-bg", "--btn-danger-hover"} {
+			if _, ok := hex6(resolveColor(merged, merged[tok])); !ok {
+				t.Errorf("%s: %s does not resolve to an opaque colour (%q)", name, tok, merged[tok])
+			}
 		}
 	}
-	for _, class := range []string{".badge-orange{", ".badge-purple{", ".btn-primary{", ".btn-secondary{", ".btn-ghost{", ".btn-danger{", ".dl-compact{"} {
+	for _, class := range []string{".badge-orange,", ".badge-purple,", ".btn-primary{", ".btn-secondary{", ".btn-ghost{", ".btn-danger{", ".dl-compact{"} {
 		if !strings.Contains(body, class) {
 			t.Errorf("stylesheet lacks %s", class)
 		}

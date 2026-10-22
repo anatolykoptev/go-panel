@@ -53,7 +53,7 @@ templ detailPageContent(d detailPageData) {
 				data-confirm={ s.ConfirmDelete(d.Resource.Title) }
 			>
 				<input type="hidden" name={ csrfFormField } value={ d.CSRFToken }/>
-				<button type="submit" style="background:var(--danger,#dc2626);color:#fff;border:none;padding:.5rem 1rem;border-radius:.375rem;cursor:pointer;font-size:.8125rem">
+				<button type="submit" style="background:var(--btn-danger-bg);color:#fff;border:none;padding:.5rem 1rem;border-radius:.375rem;cursor:pointer;font-size:.8125rem">
 					{ s.Delete }
 				</button>
 			</form>

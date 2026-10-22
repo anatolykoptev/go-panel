@@ -124,7 +124,7 @@ func TestTheme_StylesheetHasBothPalettes(t *testing.T) {
 	}
 
 	// The bare-:root --bg-base must differ from the :root.dark --bg-base.
-	// Light --bg-base is #ffffff; dark --bg-base is #0c1222.
+	// Light --bg-base is #f8f8f8 (graphite light); dark --bg-base is #181818 (canon v2.1).
 	lightBg := extractToken(body, ":root{", "--bg-base:")
 	darkBg := extractToken(body, ":root.dark{", "--bg-base:")
 	if lightBg == "" {
@@ -136,11 +136,11 @@ func TestTheme_StylesheetHasBothPalettes(t *testing.T) {
 	if lightBg == darkBg {
 		t.Fatalf("light and dark --bg-base must differ; both are %q — palette split is broken", lightBg)
 	}
-	if lightBg != "#ffffff" {
-		t.Errorf("expected light --bg-base=#ffffff, got %q", lightBg)
+	if lightBg != "#f8f8f8" {
+		t.Errorf("expected light --bg-base=#f8f8f8, got %q", lightBg)
 	}
-	if darkBg != "#0c1222" {
-		t.Errorf("expected dark --bg-base=#0c1222, got %q", darkBg)
+	if darkBg != "#181818" {
+		t.Errorf("expected dark --bg-base=#181818, got %q", darkBg)
 	}
 }
 
@@ -240,8 +240,8 @@ func extractToken(body, blockStart, tokenPrefix string) string {
 // in the test, so editing the stylesheet without meeting the threshold
 // fails the test.
 //
-// Falsification (F4): in shell/styles.templ, set the light --text-muted
-// back to #64748b. The --text-muted on --bg-elevated pair drops to 3.86:1
+// Falsification (F4): in shell/styles.templ, set the light --text-secondary
+// to #8a8a8a. The --text-muted (alias of --text-secondary) on --bg-elevated pair drops below 4.5:1
 // < 4.5 → RED.
 func TestTheme_ContrastAA(t *testing.T) {
 	p := newTestPanel()
@@ -267,7 +267,7 @@ func TestTheme_ContrastAA(t *testing.T) {
 	}
 
 	bgBase := tokens["--bg-base"]
-	bgSurface := tokens["--bg-surface"]
+	bgSurface := resolve(tokens["--bg-surface"])
 	bgElevated := tokens["--bg-elevated"]
 
 	type pair struct {
