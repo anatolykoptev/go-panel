@@ -42,6 +42,8 @@ once as an alias (`--text-muted:var(--text-secondary)`) resolves per theme.
 | `--bg-elevated` | `#282828` | `#ececec` | row hover, inputs (dark), neutral badges |
 | `--border` | `#2b2b2b` | `#d4d4d4` | structural 1px rules |
 | `--border-subtle` | `#232323` | `#e5e5e5` | row dividers, sidebar edge |
+| `--border-control` | `#2b2b2b` | `#858585` | edge of inputs, chips, secondary buttons (light reaches 3:1, WCAG 1.4.11) |
+| `--track` | `#404040` | `#c8c8c8` | funnel / progress track (≥1.5:1 on every ground) |
 | `--text-primary` | `#d6d6d6` | `#242424` | body, cell values |
 | `--text-secondary` | `#9a9a9a` | `#595959` | labels, metadata, column heads (AA on every ground) |
 | `--text-faint` | `#6a6a6a` | `#8a8a8a` | DECORATIVE ONLY (3.05 / 3.45 on raised) — never text that carries meaning |
@@ -239,8 +241,8 @@ number-plus-label block by hand; this is it.
 
 ### Buttons — `.btn` + `-primary` / `-secondary` / `-ghost` / `-danger`
 
-Sizes `-sm` / `-lg`, `-block`; `disabled` / `aria-disabled="true"` dims and blocks
-the pointer; `:focus-visible` draws the `--accent` ring. 36px high on desktop,
+Sizes `-sm` / `-lg`, `-block`; `disabled` / `aria-disabled="true"` restyles and blocks
+the pointer; `:focus-visible` draws the `--accent` ring. Disabled is an explicit pair (`--bg-elevated` + `--text-secondary`), never opacity. 36px high on desktop,
 44px at ≤767px. One primary per row or region. Danger is for a confirmed
 destructive step, not a decoration — a reversible delete is a ghost link.
 Form controls (`.pm7-input` select/input/textarea/datetime-local) take their
@@ -346,10 +348,17 @@ container: `.main` sets `overflow-x:auto`, the page body must never scroll
 sideways.
 
 
-## Migrating from the navy palette (consumers: go-job, go-grad, oxpulse-admin)
+## Migrating from the navy palette (consumers: go-grad, go-job)
 
 No API changed: a zero-value consumer compiles and behaves identically. Only
 visuals change when the go-panel version is bumped.
+
+Checked consumers: **go-grad** (v0.23.17) — `var(--text-muted)`, `var(--red)`, `var(--pm7-*)`,
+`.badge-*`, `.pm7-card` and `.crm-table` all still resolve; its two
+`border-left:3px solid var(--red)` `pm7-card` blocks are go-grad's own and stay
+side stripes until go-grad moves them to `components.NoticeView`. **go-job**
+(pseudo-version v0.23.13-0.20260928083354-a6ff5313871b) was not verified.
+(oxpulse-admin does not import go-panel.)
 
 - **Grounds** go from navy (`#060b18` / `#0c1222` / `#131c31`) to hue-flat graphite
   (`#141414` / `#181818` / `#1f1f1f`); the accent from `#3b82f6` to VS Code blue

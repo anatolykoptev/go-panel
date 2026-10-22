@@ -32,7 +32,7 @@
   --pm7-warning-dark: #92400e;
   --pm7-error: #ef4444;
   --pm7-error-foreground: #ffffff;
-  --pm7-info: #3b82f6;
+  --pm7-info: #0078d4;
   --pm7-info-foreground: #ffffff;
   --pm7-info-light: #dbeafe;
   --pm7-info-dark: #1e40af;
@@ -405,7 +405,7 @@
   --pm7-toast-shadow: var(--pm7-shadow-lg);
   
   /* Focus shadow */
-  --pm7-focus-shadow: 0 0 0 3px rgb(28 134 239 / 0.2);
+  --pm7-focus-shadow: 0 0 0 3px rgb(0 120 212 / 0.2);
 }
 
 /* Dark mode adjustments */
@@ -664,7 +664,7 @@ select {
   overflow: hidden;
   
   /* Focus */
-  --pm7-button-focus-shadow: 0 0 0 3px rgb(28 134 239 / 0.2);
+  --pm7-button-focus-shadow: none;
 }
 
 /* Remove button defaults */
@@ -680,7 +680,7 @@ select {
 /* Focus styles */
 
 .pm7-button:focus-visible {
-  outline: 2px solid transparent;
+  outline: 2px solid var(--accent, #0078d4);
   outline-offset: 2px;
   box-shadow: var(--pm7-button-focus-shadow);
 }
@@ -688,7 +688,7 @@ select {
 /* Dark mode focus shadow */
 
 .dark .pm7-button {
-  --pm7-button-focus-shadow: 0 0 0 3px rgb(59 158 255 / 0.3);
+  --pm7-button-focus-shadow: none;
 }
 
 /* Ensure anchor tags with button classes override link styles */
@@ -5090,7 +5090,7 @@ a.pm7-sidebar-item--active:focus,
 }
 
 .dark .pm7-callout--tip {
-  background-color: rgba(28, 134, 239, 0.1);
+  background-color: rgba(0, 120, 212, 0.1);
   color: var(--pm7-foreground);
 }
 
@@ -5239,7 +5239,7 @@ a.pm7-sidebar-item--active:focus,
   /* Alternative gradients */
   --pm7-gradient-border-blue: linear-gradient(
     to right,
-    #3b82f6,
+    #0078d4,
     #0ea5e9,
     #06b6d4
   );

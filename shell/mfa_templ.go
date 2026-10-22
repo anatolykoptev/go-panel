@@ -93,14 +93,14 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"><style>\n\t\t\t\t:root{\n\t\t\t\t\t--pm7-background:#141414;--pm7-foreground:#d6d6d6;--pm7-muted:#1f1f1f;\n\t\t\t\t\t--pm7-muted-foreground:#9a9a9a;--pm7-border:#2b2b2b;--pm7-input:#282828;\n\t\t\t\t\t--pm7-primary:#0078d4;--pm7-primary-hover:#006abe;--pm7-primary-foreground:#fff;\n\t\t\t\t\t--pm7-radius:.625rem;\n\t\t\t\t\t--bg-deep:#141414;--bg-surface:#1f1f1f;--bg-elevated:#282828;--accent:#0078d4;--accent-text:#4daafc;\n\t\t\t\t\t--accent-glow:rgba(0,120,212,.15);--text-primary:#d6d6d6;\n\t\t\t\t\t--text-secondary:#9a9a9a;--border:#2b2b2b;--negative:#f28b82;--negative-bg:#3a1d1a;\n\t\t\t\t\t--font-sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;\n\t\t\t\t}\n\t\t\t\t*{box-sizing:border-box}\n\t\t\t\tbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-deep);color:var(--text-primary);font-family:var(--font-sans);font-size:.9375rem;padding:1.5rem}\n\t\t\t\t.login-shell{width:100%;max-width:22rem}\n\t\t\t\t.login-card{width:100%;padding:2rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:.625rem}\n\t\t\t\t.login-title{margin:0 0 1.5rem;font-size:1.375rem;line-height:1.2;letter-spacing:-.012em;font-weight:650;color:var(--text-primary);text-align:center;letter-spacing:.01em}\n\t\t\t\t.login-error{margin-bottom:1rem;padding:.5rem .75rem;border-radius:.375rem;background:var(--negative-bg);border:1px solid var(--negative);color:var(--negative);font-size:.8125rem;text-align:center}\n\t\t\t\t.login-field{margin-bottom:1rem}\n\t\t\t\t.login-field label{display:block;margin-bottom:.375rem;font-size:.8125rem;color:var(--text-secondary)}\n\t\t\t\t.login-form .pm7-input{width:100%;padding:.5rem .75rem;background:var(--bg-elevated);border:1px solid var(--border);border-radius:.375rem;color:var(--text-primary);font-size:.875rem;outline:none;transition:border-color .15s,box-shadow .15s}\n\t\t\t\t.login-form .pm7-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}\n\t\t\t\t.pw-wrap{position:relative}\n\t\t\t\t.pw-wrap .pm7-input{padding-right:2.75rem}\n\t\t\t\t.pw-toggle{position:absolute;top:0;right:0;height:100%;width:2.75rem;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:0}\n\t\t\t\t.pw-toggle:hover{color:var(--text-primary)}\n\t\t\t\t.pw-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:.5rem}\n\t\t\t\t.pw-toggle svg{width:1.125rem;height:1.125rem;display:block}\n\t\t\t\t.pw-toggle svg[hidden]{display:none}\n\t\t\t\t.login-submit{width:100%;margin-top:.25rem;padding:.625rem;background:var(--accent);color:#fff;border:none;border-radius:.375rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:background-color .15s}\n\t\t\t\t.login-submit:hover{background:var(--pm7-primary-hover)}\n\t\t\t</style></head><body><main class=\"login-shell\"><div class=\"pm7-card login-card\"><div class=\"pm7-card-content\"><h1 class=\"login-title\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"><style>\n\t\t\t\t:root{\n\t\t\t\t\t--pm7-background:#141414;--pm7-foreground:#d6d6d6;--pm7-muted:#1f1f1f;\n\t\t\t\t\t--pm7-muted-foreground:#9a9a9a;--pm7-border:#2b2b2b;--pm7-input:#282828;\n\t\t\t\t\t--pm7-primary:#0078d4;--pm7-primary-hover:#006abe;--pm7-primary-foreground:#fff;\n\t\t\t\t\t--pm7-radius:.625rem;\n\t\t\t\t\t--bg-deep:#141414;--bg-surface:#1f1f1f;--bg-elevated:#282828;--accent:#0078d4;--accent-text:#4daafc;\n\t\t\t\t\t--accent-glow:rgba(0,120,212,.15);--text-primary:#d6d6d6;\n\t\t\t\t\t--text-secondary:#9a9a9a;--border:#2b2b2b;--negative:#f28b82;--negative-bg:#3a1d1a;\n\t\t\t\t\t--font-sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;\n\t\t\t\t}\n\t\t\t\t*{box-sizing:border-box}\n\t\t\t\tbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-deep);color:var(--text-primary);font-family:var(--font-sans);font-size:.9375rem;padding:1.5rem}\n\t\t\t\t.login-shell{width:100%;max-width:22rem}\n\t\t\t\t.login-card{width:100%;padding:2rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:.625rem}\n\t\t\t\t.login-title{margin:0 0 1.5rem;font-size:1.375rem;line-height:1.2;letter-spacing:-.012em;font-weight:650;color:var(--text-primary);text-align:center}\n\t\t\t\t.login-error{margin-bottom:1rem;padding:.5rem .75rem;border-radius:.375rem;background:var(--negative-bg);border:1px solid var(--negative);color:var(--negative);font-size:.8125rem;text-align:center}\n\t\t\t\t.login-field{margin-bottom:1rem}\n\t\t\t\t.login-field label{display:block;margin-bottom:.375rem;font-size:.8125rem;color:var(--text-secondary)}\n\t\t\t\t.login-form .pm7-input{width:100%;padding:.5rem .75rem;background:var(--bg-elevated);border:1px solid var(--border);border-radius:.375rem;color:var(--text-primary);font-size:.875rem;outline:none;transition:border-color .15s,box-shadow .15s}\n\t\t\t\t.login-form .pm7-input:focus{border-color:var(--accent)}\n\t\t\t\t.login-form .pm7-input:focus-visible,.login-submit:focus-visible{outline:2px solid var(--accent);outline-offset:2px}\n\t\t\t\t.pw-wrap{position:relative}\n\t\t\t\t.pw-wrap .pm7-input{padding-right:2.75rem}\n\t\t\t\t.pw-toggle{position:absolute;top:0;right:0;height:100%;width:2.75rem;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:0}\n\t\t\t\t.pw-toggle:hover{color:var(--text-primary)}\n\t\t\t\t.pw-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:.5rem}\n\t\t\t\t.pw-toggle svg{width:1.125rem;height:1.125rem;display:block}\n\t\t\t\t.pw-toggle svg[hidden]{display:none}\n\t\t\t\t.login-submit{width:100%;margin-top:.25rem;padding:.625rem;background:var(--accent);color:#fff;border:none;border-radius:.375rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:background-color .15s}\n\t\t\t\t.login-submit:hover{background:var(--pm7-primary-hover)}\n\t\t\t</style></head><body><main class=\"login-shell\"><div class=\"pm7-card login-card\"><div class=\"pm7-card-content\"><h1 class=\"login-title\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(s.TwoFactorTitle)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 50, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 51, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -118,7 +118,7 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(errMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 52, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 53, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -136,7 +136,7 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 		var templ_7745c5c3_Var9 templ.SafeURL
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(basePath + "/login"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 54, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 55, Col: 79}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -149,7 +149,7 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(s.TwoFactorCode)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 56, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 57, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -162,7 +162,7 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(s.Verify)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 59, Col: 104}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 60, Col: 104}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -175,7 +175,7 @@ func MFAPage(basePath string, errMsg string) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(basePath + "/static/pm7.js")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 64, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `shell/mfa.templ`, Line: 65, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 		if templ_7745c5c3_Err != nil {

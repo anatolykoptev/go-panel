@@ -3,6 +3,7 @@ package resource_test
 import (
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -399,5 +400,104 @@ func TestCanon_TypeFloor11px(t *testing.T) {
 	}
 	if n < 40 {
 		t.Fatalf("only %d font-size declarations seen", n)
+	}
+}
+
+// A disabled button states itself with an explicit colour pair, not with
+// opacity alone: opacity .5 on a light ground reads as a hover state.
+//
+// Falsification: in shell/styles.templ replace the .btn:disabled declarations
+// with `opacity:.5;cursor:not-allowed;pointer-events:none` -> RED.
+func TestCanon_DisabledIsAnExplicitPair(t *testing.T) {
+	found := false
+	for _, r := range styleRules(t) {
+		if !strings.Contains(r.sel, ".btn:disabled") {
+			continue
+		}
+		found = true
+		if decl(r.body, "opacity") != "" {
+			t.Errorf("rule %q: disabled must not rely on opacity (%s)", r.sel, decl(r.body, "opacity"))
+		}
+		if decl(r.body, "background") == "" || decl(r.body, "color") == "" {
+			t.Errorf("rule %q: disabled needs an explicit background and colour pair", r.sel)
+		}
+	}
+	if !found {
+		t.Fatal("no .btn:disabled rule in the stylesheet")
+	}
+}
+
+// WCAG 1.4.11: the edge of an input, chip or secondary button must reach 3:1
+// against its ground in LIGHT (dark values are canon verbatim and exempt), and
+// the funnel/progress track must be visible (>=1.5:1) in both themes.
+//
+// Falsification: set the light --border-control to #d4d4d4 -> 1.4:1 -> RED.
+// Set the light --track to #ececec -> 1.11:1 -> RED.
+func TestCanon_ControlBordersAndTrackVisible(t *testing.T) {
+	themes := canonThemes(t)
+	light := themes["light"]
+	for _, g := range []string{"--bg-deep", "--bg-base", "--bg-raised", "--bg-elevated"} {
+		b, bg := mustHex(t, "light", light, "var(--border-control)"), mustHex(t, "light", light, "var("+g+")")
+		if b == "" || bg == "" {
+			continue
+		}
+		if r := wcagContrastRatio(b, bg); r < 3 {
+			t.Errorf("light: --border-control (%s) on %s (%s) = %.2f:1 < 3:1", b, g, bg, r)
+		}
+	}
+	for name, tokens := range themes {
+		for _, g := range []string{"--bg-deep", "--bg-base", "--bg-raised"} {
+			tr, bg := mustHex(t, name, tokens, "var(--track)"), mustHex(t, name, tokens, "var("+g+")")
+			if tr == "" || bg == "" {
+				continue
+			}
+			if r := wcagContrastRatio(tr, bg); r < 1.5 {
+				t.Errorf("%s: --track (%s) on %s (%s) = %.2f:1 < 1.5:1", name, tr, g, bg, r)
+			}
+		}
+	}
+	// The three control families actually use the token (a token nobody reads guards nothing).
+	want := map[string]bool{"input.pm7-input": false, ".filter-chip{": false, ".btn-secondary{": false, ".funnel-track": false}
+	for _, r := range styleRules(t) {
+		for k := range want {
+			if strings.HasPrefix(r.sel+"{", k) || strings.Contains(r.sel, k) {
+				prop, tok := "border-color", "--border-control"
+				if k == ".filter-chip{" {
+					prop = "border"
+				}
+				if k == ".funnel-track" {
+					prop, tok = "background", "--track"
+				}
+				if strings.Contains(decl(r.body, prop), tok) {
+					want[k] = true
+				}
+			}
+		}
+	}
+	for k, ok := range want {
+		if !ok {
+			t.Errorf("%s does not take its edge/track from the control token", k)
+		}
+	}
+}
+
+// pm7.css keeps no stale pre-canon blues: the Tailwind blue (#3b82f6), the old
+// dark focus blue (59 158 255) and pm7's original #1C86EF focus shadow.
+//
+// Falsification: put `--pm7-info: #3b82f6;` back in
+// shell/internal/assets/static/pm7.css:35 -> RED.
+func TestCanon_Pm7HasNoStaleBlues(t *testing.T) {
+	b, err := os.ReadFile("../shell/internal/assets/static/pm7.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := strings.ToLower(string(b))
+	for _, stale := range []string{"#3b82f6", "59 158 255", "59, 158, 255", "28 134 239", "28, 134, 239"} {
+		if strings.Contains(css, stale) {
+			t.Errorf("pm7.css still contains the pre-canon blue %q", stale)
+		}
+	}
+	if !strings.Contains(css, ".pm7-button:focus-visible {\n  outline: 2px solid var(--accent") {
+		t.Error(".pm7-button:focus-visible lost the single 2px accent ring")
 	}
 }
