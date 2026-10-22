@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.18](https://github.com/anatolykoptev/go-panel/compare/v0.23.17...v0.23.18) (2026-10-22)
+
+
+### Added
+
+* **shell:** fleet admin canon v2.1 — graphite dark + graphite light ([#177](https://github.com/anatolykoptev/go-panel/issues/177)) ([a62b919](https://github.com/anatolykoptev/go-panel/commit/a62b919abecb28982b52d32fd5014d964192a9fa))
+
 ## [0.23.17](https://github.com/anatolykoptev/go-panel/compare/v0.23.16...v0.23.17) (2026-10-15)
 
 
