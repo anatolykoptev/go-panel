@@ -157,7 +157,7 @@ func trashSectionBlock(d trashPageData, s trashSection) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		str := i18n.From(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<section style=\"margin-bottom:2.5rem\"><h3 style=\"font-size:.875rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);margin-bottom:.75rem\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<section style=\"margin-bottom:2.5rem\"><h3 style=\"font-size:1.0625rem;line-height:1.35;font-weight:600;color:var(--text-primary);margin-bottom:.75rem\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

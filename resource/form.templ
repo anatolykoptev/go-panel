@@ -189,11 +189,11 @@ templ formField(fld Field, value, errMsg, localeBadge string) {
 		>
 			{ fld.Label }
 			if fld.Required {
-				<span style="color:#ef4444;margin-left:.125rem" aria-hidden="true">*</span>
+				<span style="color:var(--negative);margin-left:.125rem" aria-hidden="true">*</span>
 			}
 			if localeBadge != "" {
 				<span
-					style="margin-left:.375rem;padding:.0625rem .3125rem;border-radius:.25rem;font-size:.625rem;font-weight:600;letter-spacing:.03em;background:var(--pm7-muted);color:var(--pm7-muted-foreground)"
+					style="margin-left:.375rem;padding:.0625rem .3125rem;border-radius:.25rem;font-size:.6875rem;font-weight:600;letter-spacing:.03em;background:var(--pm7-muted);color:var(--pm7-muted-foreground)"
 				>{ localeBadge }</span>
 			}
 		</label>
@@ -325,7 +325,7 @@ templ formField(fld Field, value, errMsg, localeBadge string) {
 			</label>
 		}
 		if errMsg != "" {
-			<p style="margin-top:.25rem;font-size:.75rem;color:#ef4444" role="alert">{ errMsg }</p>
+			<p style="margin-top:.25rem;font-size:.75rem;color:var(--negative)" role="alert">{ errMsg }</p>
 		}
 		if fld.Help != "" {
 			<p style="margin-top:.25rem;font-size:.75rem;color:var(--pm7-muted-foreground)">{ fld.Help }</p>

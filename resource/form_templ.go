@@ -493,13 +493,13 @@ func formField(fld Field, value, errMsg, localeBadge string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if fld.Required {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<span style=\"color:#ef4444;margin-left:.125rem\" aria-hidden=\"true\">*</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<span style=\"color:var(--negative);margin-left:.125rem\" aria-hidden=\"true\">*</span> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if localeBadge != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<span style=\"margin-left:.375rem;padding:.0625rem .3125rem;border-radius:.25rem;font-size:.625rem;font-weight:600;letter-spacing:.03em;background:var(--pm7-muted);color:var(--pm7-muted-foreground)\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<span style=\"margin-left:.375rem;padding:.0625rem .3125rem;border-radius:.25rem;font-size:.6875rem;font-weight:600;letter-spacing:.03em;background:var(--pm7-muted);color:var(--pm7-muted-foreground)\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1129,14 +1129,14 @@ func formField(fld Field, value, errMsg, localeBadge string) templ.Component {
 			}
 		}
 		if errMsg != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "<p style=\"margin-top:.25rem;font-size:.75rem;color:#ef4444\" role=\"alert\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "<p style=\"margin-top:.25rem;font-size:.75rem;color:var(--negative)\" role=\"alert\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var53 string
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(errMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/form.templ`, Line: 328, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `resource/form.templ`, Line: 328, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {

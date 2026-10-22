@@ -1,6 +1,6 @@
 # go-panel — developer quality gate. `make check` is the pre-merge contract.
 .RECIPEPREFIX = >
-.PHONY: check build vet test race lint vuln gen preflight-db
+.PHONY: check build vet test race lint vuln gen generate preflight-db
 
 # GOWORK=off — this repo must build standalone; a workspace file in an outer
 # directory would otherwise pull unrelated modules into every go command.
@@ -32,6 +32,9 @@ vuln:
 # Requires: go tool templ (tool directive in go.mod, resolved via go mod tidy).
 gen:
 > go tool templ generate ./...
+
+# generate: alias of gen — the name the fleet gate and CI docs use.
+generate: gen
 
 # preflight-db: provisions an ephemeral Postgres (docker) and runs auth's
 # TEST_DATABASE_URL-gated tests against it — see scripts/preflight-db.sh.
