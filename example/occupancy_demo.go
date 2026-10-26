@@ -17,7 +17,7 @@ func occDay(iso string) time.Time {
 
 // showcaseOccupancy is a fixed-date board (the component never reads the
 // clock): a sale, an adjacent renewal, a hold overtaken by a sale, a lease
-// that crosses the window edge and a one-day hole.
+// that crosses the window edge and a one-day hole (position 5, 1 Dec, after today).
 const occRows = 7
 
 func showcaseOccupancy(months int) components.Occupancy {
@@ -37,6 +37,8 @@ func showcaseOccupancy(months int) components.Occupancy {
 			{Row: 3, From: occDay("2026-11-01"), To: occDay("2027-05-01"), Tone: components.SpanSale, Label: "Dental Plus", Href: showcasePath},
 			{Row: 4, From: occDay("2026-03-01"), To: occDay("2026-10-01"), Tone: components.SpanEnded, Label: "Old lease", Href: showcasePath},
 			{Row: 4, From: occDay("2026-10-02"), To: occDay("2027-04-01"), Tone: components.SpanSale, Label: "Bakery No.5", Href: showcasePath},
+			{Row: 5, From: occDay("2026-11-01"), To: occDay("2026-12-01"), Tone: components.SpanSale, Label: "Gym Atlas", Href: showcasePath},
+			{Row: 5, From: occDay("2026-12-02"), To: occDay("2027-06-01"), Tone: components.SpanSale, Label: "Gym Atlas renewal", Href: showcasePath},
 			{Row: 6, From: occDay("2026-09-15"), To: occDay("2026-12-15"), Tone: components.SpanConflict, Label: "Double booking", Href: showcasePath},
 			{Row: 6, From: occDay("2026-11-15"), To: occDay("2027-02-15"), Tone: components.SpanSale, Label: "Yoga Studio", Href: showcasePath},
 		},

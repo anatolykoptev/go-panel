@@ -206,3 +206,78 @@ func TestOccupancy_ZoomAndEscaping(t *testing.T) {
 		t.Errorf("want 18 month cells per row, got %d total", n)
 	}
 }
+
+// A span nested inside a longer one must not end the longer one's cover.
+// Mutation: occupancy.go occGaps `cur = max(cur, v.t)` -> `cur = v.t` -> RED
+// (the sale's days after the hold would be offered as free).
+func TestOccupancy_NestedSpanDoesNotOpenGap(t *testing.T) {
+	o := occBase()
+	o.Spans = []components.Span{
+		{Row: 1, From: day(2026, 1, 1), To: day(2026, 6, 1), Tone: components.SpanSale, Label: "Sale"},
+		{Row: 1, From: day(2026, 2, 1), To: day(2026, 3, 1), Tone: components.SpanHold, Label: "Hold"},
+	}
+	board, _ := split(t, render(t, components.OccupancyBoard(o)))
+	var got []string
+	for _, l := range gapLinks(board) {
+		if strings.HasSuffix(l, "row=1") {
+			got = append(got, l)
+		}
+	}
+	if want := "/book?from=2026-06-01&to=2026-07-01&row=1"; len(got) != 1 || got[0] != want {
+		t.Fatalf("row 1 gaps = %v, want only [%s]", got, want)
+	}
+}
+
+// Only the calendar date of each time counts, in the time's own zone.
+// Mutation: occupancy.go dayNum `t.Date()` -> `t.UTC().Date()` -> RED.
+func TestOccupancy_DatePartOnly(t *testing.T) {
+	msk := time.FixedZone("MSK", 3*3600)
+	ny := time.FixedZone("EST", -5*3600)
+	o := occBase()
+	o.Today = time.Date(2026, 3, 15, 23, 30, 0, 0, ny) // 04:30Z on the 16th
+	o.Spans = []components.Span{{
+		Row: 1, Label: "M", From: time.Date(2026, 2, 1, 0, 0, 0, 0, msk), // 21:00Z on 31 Jan
+		To: time.Date(2026, 3, 1, 0, 0, 0, 0, msk),
+	}}
+	board, _ := split(t, render(t, components.OccupancyBoard(o)))
+	if !strings.Contains(board, "Sale, 2026-02-01 – 2026-02-28") {
+		t.Errorf("span dates shifted:\n%s", board)
+	}
+	if !strings.Contains(board, "from=2026-03-15&amp;to=2026-07-01&amp;row=1") {
+		t.Errorf("today shifted, gap should start 2026-03-15:\n%s", board)
+	}
+}
+
+// History outside the window must not stack extra empty lanes.
+// Mutation: occupancy.go rowView drop the `if b.Visible {` guard around
+// occLane -> RED.
+func TestOccupancy_LanesCountOnlyVisibleSpans(t *testing.T) {
+	o := occBase()
+	o.Rows = o.Rows[:1] // one track only, so the assertion cannot be met by another row
+	o.Spans = []components.Span{
+		{Row: 1, From: day(2020, 1, 1), To: day(2020, 12, 1), Tone: components.SpanEnded, Label: "h1"},
+		{Row: 1, From: day(2020, 6, 1), To: day(2021, 6, 1), Tone: components.SpanEnded, Label: "h2"},
+	}
+	board, _ := split(t, render(t, components.OccupancyBoard(o)))
+	if !strings.Contains(board, `style="height:2.125rem;"`) {
+		t.Errorf("empty track should be one lane high:\n%s", board)
+	}
+}
+
+// Non-link bars/gaps are not tab stops; the label is not read twice; the
+// legend name is localisable.
+func TestOccupancy_NonLinksNotFocusableAndNameNotDuplicated(t *testing.T) {
+	o := occBase()
+	o.Labels.Legend = "Легенда"
+	o.Spans = []components.Span{{Row: 1, From: day(2026, 2, 1), To: day(2026, 3, 1), Label: "Atlas"}}
+	board, _ := split(t, render(t, components.OccupancyBoard(o)))
+	if strings.Contains(board, "tabindex") {
+		t.Errorf("non-link element is a tab stop")
+	}
+	if strings.Contains(board, "Atlas: Sale") || strings.Contains(board, "Atlas</span>Atlas") {
+		t.Errorf("label repeated in the accessible text:\n%s", board)
+	}
+	if !strings.Contains(board, `aria-label="Легенда"`) {
+		t.Errorf("legend label not taken from Labels.Legend")
+	}
+}

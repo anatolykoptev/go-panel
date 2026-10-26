@@ -15,7 +15,7 @@ templ OccupancyBoard(o Occupancy) {
 				}
 			</nav>
 		}
-		<ul class="occ-legend" aria-label="Legend">
+		<ul class="occ-legend" aria-label={ pick(L.Legend, "Legend") }>
 			for _, t := range []SpanTone{SpanSale, SpanHold, SpanRenewalDue, SpanEnded, SpanConflict} {
 				<li><span class={ "occ-swatch occ-" + spanToneName(t) } aria-hidden="true">{ spanGlyph(t) }</span> { L.toneLabel(t) }</li>
 			}
@@ -43,22 +43,22 @@ templ OccupancyBoard(o Occupancy) {
 						</div>
 						for _, g := range r.Gaps {
 							if g.Href != "" {
-								<a class="occ-gap" style={ occGapStyle(g) } href={ templ.URL(g.Href) } aria-label={ L.gapText(g.occGap) } title={ L.gapText(g.occGap) }><span aria-hidden="true">+ { pick(L.Free, "Free") }</span></a>
+								<a class="occ-gap" style={ occGapStyle(g) } href={ templ.URL(g.Href) } aria-label={ L.gapText(g.occGap) }><span aria-hidden="true">+ { pick(L.Free, "Free") }</span></a>
 							} else {
-								<span class="occ-gap" style={ occGapStyle(g) } tabindex="0" role="img" aria-label={ L.gapText(g.occGap) } title={ L.gapText(g.occGap) }><span aria-hidden="true">{ pick(L.Free, "Free") }</span></span>
+								<span class="occ-gap" style={ occGapStyle(g) }><span aria-hidden="true">{ pick(L.Free, "Free") }</span><span class="occ-sr">{ L.gapText(g.occGap) }</span></span>
 							}
 						}
 						for _, b := range r.Bars {
 							if b.Visible {
 								if b.Span.Href != "" {
-									<a class={ occBarClass(b) } style={ occBarStyle(b) } href={ templ.URL(b.Span.Href) } title={ L.spanText(b.Span) }>
+									<a class={ occBarClass(b) } style={ occBarStyle(b) } href={ templ.URL(b.Span.Href) }>
 										<span aria-hidden="true">{ spanGlyph(b.Span.Tone) } </span>{ b.Span.Label }
-										<span class="occ-sr">{ L.spanText(b.Span) }@occOverlapNote(b, L)</span>
+										<span class="occ-sr">{ L.spanDetail(b.Span) }@occOverlapNote(b, L)</span>
 									</a>
 								} else {
-									<span class={ occBarClass(b) } style={ occBarStyle(b) } tabindex="0" title={ L.spanText(b.Span) }>
+									<span class={ occBarClass(b) } style={ occBarStyle(b) }>
 										<span aria-hidden="true">{ spanGlyph(b.Span.Tone) } </span>{ b.Span.Label }
-										<span class="occ-sr">{ L.spanText(b.Span) }@occOverlapNote(b, L)</span>
+										<span class="occ-sr">{ L.spanDetail(b.Span) }@occOverlapNote(b, L)</span>
 									</span>
 								}
 							}

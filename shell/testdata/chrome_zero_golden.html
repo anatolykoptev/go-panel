@@ -646,9 +646,9 @@
 		.occ-cells{position:absolute;inset:0;display:grid}
 		.occ-cells i{border-left:1px solid var(--border-subtle)}
 		.occ-gap,.occ-bar{position:absolute;box-sizing:border-box;display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:.75rem;line-height:1.5rem;text-decoration:none}
-		.occ-gap{top:0;bottom:0;padding:.1875rem .375rem;border:1px dashed var(--border-control);border-radius:var(--radius);color:var(--text-secondary);line-height:1.25rem}
+		.occ-gap{top:0;bottom:0;min-width:1.5rem;z-index:2;padding:.1875rem .375rem;border:1px dashed var(--border-control);border-radius:var(--radius);color:var(--text-secondary);line-height:1.25rem}
 		a.occ-gap:hover{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent)}
-		.occ-bar{height:1.625rem;margin-top:.125rem;padding:0 .5rem;border-radius:var(--radius);background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line);font-weight:600}
+		.occ-bar{z-index:1;height:1.625rem;margin-top:.125rem;padding:0 .5rem;border-radius:var(--radius);background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line);font-weight:600}
 		a.occ-bar:hover{text-decoration:underline}
 		.occ-bar:focus-visible,.occ-gap:focus-visible{outline:2px solid var(--accent);outline-offset:2px;z-index:3}
 		.occ-bar.is-clip-l{border-top-left-radius:0;border-bottom-left-radius:0;border-left-style:dotted}
@@ -660,7 +660,7 @@
 		.occ-ended{--tone-bg:var(--neutral-bg);--tone-fg:var(--neutral);--tone-line:var(--text-faint)}
 		.occ-conflict{--tone-bg:var(--negative-bg);--tone-fg:var(--negative);--tone-line:var(--negative)}
 		.occ-bar.occ-hold{border-style:dashed}
-		.occ-bar.occ-conflict{background-image:repeating-linear-gradient(135deg,transparent 0 .3125rem,var(--tone-line) .3125rem .375rem)}
+		.occ-bar.occ-conflict{background-image:repeating-linear-gradient(135deg,transparent 0 .3125rem,color-mix(in srgb,var(--tone-line) 28%,transparent) .3125rem .375rem)}
 		.occ-today{position:absolute;top:0;bottom:0;width:0;border-left:2px solid var(--negative);z-index:2;pointer-events:none}
 		.occ-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 		.occ-list{display:none}

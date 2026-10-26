@@ -48,7 +48,7 @@ func spanGlyph(t SpanTone) string {
 	case SpanHold:
 		return "◌"
 	case SpanRenewalDue:
-		return "⏳"
+		return "↻"
 	case SpanEnded:
 		return "–"
 	case SpanConflict:
@@ -99,10 +99,10 @@ type OccupancyRow struct {
 // Months, when set, replaces the three-letter English month names in the
 // header.
 type OccupancyLabels struct {
-	Sale, Hold, RenewalDue, Ended, Conflict string
-	Free, Today, Overlaps, Zoom, MonthsUnit string
-	FormatDate                              func(time.Time) string
-	Months                                  [12]string
+	Sale, Hold, RenewalDue, Ended, Conflict         string
+	Free, Today, Overlaps, Zoom, MonthsUnit, Legend string
+	FormatDate                                      func(time.Time) string
+	Months                                          [12]string
 }
 
 // Occupancy is the input of OccupancyBoard. The component never reads the
@@ -121,6 +121,11 @@ type OccupancyLabels struct {
 //     gaps are shown but are not links.
 //   - ZoomHref is the zoom link template with a {months} placeholder; empty:
 //     no zoom control.
+//
+// Every span, whatever its tone (Ended included), blocks a gap: pass only
+// spans that really occupy the position. The zero SpanTone is SpanSale. The
+// mobile list shows every span passed in, also those outside the window, so
+// the caller bounds the set (e.g. drop leases that ended long ago).
 //
 // Every span is drawn: overlapping spans in one row are stacked in lanes and
 // flagged, never hidden; a span crossing the window edge is clipped, not
@@ -190,9 +195,6 @@ func occGaps(spans []Span, lo, hi int) []occGap {
 	var gaps []occGap
 	cur := lo
 	for _, v := range ivs {
-		if v.t <= cur {
-			continue
-		}
 		if v.f > cur {
 			gaps = append(gaps, occGap{cur, min(v.f, hi)})
 		}
@@ -339,8 +341,10 @@ func (o Occupancy) rowView(r OccupancyRow, lo, hi, gapFrom int) occRowView {
 	var laneEnd []int
 	for i, s := range spans {
 		f, t := dayNum(s.From), dayNum(s.To)
-		lane := occLane(&laneEnd, f, t)
-		b := occBar{Span: s, Lane: lane, Overlap: occOverlaps(spans, i), Visible: t > lo && f < hi}
+		b := occBar{Span: s, Overlap: occOverlaps(spans, i), Visible: t > lo && f < hi}
+		if b.Visible { // history outside the window must not grow the track
+			b.Lane = occLane(&laneEnd, f, t)
+		}
 		if b.Visible {
 			cf, ct := max(f, lo), min(t, hi)
 			b.Left, b.Wide = pct(cf-lo, total), pct(ct-cf, total)
@@ -437,6 +441,12 @@ func (l OccupancyLabels) rng(from, to int) string {
 		last = from
 	}
 	return l.date(dayTime(from)) + " – " + l.date(dayTime(last))
+}
+
+// spanDetail is the tone and range without the label (the bar already shows
+// the label, so repeating it would make the accessible name read twice).
+func (l OccupancyLabels) spanDetail(s Span) string {
+	return l.toneLabel(s.Tone) + ", " + l.rng(dayNum(s.From), dayNum(s.To))
 }
 
 func (l OccupancyLabels) spanText(s Span) string {
