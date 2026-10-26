@@ -1,0 +1,114 @@
+package components
+
+templ OccupancyBoard(o Occupancy) {
+	{{ v := o.view() }}
+	{{ L := o.Labels }}
+	<div class="occ" role="group" aria-label={ o.Label }>
+		if o.ZoomHref != "" {
+			<nav class="occ-zoom" aria-label={ pick(L.Zoom, "Zoom") }>
+				for _, z := range []int{6, 12, 18} {
+					if z == v.Zoom {
+						<a class="btn btn-sm btn-secondary is-current" aria-current="true" href={ templ.URL(occZoomHref(o.ZoomHref, z)) }>{ itoa(z) } { pick(L.MonthsUnit, "mo") }</a>
+					} else {
+						<a class="btn btn-sm btn-ghost" href={ templ.URL(occZoomHref(o.ZoomHref, z)) }>{ itoa(z) } { pick(L.MonthsUnit, "mo") }</a>
+					}
+				}
+			</nav>
+		}
+		<ul class="occ-legend" aria-label={ pick(L.Legend, "Legend") }>
+			for _, t := range []SpanTone{SpanSale, SpanHold, SpanRenewalDue, SpanEnded, SpanConflict} {
+				<li><span class={ "occ-swatch occ-" + spanToneName(t) } aria-hidden="true">{ spanGlyph(t) }</span> { L.toneLabel(t) }</li>
+			}
+			if !o.Today.IsZero() {
+				<li><span class="occ-swatch occ-today-key" aria-hidden="true"></span> { pick(L.Today, "Today") }: { L.date(o.Today) }</li>
+			}
+		</ul>
+		<div class="occ-board">
+			<div class="occ-head">
+				<div class="occ-rowlabel"></div>
+				<div class="occ-months" style={ occGridStyle(v.Cols) } aria-hidden="true">
+					for _, m := range v.Months {
+						<span>{ m.Name }</span>
+					}
+				</div>
+			</div>
+			for _, r := range v.Rows {
+				<div class="occ-row">
+					<div class="occ-rowlabel">{ r.Row.Label }</div>
+					<div class="occ-track" style={ occTrackStyle(r.Lanes) }>
+						<div class="occ-cells" style={ occGridStyle(v.Cols) } aria-hidden="true">
+							for range v.Months {
+								<i></i>
+							}
+						</div>
+						for _, g := range r.Gaps {
+							if g.Href != "" {
+								<a class="occ-gap" style={ occGapStyle(g) } href={ templ.URL(g.Href) } aria-label={ L.gapText(g.occGap) }><span aria-hidden="true">+ { pick(L.Free, "Free") }</span></a>
+							} else {
+								<span class="occ-gap" style={ occGapStyle(g) }><span aria-hidden="true">{ pick(L.Free, "Free") }</span><span class="occ-sr">{ L.gapText(g.occGap) }</span></span>
+							}
+						}
+						for _, b := range r.Bars {
+							if b.Visible {
+								if b.Span.Href != "" {
+									<a class={ occBarClass(b) } style={ occBarStyle(b) } href={ templ.URL(b.Span.Href) }>
+										<span aria-hidden="true">{ spanGlyph(b.Span.Tone) } </span>{ b.Span.Label }
+										<span class="occ-sr">{ L.spanDetail(b.Span) }@occOverlapNote(b, L)</span>
+									</a>
+								} else {
+									<span class={ occBarClass(b) } style={ occBarStyle(b) }>
+										<span aria-hidden="true">{ spanGlyph(b.Span.Tone) } </span>{ b.Span.Label }
+										<span class="occ-sr">{ L.spanDetail(b.Span) }@occOverlapNote(b, L)</span>
+									</span>
+								}
+							}
+						}
+						if v.HasToday {
+							<div class="occ-today" style={ occTodayStyle(v.TodayLeft) } aria-hidden="true"></div>
+						}
+					</div>
+				</div>
+			}
+		</div>
+		<div class="occ-list">
+			for _, r := range v.Rows {
+				<section class="occ-pos">
+					<h3>{ r.Row.Label }</h3>
+					<ul>
+						for _, it := range r.Items {
+							if it.Span != nil {
+								<li class={ "occ-item occ-" + spanToneName(it.Span.Tone) }>
+									<span class={ badgeClass(spanBadgeTone(it.Span.Tone)) }>{ spanGlyph(it.Span.Tone) } { L.toneLabel(it.Span.Tone) }</span>
+									if it.Span.Href != "" {
+										<a href={ templ.URL(it.Span.Href) }>{ it.Span.Label }</a>
+									} else {
+										<span>{ it.Span.Label }</span>
+									}
+									<span class="occ-range">{ L.rng(dayNum(it.Span.From), dayNum(it.Span.To)) }</span>
+									if it.Overlap {
+										<span class="badge badge-red">{ pick(L.Overlaps, "Overlaps another span") }</span>
+									}
+								</li>
+							} else {
+								<li class="occ-item occ-free">
+									<span class="badge">{ pick(L.Free, "Free") }</span>
+									if it.Gap.Href != "" {
+										<a href={ templ.URL(it.Gap.Href) }>{ L.rng(it.Gap.From, it.Gap.To) }</a>
+									} else {
+										<span class="occ-range">{ L.rng(it.Gap.From, it.Gap.To) }</span>
+									}
+								</li>
+							}
+						}
+					</ul>
+				</section>
+			}
+		</div>
+	</div>
+}
+
+templ occOverlapNote(b occBar, L OccupancyLabels) {
+	if b.Overlap {
+		{ ". " + pick(L.Overlaps, "Overlaps another span") }
+	}
+}

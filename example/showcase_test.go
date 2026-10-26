@@ -45,7 +45,7 @@ func TestShowcase_RendersEveryComponentWithLiveTokens(t *testing.T) {
 	body := rec.Body.String()
 	for _, marker := range []string{
 		`class="btn btn-primary"`, `class="btn btn-danger"`, `class="badge badge-orange"`, `class="badge badge-purple"`,
-		`class="kpi-strip"`, `class="queue-row"`, `class="funnel"`, `class="stepper"`, `class="timeline"`,
+		`class="kpi-strip"`, `class="queue-row"`, `class="funnel"`, `class="stepper"`, `class="timeline"`, `class="occ-board"`,
 		`class="dl-compact"`, `<select id="sc-status" class="pm7-input">`, `type="datetime-local"`,
 	} {
 		if !strings.Contains(body, marker) {

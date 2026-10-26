@@ -379,3 +379,13 @@ side stripes until go-grad moves them to `components.NoticeView`. **go-job**
   light is now a coherent graphite light rather than a slate one.
 - The embedded `pm7.css` is go-nerv's canon-retuned build (see the commit message):
   pm7 pages and the login screen follow the same graphite grounds.
+
+### Occupancy board — `components.OccupancyBoard`
+
+Positions (rows) x months (columns), one bar per `Span`, free gaps as links, a
+today line, 6/12/18-month zoom. At ≤767px the board is replaced by a
+per-position list (spans and gaps as text). `From` is inclusive, `To` exclusive;
+the component never reads the clock (`Today` and `Start` are inputs). Tone is
+fill + glyph + visible text (conflict is also hatched); overlapping spans are
+stacked in lanes and flagged, never hidden. Uses only existing tokens
+(`--positive*`, `--warning*`, `--special*`, `--negative*`, `--neutral*`).
