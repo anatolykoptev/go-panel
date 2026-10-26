@@ -449,14 +449,6 @@ func (l OccupancyLabels) spanDetail(s Span) string {
 	return l.toneLabel(s.Tone) + ", " + l.rng(dayNum(s.From), dayNum(s.To))
 }
 
-func (l OccupancyLabels) spanText(s Span) string {
-	t := l.toneLabel(s.Tone) + ", " + l.rng(dayNum(s.From), dayNum(s.To))
-	if s.Label != "" {
-		t = s.Label + ": " + t
-	}
-	return t
-}
-
 func (l OccupancyLabels) gapText(g occGap) string {
 	return pick(l.Free, "Free") + ", " + l.rng(g.From, g.To)
 }
