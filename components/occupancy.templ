@@ -35,14 +35,17 @@ templ OccupancyBoard(o Occupancy) {
 			for _, r := range v.Rows {
 				<div class="occ-row">
 					<div class="occ-rowlabel">{ r.Row.Label }</div>
-					<div class="occ-track" style={ occTrackStyle(r.Lanes) }>
+					<div class="occ-track" style={ occTrackStyle(r.Lanes, r.Marks) }>
 						<div class="occ-cells" style={ occGridStyle(v.Cols) } aria-hidden="true">
 							for range v.Months {
 								<i></i>
 							}
 						</div>
 						for _, g := range r.Gaps {
-							if g.Href != "" {
+							if g.Mark {
+								<span class="occ-gap" style={ occGapStyle(g) } aria-hidden="true"></span>
+								<a class="occ-mark" style={ occMarkStyle(g, r.Lanes) } href={ templ.URL(g.Href) } aria-label={ L.gapText(g.occGap) }><span aria-hidden="true">+</span></a>
+							} else if g.Href != "" {
 								<a class="occ-gap" style={ occGapStyle(g) } href={ templ.URL(g.Href) } aria-label={ L.gapText(g.occGap) }><span aria-hidden="true">+ { pick(L.Free, "Free") }</span></a>
 							} else {
 								<span class="occ-gap" style={ occGapStyle(g) }><span aria-hidden="true">{ pick(L.Free, "Free") }</span><span class="occ-sr">{ L.gapText(g.occGap) }</span></span>
@@ -51,7 +54,7 @@ templ OccupancyBoard(o Occupancy) {
 						for _, b := range r.Bars {
 							if b.Visible {
 								if b.Span.Href != "" {
-									<a class={ occBarClass(b) } style={ occBarStyle(b) } href={ templ.URL(b.Span.Href) }>
+									<a class={ occBarClass(b) } style={ occBarStyle(b) } href={ templ.URL(b.Span.Href) } title={ L.spanText(b.Span) }>
 										<span aria-hidden="true">{ spanGlyph(b.Span.Tone) } </span>{ b.Span.Label }
 										<span class="occ-sr">{ L.spanDetail(b.Span) }@occOverlapNote(b, L)</span>
 									</a>
