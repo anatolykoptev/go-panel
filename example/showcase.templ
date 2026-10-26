@@ -5,7 +5,8 @@ import "github.com/anatolykoptev/go-panel/components"
 // showcaseData is everything the showcase page needs, assembled per request so
 // each POST control carries a freshly issued CSRF token.
 type showcaseData struct {
-	Token string
+	Token  string
+	Months int // occupancy zoom: 6, 12 or 18
 }
 
 func post(d showcaseData, url string) *components.PostAction {
@@ -106,7 +107,7 @@ templ section(title string) {
 templ Showcase(d showcaseData) {
 	<div class="page-header">
 		<h2>Component showcase</h2>
-		<p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline</p>
+		<p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline · occupancy board</p>
 	</div>
 	@section("Buttons") {
 		<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -152,6 +153,11 @@ templ Showcase(d showcaseData) {
 	@section("Timeline") {
 		<div class="detail-section">
 			@components.Timeline(showcaseTimeline())
+		</div>
+	}
+	@section("Occupancy board") {
+		<div class="detail-section">
+			@components.OccupancyBoard(showcaseOccupancy(d.Months))
 		</div>
 	}
 	@section("Definition list") {

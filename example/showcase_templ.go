@@ -13,7 +13,8 @@ import "github.com/anatolykoptev/go-panel/components"
 // showcaseData is everything the showcase page needs, assembled per request so
 // each POST control carries a freshly issued CSRF token.
 type showcaseData struct {
-	Token string
+	Token  string
+	Months int // occupancy zoom: 6, 12 or 18
 }
 
 func post(d showcaseData, url string) *components.PostAction {
@@ -130,7 +131,7 @@ func section(title string) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/showcase.templ`, Line: 99, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/showcase.templ`, Line: 100, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -175,7 +176,7 @@ func Showcase(d showcaseData) templ.Component {
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div class=\"page-header\"><h2>Component showcase</h2><p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div class=\"page-header\"><h2>Component showcase</h2><p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline · occupancy board</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -198,7 +199,7 @@ func Showcase(d showcaseData) templ.Component {
 			var templ_7745c5c3_Var5 templ.SafeURL
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(showcasePath)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/showcase.templ`, Line: 120, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/showcase.templ`, Line: 121, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -390,13 +391,21 @@ func Showcase(d showcaseData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<div class=\"detail-section\"><dl class=\"dl-compact\"><div><dt>Created</dt><dd>13.10.2026 19:54</dd></div><div><dt>Source</dt><dd>example.org</dd></div><div><dt>Client</dt><dd>not created</dd></div></dl></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<div class=\"detail-section\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = components.OccupancyBoard(showcaseOccupancy(d.Months)).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = section("Definition list").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = section("Occupancy board").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -412,13 +421,35 @@ func Showcase(d showcaseData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"detail-section\" style=\"max-width:32rem\"><div style=\"margin-bottom:1rem\"><label for=\"sc-status\" style=\"display:block;margin-bottom:.375rem\">Status</label> <select id=\"sc-status\" class=\"pm7-input\"><option>New</option> <option selected>Working</option> <option>Negotiating</option></select></div><div style=\"margin-bottom:1rem\"><label for=\"sc-name\" style=\"display:block;margin-bottom:.375rem\">Name</label> <input id=\"sc-name\" class=\"pm7-input\" type=\"text\" value=\"Anna Belova\" placeholder=\"Name\"></div><div style=\"margin-bottom:1rem\"><label for=\"sc-when\" style=\"display:block;margin-bottom:.375rem\">Follow up by</label> <input id=\"sc-when\" class=\"pm7-input\" type=\"datetime-local\" value=\"2026-10-15T12:00\"></div><div><label for=\"sc-note\" style=\"display:block;margin-bottom:.375rem\">Note</label> <textarea id=\"sc-note\" class=\"pm7-input\" rows=\"3\" placeholder=\"Note for the team\">Called, asked for a proposal.</textarea></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div class=\"detail-section\"><dl class=\"dl-compact\"><div><dt>Created</dt><dd>13.10.2026 19:54</dd></div><div><dt>Source</dt><dd>example.org</dd></div><div><dt>Client</dt><dd>not created</dd></div></dl></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = section("Form controls").Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = section("Definition list").Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var14 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<div class=\"detail-section\" style=\"max-width:32rem\"><div style=\"margin-bottom:1rem\"><label for=\"sc-status\" style=\"display:block;margin-bottom:.375rem\">Status</label> <select id=\"sc-status\" class=\"pm7-input\"><option>New</option> <option selected>Working</option> <option>Negotiating</option></select></div><div style=\"margin-bottom:1rem\"><label for=\"sc-name\" style=\"display:block;margin-bottom:.375rem\">Name</label> <input id=\"sc-name\" class=\"pm7-input\" type=\"text\" value=\"Anna Belova\" placeholder=\"Name\"></div><div style=\"margin-bottom:1rem\"><label for=\"sc-when\" style=\"display:block;margin-bottom:.375rem\">Follow up by</label> <input id=\"sc-when\" class=\"pm7-input\" type=\"datetime-local\" value=\"2026-10-15T12:00\"></div><div><label for=\"sc-note\" style=\"display:block;margin-bottom:.375rem\">Note</label> <textarea id=\"sc-note\" class=\"pm7-input\" rows=\"3\" placeholder=\"Note for the team\">Called, asked for a proposal.</textarea></div></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = section("Form controls").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

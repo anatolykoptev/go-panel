@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/anatolykoptev/go-panel/components"
 	"github.com/anatolykoptev/go-panel/resource"
@@ -21,7 +22,8 @@ func mountShowcase(p *resource.Panel) {
 	p.MountPage(resource.PageSpec{
 		Path: showcaseID,
 		Handler: func(w http.ResponseWriter, r *http.Request) {
-			d := showcaseData{Token: p.CSRFToken(r)}
+			months, _ := strconv.Atoi(r.URL.Query().Get("months")) // the component falls back to 12 on anything else
+			d := showcaseData{Token: p.CSRFToken(r), Months: months}
 			if err := p.RenderPage(w, r, "Showcase", showcaseID, Showcase(d)); err != nil {
 				http.Error(w, "internal error", http.StatusInternalServerError)
 			}

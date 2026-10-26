@@ -624,8 +624,56 @@
 		.kpi-note{font-weight:400;color:var(--text-secondary)}
 		/* ── Emphasised list row (resource.Row.Emphasis). Weight, not colour. */
 		.crm-table tbody tr.row-emphasis>td{font-weight:600;color:var(--text-primary)}
+		/* ── Occupancy board (components.OccupancyBoard): positions x months.
+		   Tone = fill + glyph + text; conflict is also hatched, so colour never
+		   carries state alone. Desktop board and ≤767px list are both in the DOM;
+		   CSS shows one. */
+		.occ{display:flex;flex-direction:column;gap:.75rem}
+		.occ-zoom{display:flex;gap:.375rem}
+		.occ-zoom .is-current{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-text)}
+		.occ-legend{display:flex;flex-wrap:wrap;gap:.375rem 1rem;margin:0;padding:0;list-style:none;font-size:.75rem;color:var(--text-secondary)}
+		.occ-swatch{display:inline-block;min-width:1.125rem;padding:0 .25rem;border-radius:var(--radius);text-align:center;background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line)}
+		.occ-today-key{border:0;border-left:2px solid var(--negative);background:transparent;min-width:0;padding:0;height:.875rem;vertical-align:middle}
+		.occ-board{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-raised);overflow:hidden}
+		.occ-head,.occ-row{display:grid;grid-template-columns:5.5rem minmax(0,1fr)}
+		.occ-head{border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary)}
+		.occ-months{display:grid}
+		.occ-months span{padding:.5rem .375rem;border-left:1px solid var(--border-subtle);white-space:nowrap;overflow:hidden}
+		.occ-row{border-bottom:1px solid var(--border-subtle)}
+		.occ-row:last-child{border-bottom:0}
+		.occ-rowlabel{padding:.5rem .75rem;font-size:.8125rem;font-weight:600;color:var(--text-primary)}
+		.occ-track{position:relative}
+		.occ-cells{position:absolute;inset:0;display:grid}
+		.occ-cells i{border-left:1px solid var(--border-subtle)}
+		.occ-gap,.occ-bar{position:absolute;box-sizing:border-box;display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:.75rem;line-height:1.5rem;text-decoration:none}
+		.occ-gap{top:0;bottom:0;padding:.1875rem .375rem;border:1px dashed var(--border-control);border-radius:var(--radius);color:var(--text-secondary);line-height:1.25rem}
+		a.occ-gap:hover{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent)}
+		.occ-bar{height:1.625rem;margin-top:.125rem;padding:0 .5rem;border-radius:var(--radius);background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line);font-weight:600}
+		a.occ-bar:hover{text-decoration:underline}
+		.occ-bar:focus-visible,.occ-gap:focus-visible{outline:2px solid var(--accent);outline-offset:2px;z-index:3}
+		.occ-bar.is-clip-l{border-top-left-radius:0;border-bottom-left-radius:0;border-left-style:dotted}
+		.occ-bar.is-clip-r{border-top-right-radius:0;border-bottom-right-radius:0;border-right-style:dotted}
+		.occ-bar.is-overlap{box-shadow:0 0 0 2px var(--negative)}
+		.occ-sale{--tone-bg:var(--positive-bg);--tone-fg:var(--positive);--tone-line:var(--positive)}
+		.occ-hold{--tone-bg:var(--warning-bg);--tone-fg:var(--warning);--tone-line:var(--warning)}
+		.occ-renewal{--tone-bg:var(--special-bg);--tone-fg:var(--special);--tone-line:var(--special)}
+		.occ-ended{--tone-bg:var(--neutral-bg);--tone-fg:var(--neutral);--tone-line:var(--text-faint)}
+		.occ-conflict{--tone-bg:var(--negative-bg);--tone-fg:var(--negative);--tone-line:var(--negative)}
+		.occ-bar.occ-hold{border-style:dashed}
+		.occ-bar.occ-conflict{background-image:repeating-linear-gradient(135deg,transparent 0 .3125rem,var(--tone-line) .3125rem .375rem)}
+		.occ-today{position:absolute;top:0;bottom:0;width:0;border-left:2px solid var(--negative);z-index:2;pointer-events:none}
+		.occ-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+		.occ-list{display:none}
+		.occ-pos h3{margin:0 0 .375rem;font-size:.875rem}
+		.occ-pos ul{margin:0 0 1rem;padding:0;list-style:none;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-raised)}
+		.occ-item{display:flex;flex-wrap:wrap;align-items:center;gap:.375rem .625rem;padding:.625rem .875rem;border-bottom:1px solid var(--border-subtle);font-size:.875rem}
+		.occ-item:last-child{border-bottom:0}
+		.occ-item a{min-height:2.75rem;display:inline-flex;align-items:center;color:var(--accent-text)}
+		.occ-range{font-family:var(--font-mono);font-size:.75rem;color:var(--text-secondary)}
 		/* ── Narrow screens. */
 		@media(max-width:767px){
+			.occ-board{display:none}
+			.occ-list{display:block}
 			.btn{min-height:2.75rem}
 			.btn-sm{min-height:2.25rem}
 			.queue-row{grid-template-columns:minmax(0,1fr);gap:.5rem}
