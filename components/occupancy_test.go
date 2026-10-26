@@ -2,6 +2,7 @@ package components_test
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -279,5 +280,86 @@ func TestOccupancy_NonLinksNotFocusableAndNameNotDuplicated(t *testing.T) {
 	}
 	if !strings.Contains(board, `aria-label="Легенда"`) {
 		t.Errorf("legend label not taken from Labels.Legend")
+	}
+}
+
+var (
+	reBar  = regexp.MustCompile(`class="occ-bar[^"]*" style="left:([\d.]+)%;width:([\d.]+)%;top:([\d.]+)rem;"`)
+	reMark = regexp.MustCompile(`class="occ-mark" style="left:([\d.]+)%;margin-left:-0.75rem;width:1.5rem;top:([\d.]+)rem;" href="([^"]+)"`)
+	reGapA = regexp.MustCompile(`<a class="occ-gap" style="left:([\d.]+)%;width:([\d.]+)%;`)
+)
+
+func atof(t *testing.T, s string) float64 {
+	t.Helper()
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// A short gap's link must never sit on a bar: it is a marker in a strip below
+// the lanes, and no in-lane gap link intersects a bar's box. Gaps of 1..8 days,
+// next to a stacked (two-lane) neighbour.
+// Mutation: occupancy.go occShortGapDays `8` -> `0` (short gaps become in-lane
+// links again, as before the fix) -> RED.
+func TestOccupancy_ShortGapLinkNeverOverlapsBars(t *testing.T) {
+	for n := 1; n <= 8; n++ {
+		o := occBase()
+		o.Rows = o.Rows[:1]
+		end := day(2026, 3, 1)
+		o.Spans = []components.Span{
+			{Row: 1, From: day(2026, 1, 1), To: end, Label: "A"},
+			{Row: 1, From: day(2026, 1, 10), To: end, Label: "A2"}, // overlaps: two lanes
+			{Row: 1, From: end.AddDate(0, 0, n), To: day(2026, 7, 1), Label: "B"},
+		}
+		board, _ := split(t, render(t, components.OccupancyBoard(o)))
+		bars := reBar.FindAllStringSubmatch(board, -1)
+		if len(bars) != 3 {
+			t.Fatalf("n=%d: want 3 bars, got %d", n, len(bars))
+		}
+		marks := reMark.FindAllStringSubmatch(board, -1)
+		if len(marks) != 1 {
+			t.Fatalf("n=%d: want exactly one marker for the %d-day gap, got %d\n%s", n, n, len(marks), board)
+		}
+		// 2 lanes of 1.875rem + .25rem margin: the marker strip starts at 4rem.
+		if top := atof(t, marks[0][2]); top < 4 {
+			t.Errorf("n=%d: marker top %.3frem is inside the lanes (bars end at 4rem)", n, top)
+		}
+		for _, g := range reGapA.FindAllStringSubmatch(board, -1) {
+			gl, gw := atof(t, g[1]), atof(t, g[2])
+			for _, b := range bars {
+				bl, bw := atof(t, b[1]), atof(t, b[2])
+				if gl < bl+bw && bl < gl+gw {
+					t.Errorf("n=%d: in-lane gap link [%.2f,%.2f] intersects bar [%.2f,%.2f]", n, gl, gl+gw, bl, bl+bw)
+				}
+			}
+		}
+		if len(reGapA.FindAllString(board, -1)) != 0 {
+			t.Errorf("n=%d: short gap rendered as an in-lane link", n)
+		}
+		if !strings.Contains(marks[0][3], "row=1") {
+			t.Errorf("n=%d: marker href %q lacks the gap range", n, marks[0][3])
+		}
+	}
+}
+
+// Linked bars carry the full label and range as a tooltip; non-links do not
+// get a title and stay non-focusable.
+func TestOccupancy_TooltipOnLinkedBarsOnly(t *testing.T) {
+	o := occBase()
+	o.Spans = []components.Span{
+		{Row: 1, From: day(2026, 2, 1), To: day(2026, 3, 1), Label: "Linked", Href: "/l"},
+		{Row: 1, From: day(2026, 4, 1), To: day(2026, 5, 1), Label: "Plain"},
+	}
+	board, _ := split(t, render(t, components.OccupancyBoard(o)))
+	if !strings.Contains(board, `title="Linked: Sale, 2026-02-01 – 2026-02-28"`) {
+		t.Errorf("linked bar lacks its tooltip:\n%s", board)
+	}
+	if strings.Contains(board, "title=") && strings.Count(board, "title=") != 1 {
+		t.Errorf("non-link bar got a title")
+	}
+	if strings.Contains(board, "tabindex") {
+		t.Errorf("tab stop on a non-link")
 	}
 }

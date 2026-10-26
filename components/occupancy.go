@@ -225,6 +225,9 @@ type occGapView struct {
 	occGap
 	Left, Wide float64
 	Href       string
+	// Mark: a short linked gap. Its box in the lanes is passive; the link is a
+	// marker in the strip below the lanes, so it can never sit on a bar.
+	Mark bool
 }
 
 type occRowView struct {
@@ -232,6 +235,7 @@ type occRowView struct {
 	Bars  []occBar
 	Gaps  []occGapView
 	Lanes int
+	Marks bool      // some gap has a marker: the track grows a marker strip
 	Items []occItem // mobile list: spans and gaps in date order
 }
 
@@ -354,12 +358,7 @@ func (o Occupancy) rowView(r OccupancyRow, lo, hi, gapFrom int) occRowView {
 	}
 	rv.Lanes = max(1, len(laneEnd))
 	if gapFrom < hi {
-		for _, g := range occGaps(spans, gapFrom, hi) {
-			rv.Gaps = append(rv.Gaps, occGapView{
-				occGap: g, Left: pct(g.From-lo, total), Wide: pct(g.To-g.From, total),
-				Href: o.expandGap(g, r.Num),
-			})
-		}
+		rv.Gaps, rv.Marks = o.gapViews(spans, r.Num, lo, hi, gapFrom)
 	}
 	for i := range rv.Bars {
 		rv.Items = append(rv.Items, occItem{Span: &rv.Bars[i].Span, Overlap: rv.Bars[i].Overlap, From: dayNum(rv.Bars[i].Span.From)})
@@ -369,6 +368,20 @@ func (o Occupancy) rowView(r OccupancyRow, lo, hi, gapFrom int) occRowView {
 	}
 	sort.SliceStable(rv.Items, func(i, j int) bool { return rv.Items[i].From < rv.Items[j].From })
 	return rv
+}
+
+// gapViews lays out the free gaps of one row; marks reports whether any gap
+// got a marker.
+func (o Occupancy) gapViews(spans []Span, row, lo, hi, from int) (gaps []occGapView, marks bool) {
+	total := hi - lo
+	for _, g := range occGaps(spans, from, hi) {
+		gv := occGapView{occGap: g, Left: pct(g.From-lo, total), Wide: pct(g.To-g.From, total), Href: o.expandGap(g, row)}
+		if gv.Href != "" && g.To-g.From <= occShortGapDays {
+			gv.Mark, marks = true, true
+		}
+		gaps = append(gaps, gv)
+	}
+	return gaps, marks
 }
 
 // occLane picks the first lane free at day f (first-fit) and books it to t.
@@ -449,6 +462,14 @@ func (l OccupancyLabels) spanDetail(s Span) string {
 	return l.toneLabel(s.Tone) + ", " + l.rng(dayNum(s.From), dayNum(s.To))
 }
 
+func (l OccupancyLabels) spanText(s Span) string {
+	t := l.spanDetail(s)
+	if s.Label != "" {
+		t = s.Label + ": " + t
+	}
+	return t
+}
+
 func (l OccupancyLabels) gapText(g occGap) string {
 	return pick(l.Free, "Free") + ", " + l.rng(g.From, g.To)
 }
@@ -471,6 +492,22 @@ func occBarStyle(b occBar) templ.SafeCSS {
 	return templ.SafeCSS("left:" + pctStr(b.Left) + ";width:" + pctStr(b.Wide) + ";top:" + remStr(float64(b.Lane)*occLaneRem))
 }
 
+// occShortGapDays: a gap of at most this many days is too narrow to click on
+// the board, so its link moves to a marker below the bars. Exact targeting of
+// any gap stays on the per-position list and the keyboard path.
+const occShortGapDays = 8
+
+const (
+	occMarkRem    = 1.5   // marker width
+	occMarkHeight = 1.125 // marker strip height
+)
+
+// occMarkStyle centres the marker under the gap, in the strip below the lanes.
+func occMarkStyle(g occGapView, lanes int) templ.SafeCSS {
+	return templ.SafeCSS("left:" + pctStr(g.Left+g.Wide/2) + ";margin-left:-" + remStr(occMarkRem/2) +
+		";width:" + remStr(occMarkRem) + ";top:" + remStr(float64(lanes)*occLaneRem+laneMarginRem))
+}
+
 func occGapStyle(g occGapView) templ.SafeCSS {
 	return templ.SafeCSS("left:" + pctStr(g.Left) + ";width:" + pctStr(g.Wide))
 }
@@ -483,8 +520,12 @@ func remStr(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) + "re
 
 func pctStr(f float64) string { return strconv.FormatFloat(f, 'f', 3, 64) + "%" }
 
-func occTrackStyle(lanes int) templ.SafeCSS {
-	return templ.SafeCSS("height:" + remStr(float64(lanes)*occLaneRem+laneMarginRem))
+func occTrackStyle(lanes int, marks bool) templ.SafeCSS {
+	h := float64(lanes)*occLaneRem + laneMarginRem
+	if marks {
+		h += occMarkHeight
+	}
+	return templ.SafeCSS("height:" + remStr(h))
 }
 
 func occGridStyle(cols string) templ.SafeCSS {
