@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.23.19](https://github.com/anatolykoptev/go-panel/compare/v0.23.18...v0.23.19) (2026-10-26)
+
+
+### Added
+
+* **components:** OccupancyBoard — positions x months booking board ([#179](https://github.com/anatolykoptev/go-panel/issues/179)) ([bf90489](https://github.com/anatolykoptev/go-panel/commit/bf90489646b406c079effcb68b89a31a7bae2d93))
+
+
+### Fixed
+
+* **components:** OccupancyBoard short-gap links off the bars, tooltip, dark border ([#182](https://github.com/anatolykoptev/go-panel/issues/182)) ([2d8176a](https://github.com/anatolykoptev/go-panel/commit/2d8176ad9da3cf1360b0c9a69fba7a332acfbcc9))
+
 ## [0.23.18](https://github.com/anatolykoptev/go-panel/compare/v0.23.17...v0.23.18) (2026-10-22)
 
 
