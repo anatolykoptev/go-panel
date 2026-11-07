@@ -557,6 +557,7 @@ func TestPgxAccountStore_EpochGuard(t *testing.T) {
 
 	// Two changes from one session at once: exactly one wins.
 	t2 := e2.UnixMilli() + 1
+	time.Sleep(5 * time.Millisecond) // a real second request is later than its session's issue time
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
 	for i := range errs {
