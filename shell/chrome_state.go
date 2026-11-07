@@ -97,6 +97,11 @@ type ChromeState struct {
 	// DefaultTheme is the theme rendered when there is no sb-t cookie ("" = the
 	// skin's default: dark for graphite, light for iris). Set from Config.DefaultTheme.
 	DefaultTheme string
+
+	// StaticBase is the panel's static mount ("/admin/static" for BasePath
+	// "/admin"), used for the skin's font URLs. "" = "/admin/static". It is read
+	// only for a skinned page, so graphite output never depends on it.
+	StaticBase string
 }
 
 // SkinName returns the resolved skin: SkinGraphite or SkinIris.

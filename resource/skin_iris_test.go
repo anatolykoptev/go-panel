@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,7 +41,12 @@ func renderSkinned(t *testing.T, p *resource.Panel, cookies ...*http.Cookie) str
 
 func getLogin(t *testing.T, p *resource.Panel, cookies ...*http.Cookie) string {
 	t.Helper()
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/login", nil)
+	return getLoginAt(t, p, "/admin/login", cookies...)
+}
+
+func getLoginAt(t *testing.T, p *resource.Panel, path string, cookies ...*http.Cookie) string {
+	t.Helper()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -147,11 +153,33 @@ func TestSkin_FontsServedFromThePanel(t *testing.T) {
 			t.Errorf("%s: status %d, magic %q", f, rec.Code, rec.Body.String()[:min(4, rec.Body.Len())])
 		}
 	}
+	// The OFL licences travel inside the binary: they are served from the same
+	// embedded FS as the fonts (not read from disk), the README is not.
 	for _, f := range []string{"LICENSE-Inter-OFL.txt", "LICENSE-Manrope-OFL.txt"} {
-		b, err := os.ReadFile("../shell/internal/assets/static/fonts/" + f)
-		if err != nil || !strings.Contains(string(b), "SIL OPEN FONT LICENSE") {
-			t.Errorf("%s missing or not the OFL text (%v)", f, err)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/static/fonts/"+f, nil))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "SIL OPEN FONT LICENSE") {
+			t.Errorf("%s not served from the embedded FS (status %d)", f, rec.Code)
 		}
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/static/fonts/README.md", nil))
+	if rec.Code == http.StatusOK {
+		t.Error("fonts/README.md must not be embedded or served")
+	}
+}
+
+// TestSkin_FontURLsFollowThePanelBasePath: Layout's skin font URLs use the
+// panel's mount, like login/MFA do (the pm7.css link keeps its own hardcode).
+func TestSkin_FontURLsFollowThePanelBasePath(t *testing.T) {
+	a := auth.NewHMACAuth(auth.HMACConfig{Username: "a", Password: "b", HMACKey: []byte("test-hmac-key-32-bytes-long-here"), BasePath: "/ops"})
+	p := resource.New(resource.Config{Title: "T", BasePath: "/ops", Auth: a, Skin: shell.SkinIris})
+	html := renderSkinned(t, p)
+	if !strings.Contains(html, "url(/ops/static/fonts/inter-latin-wght-normal.woff2)") || strings.Contains(html, "url(/admin/static/fonts/") {
+		t.Error("layout font URLs do not follow BasePath")
+	}
+	if l := getLoginAt(t, p, "/ops/login"); !strings.Contains(l, "url(/ops/static/fonts/") {
+		t.Error("login font URLs do not follow BasePath")
 	}
 }
 
@@ -442,6 +470,92 @@ func TestSkinIris_RowActionsAreSoftNotInk(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("iris has no soft override for %s: primary row actions would render ink", anchor)
+		}
+	}
+}
+
+var (
+	inlineMono = regexp.MustCompile(`(?s)<([a-zA-Z0-9]+)\b[^<>]*?style="[^"]*font-family:var\(--font-mono\)`)
+	codeTags   = map[string]bool{"pre": true, "code": true, "kbd": true, "samp": true, "textarea": true}
+)
+
+// TestSkinIris_NoMonoSurfaceOutsideCode: iris is Inter + Manrope. Every surface
+// that asks for var(--font-mono) — the stylesheet rules AND the inline styles
+// in the templates, both discovered from the source, not listed here — must
+// resolve to the sans stack under iris, except real code surfaces (pre, code,
+// kbd, samp, textarea), which must be explicitly restored to a true mono.
+//
+// Falsification: delete `--font-mono:var(--font-sans);` from the iris light
+// block (shell/skin_iris.templ, the line above --font-code) -> every mono
+// surface (.delta, .occ-head, the filter captions in list.templ:214/228, ...)
+// resolves to ui-monospace under iris -> RED. Delete the
+// `textarea[style*="--font-mono"]` rule -> the JSON textarea
+// (form.templ:283) renders sans -> RED.
+func TestSkinIris_NoMonoSurfaceOutsideCode(t *testing.T) {
+	light, dark := irisThemes(t)
+	isMono := func(v string) bool { return strings.Contains(strings.ToLower(v), "mono") }
+	for name, tokens := range map[string]map[string]string{"light": light, "dark": dark} {
+		if v := resolveColor(tokens, "var(--font-mono)"); v == "" || isMono(v) {
+			t.Errorf("iris %s: --font-mono resolves to %q, want the sans stack", name, v)
+		}
+		if v := resolveColor(tokens, "var(--font-code)"); !isMono(v) {
+			t.Errorf("iris %s: --font-code = %q is not a monospace stack", name, v)
+		}
+	}
+	// surfaces from the stylesheet (graphite rules that ask for the token).
+	nSheet := 0
+	for _, r := range styleRules(t) {
+		if strings.Contains(decl(r.body, "font-family"), "var(--font-mono)") {
+			nSheet++
+		}
+	}
+	// surfaces from template sources.
+	files, _ := filepath.Glob("*.templ")
+	more, _ := filepath.Glob("../components/*.templ")
+	var codeSurfaces, nInline int
+	for _, f := range append(files, more...) {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range inlineMono.FindAllStringSubmatch(string(b), -1) {
+			nInline++
+			if codeTags[strings.ToLower(m[1])] {
+				codeSurfaces++
+			}
+		}
+	}
+	if nSheet < 20 || nInline < 5 || codeSurfaces < 1 {
+		t.Fatalf("discovery found sheet=%d inline=%d code=%d mono surfaces; the scan no longer sees the sources", nSheet, nInline, codeSurfaces)
+	}
+	// every code surface found inline is restored by an iris rule that can reach it.
+	css := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(irisRender(t), "")
+	restored := false
+	for _, m := range ruleRe.FindAllStringSubmatch(css, -1) {
+		if strings.Contains(m[1], `[style*="--font-mono"]`) && strings.Contains(m[1], "textarea") &&
+			decl(m[2], "font-family") == "var(--font-code)!important" {
+			restored = true
+		}
+	}
+	if !restored {
+		t.Error("an inline-mono textarea exists but iris has no !important font-code rule for textarea[style*=\"--font-mono\"]")
+	}
+	// iris itself never sets a monospace family outside the code surfaces.
+	for _, m := range ruleRe.FindAllStringSubmatch(css, -1) {
+		sel := strings.TrimSpace(m[1])
+		if !irisSel.MatchString(sel) {
+			continue
+		}
+		ff := decl(m[2], "font-family")
+		if ff == "" || (!isMono(ff) && !strings.Contains(ff, "--font-mono")) {
+			continue
+		}
+		for _, one := range strings.Split(sel, ",") {
+			one = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(one), ":root[data-skin=iris]"))
+			base := strings.Fields(one)
+			if len(base) == 0 || (!codeTags[base[0]] && !strings.HasPrefix(base[0], "textarea")) {
+				t.Errorf("iris rule %q sets a monospace family on a non-code surface", sel)
+			}
 		}
 	}
 }

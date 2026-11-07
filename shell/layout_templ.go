@@ -269,7 +269,7 @@ func Layout(title string, nav []NavItem, content templ.Component) templ.Componen
 			return templ_7745c5c3_Err
 		}
 		if ChromeFromContext(ctx).SkinAttr() != "" {
-			templ_7745c5c3_Err = templ.Raw(skinFontCSS("/admin/static")).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(skinFontCSS(ChromeFromContext(ctx).StaticBase)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

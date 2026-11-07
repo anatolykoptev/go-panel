@@ -59,6 +59,7 @@ func (p *Panel) chromeStateFrom(r *http.Request) shell.ChromeState {
 	state.Theme = themeFromCookie(r)
 	state.Skin = p.skin
 	state.DefaultTheme = p.defTheme
+	state.StaticBase = p.basePath + "/static"
 	state.CollapsedGroups = collapsedGroupsFromCookie(r)
 	state.Profile = p.profileFor(r)
 	return state
@@ -208,7 +209,7 @@ func (p *Panel) RenderError(ctx context.Context, w http.ResponseWriter, title st
 // caller's chrome state names no skin/default theme the panel's own are filled
 // in, everything else the caller set is kept. A graphite panel returns ctx as is.
 func (p *Panel) chromeSkinned(ctx context.Context) context.Context {
-	if p.skin == "" && p.defTheme == "" {
+	if !p.skinned() && p.defTheme == "" {
 		return ctx
 	}
 	st := shell.ChromeFromContext(ctx)
@@ -217,6 +218,9 @@ func (p *Panel) chromeSkinned(ctx context.Context) context.Context {
 	}
 	if st.DefaultTheme == "" {
 		st.DefaultTheme = p.defTheme
+	}
+	if st.StaticBase == "" {
+		st.StaticBase = p.basePath + "/static"
 	}
 	return shell.ContextWithChrome(ctx, st)
 }

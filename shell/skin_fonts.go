@@ -21,9 +21,10 @@ const (
 
 // skinFontCSS returns the <style> block with the skin's @font-face rules. It is
 // only ever emitted for a skinned page, so graphite pages request no fonts.
-// base is the panel's static mount ("/admin/static").
+// base is the panel's static mount ("/admin/static"); "" or anything unsafe
+// falls back to that default.
 func skinFontCSS(base string) string {
-	if !safeStaticBase.MatchString(base) {
+	if base == "" || !safeStaticBase.MatchString(base) {
 		base = defaultStaticBase
 	}
 	base = strings.TrimRight(base, "/")

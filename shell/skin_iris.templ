@@ -39,6 +39,8 @@ templ irisTokens() {
 			--on-night-2:#b8bdda;
 			--on-btn-primary:#ffffff;
 			--font-sans:'Inter Variable',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+			--font-mono:var(--font-sans);
+			--font-code:ui-monospace,'SF Mono','JetBrains Mono',Menlo,monospace;
 			--font-display:'Manrope Variable','Inter Variable',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
 			--radius:.625rem;
 			--radius-lg:1.25rem;
@@ -194,6 +196,9 @@ templ irisChrome() {
 		:root[data-skin=iris] .kpi-value{font-size:2.25rem}
 		:root[data-skin=iris] .kpi-cell{padding:1.25rem 1.5rem}
 		:root[data-skin=iris] .row-sub,:root[data-skin=iris] .queue-meta,:root[data-skin=iris] .funnel-pct,:root[data-skin=iris] .occ-range,:root[data-skin=iris] .timeline-meta,:root[data-skin=iris] .job-detail-meta,:root[data-skin=iris] .market-disclaimer{font-family:var(--font-sans)}
+		:root[data-skin=iris] .stat-value,:root[data-skin=iris] .kpi-value,:root[data-skin=iris] .kpi-delta,:root[data-skin=iris] .funnel-count,:root[data-skin=iris] .funnel-pct,:root[data-skin=iris] .delta,:root[data-skin=iris] .sidebar-count,:root[data-skin=iris] .occ-head,:root[data-skin=iris] .occ-range,:root[data-skin=iris] .fit-chip,:root[data-skin=iris] .suc-chip,:root[data-skin=iris] .ou-glyph{font-variant-numeric:tabular-nums}
+		:root[data-skin=iris] pre,:root[data-skin=iris] code,:root[data-skin=iris] kbd,:root[data-skin=iris] samp{font-family:var(--font-code)}
+		:root[data-skin=iris] textarea[style*="--font-mono"]{font-family:var(--font-code)!important}
 		:root[data-skin=iris] .funnel-count{font-family:var(--font-sans);font-weight:700}
 		:root[data-skin=iris] .queue-row{padding:1.25rem 1.5rem;gap:1.5rem}
 		:root[data-skin=iris] .queue-title{font-size:.9375rem;font-weight:700}

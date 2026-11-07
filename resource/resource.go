@@ -519,6 +519,8 @@ type Config struct {
 	// DefaultTheme is the theme rendered for an operator with no sb-t cookie:
 	// shell.ThemeLight or shell.ThemeDark. "" (or anything else) takes the
 	// skin's default — dark for graphite, light for iris. The cookie always wins.
+	// It reaches pages rendered through the layout; graphite's own login and MFA
+	// pages carry a dark-only palette and stay dark whatever the default is.
 	DefaultTheme string
 }
 
@@ -590,13 +592,18 @@ func (p *Panel) Handler() http.Handler {
 	return withBasePath(p.basePath, p.withStrings(p.withSkin(withTenantResolution(p.resolver, p.mux))))
 }
 
+// skinned reports whether the panel's Skin resolves to a non-graphite skin.
+func (p *Panel) skinned() bool {
+	return shell.ChromeState{Skin: p.skin}.SkinAttr() != ""
+}
+
 // withSkin puts the panel's skin and theme on every request context of a
 // skinned panel, so pages that are not rendered through Layout's own
 // chromeStateFrom — the login and MFA screens the authenticators mount on the
 // mux — carry the skin too. A graphite panel (the zero value) is passed
 // through untouched: same context, same bytes.
 func (p *Panel) withSkin(next http.Handler) http.Handler {
-	if probe := (shell.ChromeState{Skin: p.skin}); probe.SkinAttr() == "" && p.defTheme == "" {
+	if !p.skinned() {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

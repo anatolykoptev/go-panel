@@ -177,7 +177,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 			<link rel="stylesheet" href="/admin/static/pm7.css"/>
 			@layoutStyles()
 			if ChromeFromContext(ctx).SkinAttr() != "" {
-				@templ.Raw(skinFontCSS("/admin/static"))
+				@templ.Raw(skinFontCSS(ChromeFromContext(ctx).StaticBase))
 				@irisTokens()
 				@irisChrome()
 			}
