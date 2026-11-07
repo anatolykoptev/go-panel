@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/i18n"
@@ -260,7 +261,7 @@ templ listTable(d listPageData) {
 						if col.Sortable {
 							<a
 								class={ "crm-th-sort", templ.KV("active", col.Key == d.SortState.Key) }
-								href={ templ.SafeURL(sortURL(d, col.Key)) }
+								href={ templ.SafeURL(sortHref(d, col.Key)) }
 								hx-get={ sortURL(d, col.Key) }
 								hx-target={ "#" + d.Resource.Name + "-region" }
 								hx-swap="outerHTML"
@@ -394,7 +395,7 @@ templ paginationInner(d listPageData) {
 		<div class="pagination">
 			if d.Page > 1 {
 				<a
-					href={ templ.SafeURL(pageURL(d, d.Page-1)) }
+					href={ templ.SafeURL(pageHref(d, d.Page-1)) }
 					hx-get={ pageURL(d, d.Page-1) }
 					hx-target={ "#" + d.Resource.Name + "-region" }
 					hx-swap="outerHTML"
@@ -407,7 +408,7 @@ templ paginationInner(d listPageData) {
 			</span>
 			if d.Page < d.TotalPages {
 				<a
-					href={ templ.SafeURL(pageURL(d, d.Page+1)) }
+					href={ templ.SafeURL(pageHref(d, d.Page+1)) }
 					hx-get={ pageURL(d, d.Page+1) }
 					hx-target={ "#" + d.Resource.Name + "-region" }
 					hx-swap="outerHTML"
@@ -415,7 +416,7 @@ templ paginationInner(d listPageData) {
 					style="padding:.375rem .75rem;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);text-decoration:none"
 				>{ s.Next } &rarr;</a>
 				<a
-					href={ templ.SafeURL(pageURL(d, d.Page+1)) }
+					href={ templ.SafeURL(pageHref(d, d.Page+1)) }
 					hx-get={ appendURL(d) }
 					hx-target={ "#" + d.Resource.Name + "-table tbody" }
 					hx-swap="beforeend"
@@ -465,6 +466,19 @@ func sortURL(d listPageData, colKey string) string {
 	return fmt.Sprintf("%s/%s/rows?sort=%s&dir=%s", d.BasePath, d.Resource.Name, colKey, dir)
 }
 
+// sortHref is sortURL addressed at the list PAGE rather than the /rows
+// fragment: the plain href for no-JS clicks, middle-click and new tabs, where
+// the bare fragment would render with no layout.
+func sortHref(d listPageData, colKey string) string {
+	return rowsToPage(d, sortURL(d, colKey))
+}
+
+// rowsToPage rewrites a /rows fragment URL built by sortURL/pageURL to the
+// list page URL with the same query string.
+func rowsToPage(d listPageData, rowsURL string) string {
+	return d.BasePath + "/" + d.Resource.Name + strings.TrimPrefix(rowsURL, d.BasePath+"/"+d.Resource.Name+"/rows")
+}
+
 func sortArrow(st admintable.State, key string) string {
 	if key != st.Key {
 		return ""
@@ -494,6 +508,11 @@ func pageURL(d listPageData, page int) string {
 		vals.Del("dir")
 	}
 	return fmt.Sprintf("%s/%s/rows?%s", d.BasePath, d.Resource.Name, vals.Encode())
+}
+
+// pageHref is pageURL addressed at the list page (see sortHref).
+func pageHref(d listPageData, page int) string {
+	return rowsToPage(d, pageURL(d, page))
 }
 
 // appendURL is pageURL for the NEXT page in append render mode (bare rows +

@@ -71,6 +71,9 @@ func TestWideTableScrollsInsideItself(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.name == "htmx rows fragment" {
+				req.Header.Set("HX-Request", "true")
+			}
 			for _, c := range cookies {
 				req.AddCookie(c)
 			}

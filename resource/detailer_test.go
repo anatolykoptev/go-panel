@@ -281,6 +281,7 @@ func TestDetailer_RowsNotShadowed(t *testing.T) {
 	t.Run("/rows reaches list partial, not detailer", func(t *testing.T) {
 		detailerCalled = false
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/items/rows", nil)
+		req.Header.Set("HX-Request", "true")
 		req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
 		w := httptest.NewRecorder()
 		p.Handler().ServeHTTP(w, req)
