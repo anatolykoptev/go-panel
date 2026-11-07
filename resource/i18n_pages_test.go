@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/auth"
 	"github.com/anatolykoptev/go-panel/csrf"
@@ -318,6 +319,8 @@ func i18nResourcePages(t *testing.T, rec *i18nRecorder, o i18nOpts, mode *trashM
 	hp, ha := i18nHMACPanel(o, true)
 	hck := i18nHMACCookie(t, ha)
 	rec.do("list-hmac-bare-sidebar", hp.Handler(), i18nRequest(http.MethodGet, "/admin/nothing", nil, []*http.Cookie{hck}, false))
+	i18nSettingsPages(t, rec, o)
+
 	ep, ea := i18nHMACPanel(o, false)
 	eck := i18nHMACCookie(t, ea)
 	rec.do("index-empty", ep.Handler(), i18nRequest(http.MethodGet, "/admin/", nil, []*http.Cookie{eck}, false))
@@ -483,4 +486,78 @@ func i18nPagesDump(pages []i18nPage) map[string]string {
 		out[p.name] = b.String()
 	}
 	return out
+}
+
+// i18nSettingsPages audits the settings area: every built-in page and every
+// state of the password form, on a multi-user panel with two-factor mounted and
+// the skin choice on.
+func i18nSettingsPages(t *testing.T, rec *i18nRecorder, o i18nOpts) {
+	t.Helper()
+	base := newTOTPTestStore()
+	i18nSeed(t, base.testAccountStore, "u1", "оператор@пример.рф", "pw-with-10-chars", "admin")
+	base.byID["u1"].Name = "Оператор"
+	store := &settingsStore{totpTestStore: base}
+	a := i18nBcryptAuth(store, nil, auth.RateRule{})
+	cfg := resource.Config{Title: "Панель", BasePath: "/admin", Auth: a, CSRFKey: i18nCSRFKey, Skins: []string{shell.SkinIris, shell.SkinGraphite}}
+	if o.cfg != nil {
+		o.cfg(&cfg)
+	}
+	p := resource.New(cfg)
+	resource.MountTOTPEnrollment(p, resource.TOTPEnrollmentConfig{Store: store, TOTPEncryptionKey: totpTestEncKey, Issuer: "T", PathPrefix: "security/totp"})
+	p.MountSettings(resource.SettingsConfig{
+		Store: store, PasswordRate: auth.RateRule{Limit: 3, Window: time.Hour},
+		Pages: []resource.SettingsPage{{ID: "collection", Title: "Сбор данных", Body: templ.Raw("<p>Сбор данных</p>")}},
+	})
+	h := p.Handler()
+	ck := bcryptLogin(t, a, "оператор@пример.рф", "pw-with-10-chars")
+	get := func(name, target string) {
+		rec.do(name, h, i18nRequest(http.MethodGet, target, nil, []*http.Cookie{ck}, false))
+	}
+	post := func(name, target string, form url.Values) {
+		form.Set("_csrf", csrf.Issue(i18nCSRFKey, ck.Value, csrf.DefaultTTL))
+		rec.do(name, h, i18nRequest(http.MethodPost, target, form, []*http.Cookie{ck}, false))
+	}
+	get("settings-profile", "/admin/settings/profile/")
+	get("settings-security", "/admin/settings/security/")
+	get("settings-appearance", "/admin/settings/appearance/")
+	get("settings-changed", "/admin/settings/security/?changed=1")
+	get("settings-sessions-done", "/admin/settings/security/?sessions=1")
+	pw := "pw-with-10-chars"
+	for _, c := range []struct {
+		name string
+		form url.Values
+	}{
+		{"settings-pw-wrong", pwForm("wrong", "another-long-password", "another-long-password")},
+		{"settings-pw-short", pwForm(pw, "short", "short")},
+		{"settings-pw-long", pwForm(pw, strings.Repeat("x", 80), strings.Repeat("x", 80))},
+		{"settings-pw-mismatch", pwForm(pw, "another-long-password", "another-different")},
+		{"settings-pw-unchanged", pwForm(pw, pw, pw)},
+	} {
+		post(c.name, "/admin/settings/security/password/", c.form)
+	}
+	get("settings-collection", "/admin/settings/collection/")
+	store.failUpdate = true
+	post("settings-pw-store-down", "/admin/settings/security/password/", pwForm(pw, "another-long-password", "another-long-password"))
+	store.failUpdate = false
+	base.byID["u1"].TOTPEnabled = true
+	get("settings-security-2fa-on", "/admin/settings/security/")
+	for range 2 { // two more failures: three in all (pw-wrong, these two), the quota
+		post("settings-pw-fill", "/admin/settings/security/password/", pwForm("wrong", "another-long-password", "another-long-password"))
+	}
+	post("settings-pw-throttled", "/admin/settings/security/password/", pwForm("wrong", "another-long-password", "another-long-password"))
+
+	// A change that cannot re-issue the browser's session: the sign-in-again page,
+	// for both operations, on a second account (the first is throttled now).
+	i18nSeed(t, base.testAccountStore, "u2", "второй@пример.рф", "pw-with-10-chars", "admin")
+	store.breakAfterStamp = true
+	ck2 := bcryptLogin(t, a, "второй@пример.рф", "pw-with-10-chars")
+	rec.do("settings-sessions-sign-in-again", h, i18nRequest(http.MethodPost, "/admin/settings/security/sessions/",
+		url.Values{"_csrf": {csrf.Issue(i18nCSRFKey, ck2.Value, csrf.DefaultTTL)}, "current_password": {"pw-with-10-chars"}}, []*http.Cookie{ck2}, false))
+	store.breakAfterStamp, store.stamped = false, false
+	time.Sleep(5 * time.Millisecond)
+	ck3 := bcryptLogin(t, a, "второй@пример.рф", "pw-with-10-chars")
+	time.Sleep(5 * time.Millisecond)
+	store.breakAfterStamp = true
+	rec.do("settings-password-sign-in-again", h, i18nRequest(http.MethodPost, "/admin/settings/security/password/",
+		url.Values{"_csrf": {csrf.Issue(i18nCSRFKey, ck3.Value, csrf.DefaultTTL)}, "current_password": {"pw-with-10-chars"}, "new_password": {"a-brand-new-long-password"}, "repeat_password": {"a-brand-new-long-password"}}, []*http.Cookie{ck3}, false))
 }

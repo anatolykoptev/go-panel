@@ -1,0 +1,98 @@
+package components
+
+import "regexp"
+
+// Swatch is the handful of one skin's colours an option draws as its preview
+// (copies of the skin's tokens; the option shows a skin other than the page's).
+type Swatch struct {
+	Ground, Tile, Ink, Accent string
+}
+
+// ThemeSkin is one skin option of the theme setting.
+type ThemeSkin struct {
+	Value        string // radio value and sb-k cookie value
+	Label        string
+	Light, Dark  Swatch
+}
+
+// ThemeChoice is the data of the theme controls. Build it with
+// shell.ThemeRows, which fills it from the panel (allowed skins, the
+// operator's skin and mode, the panel's language); this package stays free of
+// panel types.
+type ThemeChoice struct {
+	// Skins are the options of the "look" choice. One or none hides that choice.
+	Skins []ThemeSkin
+	// Skin is the Value of the skin currently rendered.
+	Skin string
+	// Dark reports whether the page is rendered dark.
+	Dark bool
+
+	LookLegend, ModeLegend, LightLabel, DarkLabel string
+}
+
+var swatchHex = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
+
+// swatchStyle renders a skin's two swatches as custom properties; a value that
+// is not a plain hex colour is dropped, so a careless registry entry cannot put
+// a declaration into the style attribute.
+func swatchStyle(s ThemeSkin) templ.SafeCSS {
+	out := ""
+	add := func(p string, w Swatch) {
+		for _, kv := range [...][2]string{{"g", w.Ground}, {"t", w.Tile}, {"i", w.Ink}, {"a", w.Accent}} {
+			if swatchHex.MatchString(kv[1]) {
+				out += "--sw-" + p + kv[0] + ":" + kv[1] + ";"
+			}
+		}
+	}
+	add("l", s.Light)
+	add("d", s.Dark)
+	return templ.SafeCSS(out)
+}
+
+func modeValue(dark bool) string {
+	if dark {
+		return "dark"
+	}
+	return "light"
+}
+
+// ThemeSkinControlView is the "look" control: a segmented choice with one radio
+// per skin and a swatch each. Real radio inputs: arrow keys move within the
+// group. admin.js stores the choice in cookie sb-k and reloads (a skin's CSS is
+// only in a page the server rendered in that skin). Whether there is anything to
+// choose (two or more skins) is decided once, by shell.ThemeRows, which owns the row.
+templ ThemeSkinControlView(c ThemeChoice) {
+	<fieldset class="gp-seg-group">
+		<legend class="gp-seg-legend">{ c.LookLegend }</legend>
+		<div class="seg">
+			for _, sk := range c.Skins {
+				<label class="gp-seg-opt">
+					<input type="radio" name="theme-skin" value={ sk.Value } checked?={ sk.Value == c.Skin }/>
+					<span class="gp-seg-swatch" aria-hidden="true" style={ swatchStyle(sk) }><i></i></span>
+					<span class="gp-seg-label">{ sk.Label }</span>
+				</label>
+			}
+		</div>
+	</fieldset>
+}
+
+// ThemeModeControlView is the light / dark choice. A change goes through the
+// same setTheme as the sidebar toggle (cookie sb-t, no reload), which also keeps
+// these radios in step when the toggle is used.
+templ ThemeModeControlView(c ThemeChoice) {
+	<fieldset class="gp-seg-group">
+		<legend class="gp-seg-legend">{ c.ModeLegend }</legend>
+		<div class="seg">
+			<label class="gp-seg-opt">
+				<input type="radio" name="theme-mode" value="light" checked?={ !c.Dark }/>
+				<span class="gp-seg-icon" aria-hidden="true">&#9728;</span>
+				<span class="gp-seg-label">{ c.LightLabel }</span>
+			</label>
+			<label class="gp-seg-opt">
+				<input type="radio" name="theme-mode" value="dark" checked?={ c.Dark }/>
+				<span class="gp-seg-icon" aria-hidden="true">&#9790;</span>
+				<span class="gp-seg-label">{ c.DarkLabel }</span>
+			</label>
+		</div>
+	</fieldset>
+}

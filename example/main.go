@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/anatolykoptev/go-kit/admintable"
@@ -81,6 +82,9 @@ func placesFetchRow(_ context.Context, id string) (map[string]string, error) {
 	return nil, resource.ErrDetailNotFound
 }
 
+// adminBase is where the demo mounts the panel.
+const adminBase = "/admin"
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
@@ -93,7 +97,20 @@ func main() {
 	password := "demo"
 
 	// PANEL_SKIN=iris renders the Iris skin; PANEL_THEME=dark|light overrides its default.
-	p := buildPanelSkin([]byte(hmacKey), username, password, os.Getenv("PANEL_SKIN"), os.Getenv("PANEL_THEME"))
+	// PANEL_SKINS=iris,graphite lets operators pick the theme in Settings > Appearance.
+	var skins []string
+	if v := os.Getenv("PANEL_SKINS"); v != "" {
+		skins = strings.Split(v, ",")
+	}
+	var p *resource.Panel
+	if os.Getenv("PANEL_MULTIUSER") == "1" {
+		// Per-operator sign-in (owner@example.com / manager@example.com, password
+		// "demo-password-1"): Settings gets Profile, Security with a real password
+		// change, and the owner-only Collection page.
+		p = buildPanelUsers([]byte(hmacKey), os.Getenv("PANEL_SKIN"), os.Getenv("PANEL_THEME"), skins)
+	} else {
+		p = buildPanelSkin([]byte(hmacKey), username, password, os.Getenv("PANEL_SKIN"), os.Getenv("PANEL_THEME"), skins...)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/admin/", p.Handler())
@@ -102,6 +119,9 @@ func main() {
 	})
 
 	addr := ":8080"
+	if v := os.Getenv("PANEL_ADDR"); v != "" {
+		addr = v
+	}
 	logger.Info("go-panel example listening", "addr", addr, "username", username, "password", password)
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
@@ -116,17 +136,45 @@ func buildPanel(hmacKey []byte, username, password string) *resource.Panel {
 	return buildPanelSkin(hmacKey, username, password, "", "")
 }
 
-// buildPanelSkin is buildPanel with a skin and default theme (both "" = graphite defaults).
-func buildPanelSkin(hmacKey []byte, username, password, skin, theme string) *resource.Panel {
+// buildPanelSkin is buildPanel with a skin and default theme (both "" = graphite
+// defaults) and, optionally, the skins operators may pick in Settings.
+func buildPanelSkin(hmacKey []byte, username, password, skin, theme string, skins ...string) *resource.Panel {
 	a := auth.NewHMACAuth(auth.HMACConfig{
 		Username:   username,
 		Password:   password,
 		HMACKey:    hmacKey,
-		BasePath:   "/admin",
+		BasePath:   adminBase,
 		SessionTTL: 12 * time.Hour,
 		Secure:     false, // dev only — set true in prod behind TLS
 	})
+	return assemblePanel(hmacKey, a, skin, theme, skins, resource.SettingsConfig{})
+}
 
+// demoPassword is the multi-user demo accounts' password.
+const demoPassword = "demo-password-1"
+
+// buildPanelUsers is the multi-user variant: BcryptTOTPAuth over an in-memory
+// account store, with the settings area's account-backed pages on.
+func buildPanelUsers(hmacKey []byte, skin, theme string, skins []string) *resource.Panel {
+	store := newMemAccounts()
+	hash, err := auth.HashPassword(demoPassword)
+	if err != nil {
+		panic(err)
+	}
+	for _, acct := range []struct{ email, name, role string }{
+		{"owner@example.com", "Olga Owner", auth.RoleOwner},
+		{"manager@example.com", "Mikhail Manager", "manager"},
+	} {
+		if _, _, err := store.CreateAccount(context.Background(), acct.email, acct.name, hash, acct.role); err != nil {
+			panic(err)
+		}
+	}
+	a := auth.NewBcryptTOTPAuth(auth.BcryptConfig{Store: store, HMACKey: hmacKey, BasePath: "/admin", SessionTTL: 12 * time.Hour})
+	return assemblePanel(hmacKey, a, skin, theme, skins, resource.SettingsConfig{Store: store})
+}
+
+// assemblePanel builds the demo panel over authenticator a.
+func assemblePanel(hmacKey []byte, a auth.Authenticator, skin, theme string, skins []string, settings resource.SettingsConfig) *resource.Panel {
 	// The CSRF key is a separate secret from the session HMAC key; the demo
 	// derives it so one env var is enough. A real deployment sets its own.
 	csrfKey := sha256.Sum256(append([]byte("go-panel-example-csrf:"), hmacKey...))
@@ -139,6 +187,8 @@ func buildPanelSkin(hmacKey []byte, username, password, skin, theme string) *res
 		Resolver:     tenant.PathResolver{Segment: 2},
 		Skin:         skin,
 		DefaultTheme: theme,
+		Skins:        skins,
+		Strings:      demoStrings(),
 	})
 
 	placesResource := resource.Resource{
@@ -173,5 +223,18 @@ func buildPanelSkin(hmacKey []byte, username, password, skin, theme string) *res
 	resource.Register(p, placesResource)
 
 	mountShowcase(p)
+	role := ""
+	if settings.Store != nil {
+		role = auth.RoleOwner
+	}
+	mountSettingsDemo(p, settings, role)
 	return p
+}
+
+// demoStrings is the English default, or the Russian preset with PANEL_LANG=ru.
+func demoStrings() resource.Strings {
+	if os.Getenv("PANEL_LANG") == "ru" {
+		return resource.RussianStrings()
+	}
+	return resource.Strings{}
 }

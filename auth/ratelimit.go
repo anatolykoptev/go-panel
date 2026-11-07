@@ -30,3 +30,13 @@ type RateRule struct {
 	Limit  int
 	Window time.Duration
 }
+
+// BlockedChecker is the optional RateLimiter capability to ask "is this key over
+// its limit?" without counting a hit. A caller that wants to count only some
+// events (the settings page counts failed current-password checks, not
+// successes or CSRF failures) uses it before the work and Allow only for the
+// failures. MemoryLimiter implements it; a limiter that does not (a shared
+// Redis one) gets the conservative fallback of counting every attempt.
+type BlockedChecker interface {
+	Blocked(ctx context.Context, key string, limit int, window time.Duration) (bool, error)
+}

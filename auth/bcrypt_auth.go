@@ -299,6 +299,11 @@ type sessionData struct {
 type Session struct {
 	UserID string
 	Role   string
+	// IssuedAtMs is the validated token's issue time (Unix ms). It is the proof
+	// of WHICH credential epoch the caller authenticated under: state-changing
+	// epoch operations (EpochStore) pass it back so they refuse a session that
+	// was revoked after Require admitted it.
+	IssuedAtMs int64
 }
 
 type sessionCtxKey struct{}
@@ -319,6 +324,13 @@ func (a *BcryptTOTPAuth) makeToken(userID, role string) (string, error) {
 // The domain string is a constant label concatenated into the HMAC input
 // so tokens from different cookie domains cannot be cross-pasted.
 func (a *BcryptTOTPAuth) makeTokenWithDomain(userID, role, domain string, ttl time.Duration) (string, error) {
+	return a.makeTokenAt(userID, role, domain, ttl, 0)
+}
+
+// makeTokenAt is makeTokenWithDomain with a floor on the issue time: Iat is
+// max(now, minIat) in Unix milliseconds. RefreshSession uses it to stay ahead of
+// a credential epoch stamped by a database clock that runs slightly fast.
+func (a *BcryptTOTPAuth) makeTokenAt(userID, role, domain string, ttl time.Duration, minIat int64) (string, error) {
 	var nb [16]byte
 	if _, err := rand.Read(nb[:]); err != nil {
 		return "", fmt.Errorf("auth: crypto/rand failed: %w", err)
@@ -328,7 +340,7 @@ func (a *BcryptTOTPAuth) makeTokenWithDomain(userID, role, domain string, ttl ti
 		Role:   role,
 		Exp:    time.Now().Add(ttl).Unix(),
 		Nonce:  hex.EncodeToString(nb[:]),
-		Iat:    time.Now().UnixMilli(),
+		Iat:    max(time.Now().UnixMilli(), minIat),
 	}
 	payload, err := json.Marshal(sd)
 	if err != nil {
@@ -757,6 +769,65 @@ func (a *BcryptTOTPAuth) issueSession(w http.ResponseWriter, r *http.Request, ac
 	http.Redirect(w, r, a.basePath+"/", http.StatusSeeOther)
 }
 
+// ErrNoSession is returned by RefreshSession when the request carries no
+// validly signed, unexpired session cookie of an active account.
+var ErrNoSession = errors.New("auth: no valid session to replace")
+
+// RefreshSession replaces the caller's session cookie after a credential-epoch
+// change (EpochStore.UpdatePasswordHashIfCurrent / RevokeSessionsIfCurrent)
+// revoked it, keeping that browser signed in while every other session stays
+// revoked.
+//
+// epoch MUST be the stamp those calls returned (the database's RETURNING
+// value), never a later re-read: a re-read can see a NEWER stamp written by a
+// concurrent request and mint a session above it, which is how a revoked
+// session would survive its own revocation. The new token's issue time is
+// epoch + 1ms (the stamp has microseconds, the token milliseconds).
+//
+// Identity comes from the request's own session cookie, verified for MAC and
+// expiry (not for revocation: the epoch change just revoked it) and re-checked
+// against the store for an active account with the same role. There is no
+// userID parameter: a caller cannot mint a session for someone else. A request
+// without such a cookie mints nothing and gets ErrNoSession.
+func (a *BcryptTOTPAuth) RefreshSession(w http.ResponseWriter, r *http.Request, epoch time.Time) error {
+	c, err := r.Cookie(a.cookieName)
+	if err != nil {
+		return ErrNoSession
+	}
+	sd, ok := a.parseToken(c.Value)
+	if !ok {
+		return ErrNoSession
+	}
+	acct, err := a.store.GetByID(r.Context(), sd.UserID)
+	if err != nil {
+		if errors.Is(err, ErrAccountNotFound) {
+			return ErrNoSession
+		}
+		return err
+	}
+	if acct == nil || !acct.Active {
+		return ErrNoSession
+	}
+	// No role comparison with the cookie: the token is minted from the account's
+	// CURRENT role, and a session whose role had drifted was already refused by
+	// Require, so the handler that calls this never ran for it.
+	tok, err := a.makeTokenAt(acct.ID, acct.Role, "", a.sessionTTL, epoch.UnixMilli()+1)
+	if err != nil {
+		return err
+	}
+	//nolint:gosec // Secure is configured per-environment via BcryptConfig.Secure.
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.cookieName,
+		Value:    tok,
+		Path:     a.basePath,
+		MaxAge:   int(a.sessionTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   a.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return nil
+}
+
 // LogoutHandler implements Authenticator.
 // Logout is POST-only to prevent cross-site GET (e.g. clickjacked link) from
 // terminating a user's session via a cookie still sent with SameSite=Lax.
@@ -794,7 +865,7 @@ func (a *BcryptTOTPAuth) Require(next http.HandlerFunc) http.HandlerFunc {
 			a.reject(w, r)
 			return
 		}
-		ctx := context.WithValue(r.Context(), sessionCtxKey{}, &Session{UserID: sd.UserID, Role: sd.Role})
+		ctx := context.WithValue(r.Context(), sessionCtxKey{}, &Session{UserID: sd.UserID, Role: sd.Role, IssuedAtMs: sd.Iat})
 		next(w, r.WithContext(ctx))
 	}
 }
@@ -856,7 +927,7 @@ func (a *BcryptTOTPAuth) SessionFromRequest(r *http.Request) (*Session, bool) {
 	if sd == nil {
 		return nil, false
 	}
-	return &Session{UserID: sd.UserID, Role: sd.Role}, true
+	return &Session{UserID: sd.UserID, Role: sd.Role, IssuedAtMs: sd.Iat}, true
 }
 
 func (a *BcryptTOTPAuth) reject(w http.ResponseWriter, r *http.Request) {

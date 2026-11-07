@@ -388,6 +388,18 @@ type Panel struct {
 	// skin and defTheme are Config.Skin / Config.DefaultTheme, stored raw: the
 	// shell resolves them (total) at render time, so there is one resolution point.
 	skin, defTheme string
+	// offered is the skins the Appearance picker lists and the sb-k cookie may
+	// select: Config.Skin's resolved skin first, then Config.Skins. Empty = no
+	// picker (the zero value), which keeps every request path as it was.
+	offered []shell.Skin
+	// settings is the settings area (MountSettings); nil = not mounted.
+	settings *settingsArea
+	// settingsURL is the area's URL when the sidebar's Settings item should
+	// point at it (the consumer left ProfileConfig.SettingsURL empty).
+	settingsURL string
+	// totp is the mounted TOTP self-service (MountTOTPEnrollment); the Security
+	// page links into its routes. nil = not mounted.
+	totp *totpEnrollment
 	// strings is Config.Strings merged over the English defaults, once, at New.
 	strings   i18n.Strings
 	resources []Resource // registered Resources, in Register order
@@ -522,6 +534,20 @@ type Config struct {
 	// It reaches pages rendered through the layout; graphite's own login and MFA
 	// pages carry a dark-only palette and stay dark whatever the default is.
 	DefaultTheme string
+	// Skins turns on the sidebar theme control: the skins an operator may choose
+	// between (names from shell.Skins(): shell.SkinGraphite, shell.SkinIris). An
+	// unknown name panics in New, because a typo would otherwise be an option
+	// that silently is not there. Skin stays the panel default: it is always
+	// offered, first, and it is what an operator without a choice, or with a
+	// cookie naming a skin that is not offered, sees.
+	//
+	// The operator's choice is the sb-k cookie, compared with this list on every
+	// request, so a forged value changes nothing. The login and MFA screens
+	// follow it. The light/dark toggle is separate and unchanged.
+	//
+	// Empty (the zero value) means no control and no cookie handling: every page
+	// renders byte-identically to a panel without this field.
+	Skins []string
 }
 
 // New creates a Panel with the given config.
@@ -562,6 +588,7 @@ func New(cfg Config) *Panel {
 		profileName: cfg.ProfileName,
 		skin:        cfg.Skin,
 		defTheme:    cfg.DefaultTheme,
+		offered:     offeredSkins(cfg.Skin, cfg.Skins),
 	}
 	// Mount standard routes.
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
@@ -597,13 +624,19 @@ func (p *Panel) skinned() bool {
 	return shell.ChromeState{Skin: p.skin}.SkinAttr() != ""
 }
 
+// picker reports whether the theme picker is enabled (Config.Skins non-empty).
+func (p *Panel) picker() bool { return len(p.offered) > 0 }
+
 // withSkin puts the panel's skin and theme on every request context of a
 // skinned panel, so pages that are not rendered through Layout's own
 // chromeStateFrom — the login and MFA screens the authenticators mount on the
 // mux — carry the skin too. A graphite panel (the zero value) is passed
 // through untouched: same context, same bytes.
 func (p *Panel) withSkin(next http.Handler) http.Handler {
-	if !p.skinned() {
+	// A picker panel is wrapped whatever its default skin is: the operator's
+	// cookie may name a skin the default does not, and the login screen has to
+	// follow it.
+	if !p.skinned() && !p.picker() {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

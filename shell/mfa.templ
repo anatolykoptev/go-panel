@@ -49,11 +49,7 @@ templ MFAPage(basePath string, errMsg string) {
 				.login-submit{width:100%;margin-top:.25rem;padding:.625rem;background:var(--accent);color:#fff;border:none;border-radius:.375rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:background-color .15s}
 				.login-submit:hover{background:var(--pm7-primary-hover)}
 			</style>
-	if ChromeFromContext(ctx).SkinAttr() != "" {
-		@templ.Raw(skinFontCSS(basePath + "/static"))
-		@irisTokens()
-		@irisAuth()
-	}
+	@ChromeFromContext(ctx).skinAuthHead(basePath + "/static")
 </head>
 <body>
     <main class="login-shell">

@@ -1,0 +1,109 @@
+package resource
+
+import (
+	"github.com/anatolykoptev/go-panel/auth"
+	"github.com/anatolykoptev/go-panel/components"
+	"github.com/anatolykoptev/go-panel/i18n"
+)
+
+// passwordFormData is the view-model of the change-password form. It carries
+// no password: the form is never re-rendered with what was typed.
+type passwordFormData struct {
+	Action string
+	Token  string
+}
+
+templ passwordForm(d passwordFormData) {
+	{{ s := i18n.From(ctx) }}
+	<form class="gp-set-form" method="post" action={ templ.SafeURL(d.Action) } autocomplete="off">
+		<input type="hidden" name="_csrf" value={ d.Token }/>
+		<div class="gp-set-field">
+			<label for="pw-current">{ s.CurrentPassword }</label>
+			<input class="pm7-input" id="pw-current" name="current_password" type="password" autocomplete="current-password" required maxlength="256"/>
+		</div>
+		<div class="gp-set-field">
+			<label for="pw-new">{ s.NewPassword }</label>
+			<input class="pm7-input" id="pw-new" name="new_password" type="password" autocomplete="new-password" required minlength={ itoa(auth.MinPasswordLength) } maxlength="256" aria-describedby="pw-new-hint"/>
+			<p class="gp-set-field-hint" id="pw-new-hint">{ s.PasswordMinHint(auth.MinPasswordLength) }</p>
+		</div>
+		<div class="gp-set-field">
+			<label for="pw-repeat">{ s.RepeatPassword }</label>
+			<input class="pm7-input" id="pw-repeat" name="repeat_password" type="password" autocomplete="new-password" required maxlength="256"/>
+		</div>
+		<div>
+			<button type="submit" class="btn btn-primary">{ s.ChangePassword }</button>
+		</div>
+	</form>
+}
+
+// settingsFlash is a one-shot message above a sub-page: the outcome of a POST.
+type settingsFlash struct {
+	Err string
+	OK  string
+}
+
+templ flashView(f settingsFlash) {
+	if f.Err != "" {
+		<div role="alert" style="margin-bottom:1rem">
+			@components.NoticeView(components.Notice{Level: components.NoticeDanger, Text: f.Err})
+		</div>
+	}
+	if f.OK != "" {
+		<div role="status" style="margin-bottom:1rem">
+			@components.NoticeView(components.Notice{Level: components.NoticeInfo, Text: f.OK})
+		</div>
+	}
+}
+
+templ securityBody(flash settingsFlash, sections []components.SettingsSection) {
+	@flashView(flash)
+	for _, sec := range sections {
+		@components.SettingsSectionView(sec)
+	}
+}
+
+templ logoutButton(action, label string) {
+	<form method="post" action={ templ.SafeURL(action) } style="margin:0">
+		<button type="submit" class="btn btn-secondary">{ label }</button>
+	</form>
+}
+
+templ linkButton(href, label string) {
+	<a class="btn btn-secondary" href={ templ.SafeURL(href) }>{ label }</a>
+}
+
+templ statusWord(text string) {
+	<span class="gp-set-status">{ text }</span>
+}
+
+templ linkPair(href1, label1, href2, label2 string) {
+	<span class="gp-set-actions">
+		<a class="btn btn-secondary" href={ templ.SafeURL(href1) }>{ label1 }</a>
+		<a class="btn btn-secondary" href={ templ.SafeURL(href2) }>{ label2 }</a>
+	</span>
+}
+
+// sessionsForm is the sign-out-elsewhere form: it asks for the current password,
+// like the change does.
+templ sessionsForm(d passwordFormData) {
+	{{ s := i18n.From(ctx) }}
+	<form class="gp-set-form" method="post" action={ templ.SafeURL(d.Action) } autocomplete="off">
+		<input type="hidden" name="_csrf" value={ d.Token }/>
+		<div class="gp-set-field">
+			<label for="ses-current">{ s.CurrentPassword }</label>
+			<input class="pm7-input" id="ses-current" name="current_password" type="password" autocomplete="current-password" required maxlength="256"/>
+		</div>
+		<div>
+			<button type="submit" class="btn btn-secondary">{ s.SignOutOthersBtn }</button>
+		</div>
+	</form>
+}
+
+// signInAgain is the page after a change that could not keep this browser
+// signed in: it must not look like a success.
+templ signInAgain(msg, loginURL, label string) {
+	<div role="status" style="margin-bottom:1rem">
+		@components.NoticeView(components.Notice{Level: components.NoticeWarn, Text: msg})
+	</div>
+	@linkButton(loginURL, label)
+}

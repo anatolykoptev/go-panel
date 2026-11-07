@@ -62,6 +62,42 @@ type AccountStore interface {
 	CreateAccount(ctx context.Context, email, name, passwordHash, role string) (id string, created bool, err error)
 }
 
+// ErrSessionStale is returned by EpochStore when the caller's session is no
+// longer current: the account's credential epoch moved past the issue time of
+// the session that asked (a password change or sign-out-everywhere already
+// revoked it). The operation did NOT happen.
+var ErrSessionStale = errors.New("auth: session was revoked by a newer credential epoch")
+
+// EpochStore is the optional AccountStore capability behind self-service
+// password change and sign-out-everywhere. Both operations stamp the credential
+// epoch (password_changed_at), which revokes every session issued before it,
+// and both do so CONDITIONALLY and atomically: the write happens only if the
+// stamp is not newer than callerIatMs, the issue time (Unix ms) of the session
+// asking. Otherwise nothing is written and ErrSessionStale is returned.
+//
+// This closes two races a read-then-write cannot: a session revoked after
+// Require admitted it (an in-flight request) cannot restamp the epoch and mint
+// itself a fresh session above the revocation; and two concurrent password
+// changes cannot both succeed, because the first moves the stamp past the
+// second's session. The returned time is the stamp the database wrote
+// (RETURNING), which the caller hands to BcryptTOTPAuth.RefreshSession.
+//
+// PgxAccountStore implements it. A store that does not gets no self-service
+// password change or sign-out-everywhere from the settings area: they fail
+// closed rather than fall back to the racy path.
+type EpochStore interface {
+	// UpdatePasswordHashIfCurrent sets the password hash and stamps the epoch.
+	UpdatePasswordHashIfCurrent(ctx context.Context, id, passwordHash string, callerIatMs int64) (time.Time, error)
+	// RevokeSessionsIfCurrent stamps the epoch only.
+	RevokeSessionsIfCurrent(ctx context.Context, id string, callerIatMs int64) (time.Time, error)
+}
+
+// EpochAccountStore is an AccountStore that is also an EpochStore.
+type EpochAccountStore interface {
+	AccountStore
+	EpochStore
+}
+
 // TOTPStore is the persistence seam for RFC 6238 2FA: the encrypted TOTP
 // secret's set-but-unconfirmed enrollment sequence, the monotonic replay
 // guard, and single-use recovery codes. It is declared SEPARATELY from

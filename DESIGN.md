@@ -380,6 +380,91 @@ tokens and `@font-face` are emitted only for a skinned page, every rule under
 shared addition and lives in `pm7.css` (a static asset), so the HTML stays identical.
 A consumer's own `LoginTempl` is its own page and is not skinned.
 
+### Settings area and the theme choice
+
+`Panel.MountSettings(resource.SettingsConfig{...})` mounts a settings *area*, the
+GitHub / Linear / Stripe shape: `{base}/settings` redirects (302) to the first page
+the operator may see, each page is `{base}/settings/<id>/`, and a left
+sub-navigation lists them in two groups (a horizontally scrolling row at ≤767px).
+It also points the sidebar's «Настройки» item at the area: `ProfileConfig.SettingsURL`
+when the consumer left it empty, and an item of its own in the single-user sidebar.
+A panel that never calls `MountSettings` serves no route, renders no link and is
+byte-identical to before (goldens in `shell/testdata/`; `TestSettings_NotMountedMeansNoRouteNoLink`).
+
+| Group | Page | Shown when |
+|---|---|---|
+| «Личные» | `profile`: «Вы вошли как …», name, e-mail, role (read-only), Выйти | a per-operator session (BcryptTOTPAuth) |
+| | `security`: change password; two-factor status + Включить / Отключить / Новые коды; «Выйти на всех устройствах, кроме этого» | password needs `Store`; 2FA needs `MountTOTPEnrollment`; sessions needs a store implementing `auth.SessionRevoker` |
+| | `appearance`: «Тема» (skin cards with swatches) and «Режим» (Светлая / Тёмная) | always; «Тема» only when more than one skin is allowed |
+| «Рабочее пространство» | pages the consumer registers (`SettingsPage`), in registration order | the page's `RequiredRole` |
+
+```go
+p.MountSettings(resource.SettingsConfig{
+    Store: accountStore, // profile e-mail, password change, sessions (the BcryptTOTPAuth store)
+    Pages: []resource.SettingsPage{{
+        ID: "collection", Title: "Сбор данных", RequiredRole: auth.RoleOwner,
+        BodyFunc: func(r *http.Request) templ.Component { return collectionBody(p.CSRFToken(r)) },
+    }},
+})
+```
+
+A consumer page's POSTs are mounted with `Panel.MountSettingsAction(pageID, ActionSpec{Path: "toggle", ...})`:
+the route is `{base}/settings/<pageID>/toggle`, and it **inherits the page's `RequiredRole`** (an
+action naming a different role panics), plus the guard and CSRF, so a page's writes are never weaker
+than its reads. Role gating happens twice for reads: the route is `guard`ed (403 for a wrong role)
+and the nav only lists pages the role may open.
+
+**Primitives** (package `components`, styled in `pm7.css` for both skins, replacing
+hand-rolled `set-section` / `set-row` / `sw` (go-nerv's own `nerv.css` defines those names, so go-panel's classes are namespaced `gp-set-*`, `gp-sw*`, `gp-seg-*`; a consumer migrates by swapping its markup for the components, not by overriding CSS)): `SettingsSection{Title, Subtitle, Rows, Body}`
+with `SettingsSectionView`, `SettingsRow{Label, Hint, Control}` (a zero row is skipped, a
+section with nothing to show renders nothing), `Switch{Action, Token, Fields, On, Label, ...}`
+with `SwitchView` (a `role="switch"` button in a CSRF form, optional htmx swap),
+`SettingsLayout` / `SettingsLayoutView` (the frame). `shell.ThemeRows(ctx)` returns the two
+appearance rows for a consumer that wants them on its own page.
+
+**Password change and sign-out-elsewhere** need a store implementing `auth.EpochStore`
+(`PgxAccountStore` does); a store that does not gets neither row (fail closed, no racy fallback).
+Both POSTs: CSRF, then a per-account throttle (`SettingsConfig.RateLimiter` / `PasswordRate`,
+default in-process 5 per 15 min, fail-closed on a limiter error; with a limiter that implements
+`auth.BlockedChecker`, which the default does, only FAILED current-password checks count), then the
+current password verified with bcrypt (constant-time; the stored row's ID must equal the session's;
+a store outage is an error, not "wrong password"). The password change then applies the minimum
+policy (`auth.MinPasswordLength` 10 characters, `auth.MaxPasswordBytes` 72). No password or hash
+is logged, echoed or put in an error.
+
+The write is a **conditional, atomic epoch stamp**: `UPDATE … SET password_changed_at = now() [, password_hash = …]
+WHERE id = $1 AND (password_changed_at IS NULL OR password_changed_at <= <the calling session's iat>) RETURNING password_changed_at`.
+The caller's iat comes from the validated session (`auth.Session.IssuedAtMs`). Zero rows means the
+session was revoked after `Require` admitted it, or another change won: nothing is written, nothing
+is minted, the operator is sent to login. That closes two races a read-then-write cannot: a stolen
+session held in flight cannot restamp the epoch and mint itself a fresh session above the victim's
+password change, and two concurrent password changes cannot both succeed.
+
+`password_changed_at` revokes every session issued before it, the caller's included, so the handler
+replaces the caller's session with `BcryptTOTPAuth.RefreshSession(w, r, epoch)`: identity from the
+request's own signed cookie (no userID parameter), issue time `epoch + 1ms` from the RETURNING value,
+never a later re-read. If the replacement cannot be minted the page says «Пароль изменён, войдите
+заново» rather than showing success. A per-device session list needs server-side session storage:
+phase 2.
+
+**Skins** come from one registry, `shell/skins.go`: name, label per language, default
+theme, swatch colours (held to the real tokens by `TestSkinRegistry_SwatchesMatchTheRealTokens`)
+and the `<head>` CSS. `resolveSkin`, the cookie whitelist, the options and the layout's CSS
+derive from it; a new skin is one entry plus its CSS. `Config.Skins` lists the skins operators
+may choose (the default `Config.Skin` is always offered, first; an unknown name panics in `New`).
+The choice is cookie **`sb-k`** (not `sb-s`: that is the submenu cookie), one year, written by
+`admin.js` on change followed by a reload (a skin's CSS exists only in a page rendered in that
+skin). It is read in one place, `Panel.skinFor`, and must EQUAL an offered skin's name; anything
+else, including a registered but not offered name, falls back to the panel default. The value
+never reaches markup (the rendered `data-skin` comes from the registry). Every page resolves it
+through `chromeStateFrom` (`RenderPage`, list, detail, forms, validation re-render, Trash); login
+and MFA get it from `withSkin`, which is on for a panel that is skinned **or** offers a choice;
+`RenderError` follows it when the caller passes the request's context. The light/dark toggle is
+independent (`sb-t`); the Режим radios and the sidebar toggle share `setTheme`, so they stay in step.
+
+**Roadmap (phase 2, not built):** profile editing with confirmation, a device list, notification
+channels, interface language, an audit log, and a shared staff / roles / invitations primitive.
+
 ### Iris tokens
 
 Light is `:root[data-skin=iris]` (and the base of dark); dark overlays it.

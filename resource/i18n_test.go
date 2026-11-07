@@ -99,6 +99,24 @@ func TestRussianStrings_RendersNoEnglish(t *testing.T) {
 	}
 }
 
+// withSkinNames adds the English words of every registered skin's label to
+// allow. A skin names itself per language in the registry, and a language it
+// has no text for (the marker Strings use none of ru/en) gets the English one:
+// a registry fallback, not a literal missing from Strings. Derived from the
+// registry, so a new skin needs no edit here.
+func withSkinNames(allow map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for k, v := range allow {
+		out[k] = v
+	}
+	for _, sk := range shell.Skins() {
+		for _, w := range latinWordRE.FindAllString(sk.Label.For("en"), -1) {
+			out[w] = true
+		}
+	}
+	return out
+}
+
 // markerStrings builds a Strings whose every field renders as a unique
 // Cyrillic marker «Ж<field index>Ж». Cyrillic so the same Latin scan that
 // audits the Russian preset applies; unique so a page can be asked which
@@ -146,7 +164,7 @@ func TestStrings_EveryFieldIsConsumed(t *testing.T) {
 	for _, p := range pages {
 		all.WriteString(p.body)
 		all.WriteString("\n")
-		if left := latinLeft(p.body, localeCodes); len(left) > 0 {
+		if left := latinLeft(p.body, withSkinNames(localeCodes)); len(left) > 0 {
 			t.Errorf("%s (HTTP %d): literal not routed through Strings: %v", p.name, p.code, left)
 		}
 	}

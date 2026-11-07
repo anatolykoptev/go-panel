@@ -1,0 +1,82 @@
+package components
+
+// Switch is an on/off setting that posts on click: a form holding a CSRF token,
+// hidden fields naming what is being switched, and a role="switch" button. It is
+// the primitive go-nerv hand-rolled as sw / gp-sw-form for its collector toggles.
+//
+// Clicking posts Fields plus ToggleField set to the OPPOSITE of the current
+// state ("1" turns on, "0" turns off); the server answers with the re-rendered
+// switch (htmx swaps Target) or redirects (plain form post).
+type Switch struct {
+	// Action is the POST URL.
+	Action string
+	// Token is the CSRF token (csrf.FormField, "_csrf"). Empty disables the
+	// switch: it renders, but cannot post.
+	Token string
+	// Fields are extra hidden inputs (what is being switched).
+	Fields []SwitchField
+	// ToggleField is the name of the posted on/off value. Default "enabled".
+	ToggleField string
+	// On is the current state.
+	On bool
+	// Label is the accessible name of the button (required for screen readers).
+	Label string
+	// OnText and OffText are the visible state words. Both empty = none shown.
+	OnText, OffText string
+	// Target is an optional CSS selector htmx swaps (outerHTML) with the response.
+	Target string
+}
+
+// SwitchField is one hidden input of a Switch.
+type SwitchField struct{ Name, Value string }
+
+func (s Switch) toggleName() string {
+	if s.ToggleField == "" {
+		return "enabled"
+	}
+	return s.ToggleField
+}
+
+func (s Switch) next() string {
+	if s.On {
+		return "0"
+	}
+	return "1"
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+func (s Switch) stateText() string {
+	if s.On {
+		return s.OnText
+	}
+	return s.OffText
+}
+
+templ SwitchView(s Switch) {
+	<form
+		class="gp-sw-form"
+		method="post"
+		action={ templ.SafeURL(s.Action) }
+		if s.Target != "" {
+			hx-post={ s.Action }
+			hx-target={ s.Target }
+			hx-swap="outerHTML"
+		}
+	>
+		<input type="hidden" name="_csrf" value={ s.Token }/>
+		for _, f := range s.Fields {
+			<input type="hidden" name={ f.Name } value={ f.Value }/>
+		}
+		<input type="hidden" name={ s.toggleName() } value={ s.next() }/>
+		if s.stateText() != "" {
+			<span class="gp-sw-text" aria-hidden="true">{ s.stateText() }</span>
+		}
+		<button class="gp-sw" type="submit" role="switch" aria-checked={ boolStr(s.On) } aria-label={ s.Label } disabled?={ s.Token == "" }><span class="gp-sw-knob"></span></button>
+	</form>
+}

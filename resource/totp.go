@@ -87,6 +87,7 @@ type totpEnrollment struct {
 // bind to the session cookie -- the same check Register's Writer path makes).
 func MountTOTPEnrollment(p *Panel, cfg TOTPEnrollmentConfig) {
 	e := newTOTPEnrollment(p, cfg)
+	p.totp = e // the settings Security page links into these routes
 
 	p.MountPage(PageSpec{Path: e.path("enroll"), Handler: e.enrollStart, RequiredRole: e.requiredRole})
 	p.MountPage(PageSpec{Path: e.path("enroll"), Handler: e.enrollStart, RequiredRole: e.requiredRole, Method: http.MethodPost})
