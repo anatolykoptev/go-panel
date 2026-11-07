@@ -65,17 +65,32 @@ func (s *memAccounts) UpdatePasswordHash(_ context.Context, id, hash string) err
 	return nil
 }
 
-// RevokeSessions implements auth.SessionRevoker.
-func (s *memAccounts) RevokeSessions(_ context.Context, id string) error {
+// stamp is the auth.EpochStore contract: stamp the credential epoch (and the
+// password hash, when given) only if the caller's session is still current,
+// atomically under the lock, and return the stamp.
+func (s *memAccounts) stamp(id, hash string, callerIatMs int64) (time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a, ok := s.byID[id]
-	if !ok {
-		return auth.ErrAccountNotFound
+	if !ok || (a.PasswordChangedAt != nil && a.PasswordChangedAt.After(time.UnixMilli(callerIatMs))) {
+		return time.Time{}, auth.ErrSessionStale
 	}
 	now := time.Now()
+	if hash != "" {
+		a.PasswordHash = hash
+	}
 	a.PasswordChangedAt = &now
-	return nil
+	return now, nil
+}
+
+// UpdatePasswordHashIfCurrent implements auth.EpochStore.
+func (s *memAccounts) UpdatePasswordHashIfCurrent(_ context.Context, id, hash string, callerIatMs int64) (time.Time, error) {
+	return s.stamp(id, hash, callerIatMs)
+}
+
+// RevokeSessionsIfCurrent implements auth.EpochStore.
+func (s *memAccounts) RevokeSessionsIfCurrent(_ context.Context, id string, callerIatMs int64) (time.Time, error) {
+	return s.stamp(id, "", callerIatMs)
 }
 
 func (s *memAccounts) CreateAccount(_ context.Context, email, name, hash, role string) (string, bool, error) {
