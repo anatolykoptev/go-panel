@@ -485,6 +485,10 @@
     document.documentElement.classList.toggle('dark',dark);
     document.documentElement.classList.toggle('light',!dark);
     document.cookie=THEME_COOKIE+'='+(dark?'dark':'light')+';path=/;max-age=604800;samesite=Lax';
+    // Keep the theme setting's light/dark radios (settings page) in step with
+    // the sidebar toggle, whichever one was used.
+    var modes=document.querySelectorAll('input[name="theme-mode"]');
+    for(var i=0;i<modes.length;i++) modes[i].checked=modes[i].value===(dark?'dark':'light');
     var btn=document.getElementById('theme-toggle');
     if(btn){
       btn.setAttribute('aria-label',themeToggleLabel(btn,dark));
@@ -499,6 +503,23 @@
     setTheme(currentTheme()==='dark'?'light':'dark');
   });
 
+  // Theme setting (components.ThemeControlView, rendered only where a page puts
+  // shell.ThemeSetting). A mode change applies at once through the same setTheme.
+  // A skin change is stored in cookie sb-k (one year) and the page reloads: a
+  // skin's CSS is only in the page when the server rendered that skin. The
+  // server compares the value with the panel's allowed list, so the cookie is
+  // only a request.
+  document.addEventListener('change',function(e){
+    var t=e.target;
+    if(!t||t.type!=='radio'||!t.checked) return;
+    if(t.name==='theme-mode'){
+      setTheme(t.value);
+    }else if(t.name==='theme-skin'){
+      document.cookie='sb-k='+encodeURIComponent(t.value)+';path=/;max-age=31536000;samesite=Lax';
+      window.location.reload();
+    }
+  });
+
   // Re-sync aria-label and aria-pressed after htmx swap (button may be
   // re-rendered by SSR with values derived from the cookie, which should match
   // — this reconciles any cross-tab cookie drift, mirroring groupsApply/
@@ -510,6 +531,23 @@
     var dark=currentTheme()==='dark';
     btn.setAttribute('aria-label',themeToggleLabel(btn,dark));
     btn.setAttribute('aria-pressed',dark?'false':'true');
+  });
+})();
+
+;(function(){
+  // ---------------------------------------------------------------------------
+  // skin picker — the sidebar <select id="skin-picker"> (rendered only when the
+  // panel sets Config.Skins). The choice goes in cookie sb-k (one year, same
+  // recipe as sb-t) and the page reloads: a skin's CSS is only in the page when
+  // the server rendered that skin, so it cannot be switched in place. The server
+  // checks the value against the panel's list, so the cookie is only a request.
+  // Delegated, so it survives htmx swaps; pages without the select are unaffected.
+  // ---------------------------------------------------------------------------
+  document.addEventListener('change',function(e){
+    var sel=e.target;
+    if(!sel||sel.id!=='skin-picker') return;
+    document.cookie='sb-k='+encodeURIComponent(sel.value)+';path=/;max-age=31536000;samesite=Lax';
+    window.location.reload();
   });
 })();
 

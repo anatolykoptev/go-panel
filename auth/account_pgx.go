@@ -152,6 +152,19 @@ func (s *PgxAccountStore) UpdatePasswordHash(ctx context.Context, id, passwordHa
 	return nil
 }
 
+// RevokeSessions implements SessionRevoker: it stamps password_changed_at = now()
+// and nothing else, revoking every session issued before it.
+func (s *PgxAccountStore) RevokeSessions(ctx context.Context, id string) error {
+	ct, err := s.pool.Exec(ctx, "UPDATE panel_accounts SET password_changed_at = now() WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("auth: revoke sessions: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrAccountNotFound
+	}
+	return nil
+}
+
 const insertAccountSQL = `
 INSERT INTO panel_accounts (email, name, password_hash, role, active)
 VALUES ($1, $2, $3, $4, true)

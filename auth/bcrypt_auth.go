@@ -319,6 +319,13 @@ func (a *BcryptTOTPAuth) makeToken(userID, role string) (string, error) {
 // The domain string is a constant label concatenated into the HMAC input
 // so tokens from different cookie domains cannot be cross-pasted.
 func (a *BcryptTOTPAuth) makeTokenWithDomain(userID, role, domain string, ttl time.Duration) (string, error) {
+	return a.makeTokenAt(userID, role, domain, ttl, 0)
+}
+
+// makeTokenAt is makeTokenWithDomain with a floor on the issue time: Iat is
+// max(now, minIat) in Unix milliseconds. RefreshSession uses it to stay ahead of
+// a credential epoch stamped by a database clock that runs slightly fast.
+func (a *BcryptTOTPAuth) makeTokenAt(userID, role, domain string, ttl time.Duration, minIat int64) (string, error) {
 	var nb [16]byte
 	if _, err := rand.Read(nb[:]); err != nil {
 		return "", fmt.Errorf("auth: crypto/rand failed: %w", err)
@@ -328,7 +335,7 @@ func (a *BcryptTOTPAuth) makeTokenWithDomain(userID, role, domain string, ttl ti
 		Role:   role,
 		Exp:    time.Now().Add(ttl).Unix(),
 		Nonce:  hex.EncodeToString(nb[:]),
-		Iat:    time.Now().UnixMilli(),
+		Iat:    max(time.Now().UnixMilli(), minIat),
 	}
 	payload, err := json.Marshal(sd)
 	if err != nil {
@@ -755,6 +762,45 @@ func (a *BcryptTOTPAuth) issueSession(w http.ResponseWriter, r *http.Request, ac
 	}
 	a.observer.Observe(OpBcryptLogin, OutcomeOK, time.Since(start))
 	http.Redirect(w, r, a.basePath+"/", http.StatusSeeOther)
+}
+
+// RefreshSession sets a fresh session cookie for userID on w, for a caller that
+// has just rotated the operator's password: UpdatePasswordHash stamps
+// password_changed_at, and liveSession then revokes every token minted before
+// it, the operator's own included. Refreshing keeps the current browser signed
+// in while every other session (other devices, a stolen cookie) stays revoked.
+//
+// The account is re-read and must still be active; the new token's issue time
+// is floored at the stamp plus one millisecond, so a database clock a little
+// ahead of this process cannot revoke the token being issued. Returns
+// ErrAccountNotFound when the account is gone or inactive (no cookie is set).
+func (a *BcryptTOTPAuth) RefreshSession(w http.ResponseWriter, r *http.Request, userID string) error {
+	acct, err := a.store.GetByID(r.Context(), userID)
+	if err != nil {
+		return err
+	}
+	if acct == nil || !acct.Active {
+		return ErrAccountNotFound
+	}
+	var floor int64
+	if acct.PasswordChangedAt != nil {
+		floor = acct.PasswordChangedAt.UnixMilli() + 1
+	}
+	tok, err := a.makeTokenAt(acct.ID, acct.Role, "", a.sessionTTL, floor)
+	if err != nil {
+		return err
+	}
+	//nolint:gosec // Secure is configured per-environment via BcryptConfig.Secure.
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.cookieName,
+		Value:    tok,
+		Path:     a.basePath,
+		MaxAge:   int(a.sessionTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   a.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return nil
 }
 
 // LogoutHandler implements Authenticator.

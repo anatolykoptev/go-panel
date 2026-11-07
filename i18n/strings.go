@@ -42,6 +42,53 @@ type Strings struct {
 	SwitchToLightTheme string // aria-label of the theme toggle while dark
 	SwitchToDarkTheme  string // aria-label of the theme toggle while light
 
+	// Settings area ({base}/settings), mounted by Panel.MountSettings.
+	SettingsNavLabel       string // aria-label of the sub-navigation
+	SettingsGroupPersonal  string
+	SettingsGroupWorkspace string
+	SettingsProfile        string // sub-page: who I am
+	SettingsSecurity       string // sub-page: password, 2FA
+	SettingsAppearance     string // sub-page: theme
+	ProfileName            string
+	ProfileEmail           string
+	ProfileRole            string
+	ProfileHint            string
+
+	// Security sub-page.
+	PasswordRow            string
+	PasswordHint           string
+	ChangePassword         string
+	CurrentPassword        string
+	NewPassword            string
+	RepeatPassword         string
+	PasswordMinHint        func(min int) string
+	PasswordChanged        string
+	ErrPasswordCurrent     string
+	ErrPasswordShort       func(min int) string
+	ErrPasswordLong        func(maxBytes int) string
+	ErrPasswordMismatch    string
+	ErrPasswordUnchanged   string
+	ErrPasswordThrottled   string
+	ErrPasswordUnavailable string
+	TwoFactorRow           string
+	TwoFactorHint          string
+	TwoFactorOn            string
+	TwoFactorOff           string
+	TwoFactorEnable        string
+	SessionsRow            string
+	SessionsHint           string
+	SignOutOthers          string
+	SessionsDone           string
+	SignedInAs             func(name string) string
+
+	// Appearance sub-page (rows come from shell.ThemeRows).
+	Theme     string // row label of the skin choice
+	ThemeHint string
+	ThemeMode string // row label of the light/dark choice
+	ModeHint  string
+	ModeLight string
+	ModeDark  string
+
 	// Login page.
 	LoginTitle   string // <title>
 	LoginHeading string // <h1>

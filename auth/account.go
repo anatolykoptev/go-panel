@@ -62,6 +62,16 @@ type AccountStore interface {
 	CreateAccount(ctx context.Context, email, name, passwordHash, role string) (id string, created bool, err error)
 }
 
+// SessionRevoker is the optional AccountStore capability behind "sign out
+// everywhere": RevokeSessions stamps the credential epoch (password_changed_at)
+// without touching the password, so every session issued before it fails the
+// bcrypt driver's live-session recheck. The caller re-issues its own session
+// (BcryptTOTPAuth.RefreshSession) to stay signed in. PgxAccountStore implements
+// it; a custom store opts in by adding the method.
+type SessionRevoker interface {
+	RevokeSessions(ctx context.Context, id string) error
+}
+
 // TOTPStore is the persistence seam for RFC 6238 2FA: the encrypted TOTP
 // secret's set-but-unconfirmed enrollment sequence, the monotonic replay
 // guard, and single-use recovery codes. It is declared SEPARATELY from

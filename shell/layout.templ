@@ -176,11 +176,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 			<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23141414'/><text x='6' y='22' font-size='18' fill='%234daafc'>⚙</text></svg>"/>
 			<link rel="stylesheet" href="/admin/static/pm7.css"/>
 			@layoutStyles()
-			if ChromeFromContext(ctx).SkinAttr() != "" {
-				@templ.Raw(skinFontCSS(ChromeFromContext(ctx).StaticBase))
-				@irisTokens()
-				@irisChrome()
-			}
+			@ChromeFromContext(ctx).skinHead(ChromeFromContext(ctx).StaticBase)
 		</head>
 		<body>
 			<div class="app">
@@ -252,6 +248,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 						} else {
 							// Bare Logout — backward-compat for single-user consumers (HMACAuth)
 							// or when Profile.Name is empty.
+							@bareSettingsLink(ChromeFromContext(ctx).SettingsLink, s.Settings)
 							<form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block">
 								<button type="submit" class="sidebar-item" aria-label={ s.Logout } style="anchor-name: --nav-logout">
 									<span class="sidebar-icon">&#x2192;</span>
@@ -275,6 +272,18 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 			<script src="/admin/static/admin.js" defer></script>
 		</body>
 	</html>
+}
+
+// bareSettingsLink is the Settings item of the single-user sidebar: nothing at
+// all unless Panel.MountSettings set a link.
+templ bareSettingsLink(url, label string) {
+	if url != "" {
+		<a class="sidebar-item" href={ templ.SafeURL(url) } aria-label={ label }>
+			<span class="sidebar-icon">&#x2699;</span>
+			<span class="sidebar-label">{ label }</span>
+			<span class="sidebar-tooltip">{ label }</span>
+		</a>
+	}
 }
 
 // navLink renders the raw <a> element for a single nav item.
@@ -406,11 +415,7 @@ templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []L
 				.login-links a{color:var(--accent-text);font-size:.8125rem;text-decoration:none}
 				.login-links a:hover{text-decoration:underline}
 			</style>
-			if ChromeFromContext(ctx).SkinAttr() != "" {
-				@templ.Raw(skinFontCSS(basePath + "/static"))
-				@irisTokens()
-				@irisAuth()
-			}
+			@ChromeFromContext(ctx).skinAuthHead(basePath + "/static")
 		</head>
 		<body>
 			<main class="login-shell">

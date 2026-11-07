@@ -40,6 +40,7 @@ func (p *Panel) RenderPage(w http.ResponseWriter, r *http.Request, title, active
 //   - "sb-c"="1"  → Collapsed=true
 //   - "sb-g"=<url-encoded comma-separated names> → CollapsedGroups map
 //   - "sb-t"="light"|"dark" → Theme (absent/unrecognised = dark, backward-compat)
+//   - "sb-k"=<skin name> → Skin, picker panels only, and only an offered skin
 //
 // Encoding: the whole sb-g value is URL-encoded (encodeURIComponent on the
 // joined string); the server URL-unescapes before splitting on ','. Group names
@@ -57,8 +58,12 @@ func (p *Panel) chromeStateFrom(r *http.Request) shell.ChromeState {
 		state.Collapsed = true
 	}
 	state.Theme = themeFromCookie(r)
-	state.Skin = p.skin
+	state.Skin = p.skinFor(r)
 	state.DefaultTheme = p.defTheme
+	state.Skins = p.offered
+	if p.settings != nil {
+		state.SettingsLink = p.settings.url
+	}
 	state.StaticBase = p.basePath + "/static"
 	state.CollapsedGroups = collapsedGroupsFromCookie(r)
 	state.Profile = p.profileFor(r)
@@ -86,6 +91,27 @@ func themeFromCookie(r *http.Request) string {
 		return c.Value
 	}
 	return ""
+}
+
+// skinFor is the skin this request renders: the operator's sb-k cookie when the
+// picker is on and the value is EXACTLY one of the offered skins, else the
+// panel's Config.Skin. It is the only place a cookie value becomes a skin, and
+// the cookie is compared against the offered list rather than parsed, so the
+// returned string is always one the registry (not the request) produced. An
+// operator's cookie naming a registered-but-not-offered skin, or garbage, is
+// ignored like an absent one.
+func (p *Panel) skinFor(r *http.Request) string {
+	if !p.picker() {
+		return p.skin
+	}
+	if c, err := r.Cookie(shell.SkinCookie); err == nil {
+		for _, s := range p.offered {
+			if s.Name == c.Value {
+				return s.Name
+			}
+		}
+	}
+	return p.skin
 }
 
 // collapsedGroupsFromCookie reads sb-g: the whole value is URL-encoded
@@ -126,6 +152,9 @@ func collapsedGroupsFromCookie(r *http.Request) map[string]bool {
 // bare Logout footer — the backward-compatible path.
 func (p *Panel) profileFor(r *http.Request) shell.ProfileConfig {
 	prof := p.profileCfg
+	if prof.SettingsURL == "" {
+		prof.SettingsURL = p.settingsURL // "" unless MountSettings set it
+	}
 	s, ok := auth.SessionFrom(r.Context())
 	if !ok {
 		return prof
@@ -209,7 +238,7 @@ func (p *Panel) RenderError(ctx context.Context, w http.ResponseWriter, title st
 // caller's chrome state names no skin/default theme the panel's own are filled
 // in, everything else the caller set is kept. A graphite panel returns ctx as is.
 func (p *Panel) chromeSkinned(ctx context.Context) context.Context {
-	if !p.skinned() && p.defTheme == "" {
+	if !p.skinned() && p.defTheme == "" && !p.picker() {
 		return ctx
 	}
 	st := shell.ChromeFromContext(ctx)

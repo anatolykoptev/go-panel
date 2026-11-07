@@ -1,0 +1,14 @@
+package main
+
+import "github.com/anatolykoptev/go-panel/components"
+
+// collectionBody is a fake «Collection» page shaped like go-nerv's: rows of
+// per-source switches, each posting with a CSRF token. It shows how a consumer
+// fills a workspace settings page from the components primitives.
+templ collectionBody(token string, sources []collectSource) {
+	@components.SettingsSectionView(components.SettingsSection{
+		Title:    "Sources",
+		Subtitle: "Switch a source off to stop it collecting. Nothing already collected is removed.",
+		Rows:     collectRows(token, sources),
+	})
+}

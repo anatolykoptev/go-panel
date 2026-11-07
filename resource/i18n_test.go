@@ -72,7 +72,8 @@ func latinLeft(body string, allow map[string]bool) []string {
 //
 // "admin" is the fixture account's ROLE, shown under the user name; roles are
 // data the consumer defines, not panel copy.
-var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true}
+// "op", "example" and "com" are the fixture operator's e-mail on the Profile page.
+var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true, "op": true, "example": true, "com": true}
 
 // Names of the authenticator apps the Russian setup text lists, and the format
 // name «JSON» in a validation message: proper names and acronyms, not English
@@ -80,6 +81,7 @@ var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true}
 // to them still fails.
 var russianAllow = map[string]bool{
 	"RU": true, "EN": true, "admin": true, "JSON": true,
+	"com": true, "example": true, "op": true,
 	"Google": true, "Authenticator": true, "Password": true, "Authy": true, "QR": true,
 }
 
@@ -97,6 +99,24 @@ func TestRussianStrings_RendersNoEnglish(t *testing.T) {
 			t.Errorf("%s: <html lang=%q>, want \"ru\"", p.name, m[1])
 		}
 	}
+}
+
+// withSkinNames adds the English words of every registered skin's label to
+// allow. A skin names itself per language in the registry, and a language it
+// has no text for (the marker Strings use none of ru/en) gets the English one:
+// a registry fallback, not a literal missing from Strings. Derived from the
+// registry, so a new skin needs no edit here.
+func withSkinNames(allow map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for k, v := range allow {
+		out[k] = v
+	}
+	for _, sk := range shell.Skins() {
+		for _, w := range latinWordRE.FindAllString(sk.Label.For("en"), -1) {
+			out[w] = true
+		}
+	}
+	return out
 }
 
 // markerStrings builds a Strings whose every field renders as a unique
@@ -146,7 +166,7 @@ func TestStrings_EveryFieldIsConsumed(t *testing.T) {
 	for _, p := range pages {
 		all.WriteString(p.body)
 		all.WriteString("\n")
-		if left := latinLeft(p.body, localeCodes); len(left) > 0 {
+		if left := latinLeft(p.body, withSkinNames(localeCodes)); len(left) > 0 {
 			t.Errorf("%s (HTTP %d): literal not routed through Strings: %v", p.name, p.code, left)
 		}
 	}

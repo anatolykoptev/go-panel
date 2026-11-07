@@ -1,0 +1,147 @@
+package components
+
+// SettingsSection is a titled group of settings rows on a settings page: the
+// block go-nerv's settings page hand-rolled as set-section / set-row. A page
+// holds one or more; see DESIGN.md.
+type SettingsSection struct {
+	// Title heads the section. Empty = no heading.
+	Title string
+	// Subtitle is an optional muted line under the title.
+	Subtitle string
+	// Rows are the section's rows, in order. A zero row (no Label, no Control)
+	// is skipped, so a conditional row such as shell.ThemeSetting can be listed
+	// unconditionally; a section left with no row renders nothing at all.
+	Rows []SettingsRow
+	// Body is optional free content rendered under the rows (a list, a table,
+	// a form). A section with a Body is rendered even with no rows.
+	Body templ.Component
+}
+
+// SettingsRow is one setting: a label with an optional hint on the left and
+// its control on the right (below it at phone width).
+type SettingsRow struct {
+	// Label names the setting.
+	Label string
+	// Hint is an optional muted explanation under the label.
+	Hint string
+	// Control is the widget: a switch, a select, a segmented choice... nil = the
+	// row is text only.
+	Control templ.Component
+}
+
+func (r SettingsRow) empty() bool { return r.Label == "" && r.Control == nil }
+
+func (s SettingsSection) visibleRows() []SettingsRow {
+	var out []SettingsRow
+	for _, r := range s.Rows {
+		if !r.empty() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+templ SettingsSectionView(s SettingsSection) {
+	if rows := s.visibleRows(); len(rows) > 0 || s.Body != nil {
+		<section class="set-section">
+			if s.Title != "" {
+				<header class="set-head">
+					<h3 class="set-title">{ s.Title }</h3>
+					if s.Subtitle != "" {
+						<p class="set-sub">{ s.Subtitle }</p>
+					}
+				</header>
+			}
+			if len(rows) > 0 {
+				<div class="set-rows">
+					for _, r := range rows {
+						@SettingsRowView(r)
+					}
+				</div>
+			}
+			if s.Body != nil {
+				<div class="set-body">
+					@s.Body
+				</div>
+			}
+		</section>
+	}
+}
+
+templ SettingsRowView(r SettingsRow) {
+	<div class="set-row">
+		<div class="set-text">
+			<div class="set-label">{ r.Label }</div>
+			if r.Hint != "" {
+				<p class="set-hint">{ r.Hint }</p>
+			}
+		</div>
+		if r.Control != nil {
+			<div class="set-control">
+				@r.Control
+			</div>
+		}
+	</div>
+}
+
+// SettingsNavItem is one link of the settings sub-navigation.
+type SettingsNavItem struct {
+	Title  string
+	URL    string
+	Active bool
+}
+
+// SettingsNavGroup is a captioned run of sub-navigation links.
+type SettingsNavGroup struct {
+	Label string
+	Items []SettingsNavItem
+}
+
+// SettingsLayout is the frame of the settings area: the page heading, a left
+// sub-navigation (a horizontally scrolling row at phone width) and the current
+// sub-page's title with its content.
+type SettingsLayout struct {
+	Heading  string // the area's heading ("Settings")
+	NavLabel string // aria-label of the sub-navigation
+	Nav      []SettingsNavGroup
+	Title    string // current sub-page
+	Subtitle string
+}
+
+// SettingsLayoutView renders the frame around its children (the sub-page body).
+templ SettingsLayoutView(l SettingsLayout) {
+	<div class="page-header">
+		<h2>{ l.Heading }</h2>
+	</div>
+	<div class="set-layout">
+		<nav class="set-nav" aria-label={ l.NavLabel }>
+			for _, g := range l.Nav {
+				<div class="set-nav-group">
+					if g.Label != "" {
+						<div class="set-nav-label">{ g.Label }</div>
+					}
+					<ul class="set-nav-list">
+						for _, it := range g.Items {
+							<li>
+								<a class="set-nav-item" href={ templ.SafeURL(it.URL) }
+									if it.Active {
+										aria-current="page"
+									}
+								>{ it.Title }</a>
+							</li>
+						}
+					</ul>
+				</div>
+			}
+		</nav>
+		<div class="set-page">
+			<header class="set-page-head">
+				<h3 class="set-page-title">{ l.Title }</h3>
+				if l.Subtitle != "" {
+					<p class="set-sub">{ l.Subtitle }</p>
+				}
+			</header>
+			{ children... }
+		</div>
+	</div>
+}

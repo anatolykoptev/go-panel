@@ -1,6 +1,10 @@
 package shell
 
-import "context"
+import (
+	"context"
+
+	"github.com/a-h/templ"
+)
 
 // GroupsCookie is the cookie persisting which nav groups are collapsed.
 // Value is URL-encoded (encodeURIComponent in JS), comma-separated group names.
@@ -32,12 +36,13 @@ const (
 	SkinIris     = "iris"
 )
 
-// resolveSkin is total, mirroring themeClass: any value that is not SkinIris —
-// empty, misspelt, a future skin this build does not know — resolves to
-// graphite, so no caller can emit a data-skin value the stylesheet has no rules for.
+// resolveSkin is total, mirroring themeClass: any value that is not a
+// registered skin (see Skins) — empty, misspelt, a future skin this build does
+// not know — resolves to graphite, so no caller can emit a data-skin value the
+// stylesheet has no rules for.
 func resolveSkin(skin string) string {
-	if skin == SkinIris {
-		return SkinIris
+	if s, ok := LookupSkin(skin); ok {
+		return s.Name
 	}
 	return SkinGraphite
 }
@@ -46,7 +51,7 @@ func resolveSkin(skin string) string {
 // cookie and the panel configured no DefaultTheme. Graphite stays dark
 // (backward-compat); iris is light-first.
 func skinDefaultTheme(skin string) string {
-	if resolveSkin(skin) == SkinIris {
+	if s, ok := LookupSkin(resolveSkin(skin)); ok && s.DefaultTheme == ThemeLight {
 		return ThemeLight
 	}
 	return ThemeDark
@@ -102,6 +107,33 @@ type ChromeState struct {
 	// "/admin"), used for the skin's font URLs. "" = "/admin/static". It is read
 	// only for a skinned page, so graphite output never depends on it.
 	StaticBase string
+
+	// Skins are the skins the sidebar theme control offers (Config.Skins; the
+	// panel default first). Empty (the zero value) renders no control, so a
+	// consumer that never enables it renders as before.
+	Skins []Skin
+
+	// SettingsLink is the settings area's URL, set by Panel.MountSettings. The
+	// single-user sidebar (no profile block) shows a Settings item for it; the
+	// profile block uses ProfileConfig.SettingsURL, which MountSettings fills in.
+	// "" (the zero value) renders nothing extra.
+	SettingsLink string
+}
+
+// skinHead returns the skin's layout <head> CSS, or nothing for a skin that adds none.
+func (s ChromeState) skinHead(base string) templ.Component {
+	if sk, ok := LookupSkin(resolveSkin(s.Skin)); ok && sk.Head != nil {
+		return sk.Head(base)
+	}
+	return templ.NopComponent
+}
+
+// skinAuthHead is skinHead for the standalone login and MFA pages.
+func (s ChromeState) skinAuthHead(base string) templ.Component {
+	if sk, ok := LookupSkin(resolveSkin(s.Skin)); ok && sk.AuthHead != nil {
+		return sk.AuthHead(base)
+	}
+	return templ.NopComponent
 }
 
 // SkinName returns the resolved skin: SkinGraphite or SkinIris.
