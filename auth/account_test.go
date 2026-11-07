@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -494,9 +495,14 @@ func TestPgxAccountStore_TOTPStore_UnknownAccountNotFound(t *testing.T) {
 	}
 }
 
-// TestPgxAccountStore_RevokeSessions: sign-out-everywhere stamps the credential
-// epoch and nothing else. Same TEST_DATABASE_URL gate as the tests above.
-func TestPgxAccountStore_RevokeSessions(t *testing.T) {
+// TestPgxAccountStore_EpochGuard pins the conditional, atomic epoch stamp that
+// closes the revoked-session-mints-a-session race and the concurrent password
+// change TOCTOU. Same TEST_DATABASE_URL gate as the tests above.
+//
+// Falsification (SEC-CR-001/004): in auth/account_pgx.go epochGuard drop the
+// `password_changed_at <= to_timestamp(...)` condition -> RED on the stale and
+// the concurrent cases.
+func TestPgxAccountStore_EpochGuard(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping PG integration test")
@@ -512,29 +518,64 @@ func TestPgxAccountStore_RevokeSessions(t *testing.T) {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS panel_accounts CASCADE") })
+	var _ auth.EpochAccountStore = store
 
 	hash, _ := auth.HashPassword("s3cret-pw")
-	id, _, err := store.CreateAccount(ctx, "rev@example.com", "Rev", hash, "admin")
+	id, _, err := store.CreateAccount(ctx, "epoch@example.com", "Epoch", hash, "admin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ := store.GetByID(ctx, id)
-	if before.PasswordChangedAt != nil {
-		t.Fatalf("a fresh account must have no epoch stamp, got %v", before.PasswordChangedAt)
+	t0 := time.Now().Add(-time.Minute).UnixMilli() // a session issued a minute ago
+
+	// A current session (no stamp yet) stamps and gets the RETURNING value.
+	e1, err := store.RevokeSessionsIfCurrent(ctx, id, t0)
+	if err != nil || e1.IsZero() {
+		t.Fatalf("first revoke: %v %v", e1, err)
 	}
-	var _ auth.SessionRevoker = store
-	if err := store.RevokeSessions(ctx, id); err != nil {
-		t.Fatalf("RevokeSessions: %v", err)
+	// The same session is stale now: nothing is written.
+	if _, err := store.RevokeSessionsIfCurrent(ctx, id, t0); !errors.Is(err, auth.ErrSessionStale) {
+		t.Errorf("stale revoke: err = %v, want ErrSessionStale", err)
 	}
-	after, _ := store.GetByID(ctx, id)
-	if after.PasswordChangedAt == nil {
-		t.Error("RevokeSessions did not stamp password_changed_at")
+	newHash, _ := auth.HashPassword("n3w-pw-long-enough")
+	if _, err := store.UpdatePasswordHashIfCurrent(ctx, id, newHash, t0); !errors.Is(err, auth.ErrSessionStale) {
+		t.Errorf("stale password update: err = %v, want ErrSessionStale", err)
 	}
-	got, _ := store.GetByEmail(ctx, "rev@example.com")
+	got, _ := store.GetByEmail(ctx, "epoch@example.com")
 	if got.PasswordHash != hash {
-		t.Error("RevokeSessions changed the password hash")
+		t.Error("a stale caller changed the password hash")
 	}
-	if err := store.RevokeSessions(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, auth.ErrAccountNotFound) {
-		t.Errorf("unknown id: err = %v, want ErrAccountNotFound", err)
+	// A session minted above the stamp (what RefreshSession does) is current.
+	t1 := e1.UnixMilli() + 1
+	e2, err := store.UpdatePasswordHashIfCurrent(ctx, id, newHash, t1)
+	if err != nil || !e2.After(e1) {
+		t.Fatalf("current update: %v %v", e2, err)
+	}
+	// Unknown account: refused, never a silent success.
+	if _, err := store.RevokeSessionsIfCurrent(ctx, "00000000-0000-0000-0000-000000000000", t1); !errors.Is(err, auth.ErrSessionStale) {
+		t.Errorf("unknown id: err = %v, want ErrSessionStale", err)
+	}
+
+	// Two changes from one session at once: exactly one wins.
+	t2 := e2.UnixMilli() + 1
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = store.UpdatePasswordHashIfCurrent(ctx, id, newHash, t2)
+		}()
+	}
+	wg.Wait()
+	wins := 0
+	for _, err := range errs {
+		if err == nil {
+			wins++
+		} else if !errors.Is(err, auth.ErrSessionStale) {
+			t.Errorf("unexpected error %v", err)
+		}
+	}
+	if wins != 1 {
+		t.Errorf("concurrent updates: %d winners, want exactly 1", wins)
 	}
 }

@@ -516,9 +516,30 @@
       setTheme(t.value);
     }else if(t.name==='theme-skin'){
       document.cookie='sb-k='+encodeURIComponent(t.value)+';path=/;max-age=31536000;samesite=Lax';
+      // A reload drops keyboard focus (arrow keys change the radio): remember
+      // which option had it and restore it on the next page.
+      try{sessionStorage.setItem('gp-focus-skin',t.value);}catch(err){/* storage blocked: focus is lost, nothing else */}
       window.location.reload();
     }
   });
+
+  (function restoreSkinFocus(){
+    var v=null;
+    try{v=sessionStorage.getItem('gp-focus-skin');sessionStorage.removeItem('gp-focus-skin');}catch(err){return;}
+    if(!v) return;
+    var radios=document.querySelectorAll('input[name="theme-skin"]');
+    for(var i=0;i<radios.length;i++){
+      if(radios[i].value===v){radios[i].focus();break;}
+    }
+  })();
+
+  // Phone sub-navigation is a scrolling row: bring the current page into view.
+  (function revealActiveSettingsTab(){
+    var cur=document.querySelector('.gp-set-nav-item[aria-current="page"]');
+    var nav=cur&&cur.closest('.gp-set-nav');
+    if(!nav||nav.scrollWidth<=nav.clientWidth) return;
+    nav.scrollLeft=cur.offsetLeft-(nav.clientWidth-cur.offsetWidth)/2;
+  })();
 
   // Re-sync aria-label and aria-pressed after htmx swap (button may be
   // re-rendered by SSR with values derived from the cookie, which should match

@@ -81,13 +81,29 @@ var skinRegistry = []Skin{
 	},
 }
 
-// Skins returns the registered skins, graphite first. The slice is a copy.
-func Skins() []Skin { return append([]Skin(nil), skinRegistry...) }
+// Skins returns the registered skins, graphite first. Slice and label maps are copies.
+func Skins() []Skin {
+	out := make([]Skin, len(skinRegistry))
+	for i, s := range skinRegistry {
+		s.Label = s.Label.clone() // a caller must not be able to edit the registry through the copy
+		out[i] = s
+	}
+	return out
+}
+
+func (t Text) clone() Text {
+	c := make(Text, len(t))
+	for k, v := range t {
+		c[k] = v
+	}
+	return c
+}
 
 // LookupSkin returns the registered skin named name (exact match).
 func LookupSkin(name string) (Skin, bool) {
 	for _, s := range skinRegistry {
 		if s.Name == name {
+			s.Label = s.Label.clone()
 			return s, true
 		}
 	}

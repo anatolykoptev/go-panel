@@ -30,7 +30,7 @@ func collectRows(token string, sources []collectSource) []components.SettingsRow
 		rows = append(rows, components.SettingsRow{
 			Label: s.Label, Hint: s.Status,
 			Control: components.SwitchView(components.Switch{
-				Action: "/admin/settings/collection/toggle/", Token: token, On: s.On,
+				Action: "/admin/settings/collection/toggle", Token: token, On: s.On,
 				Label: s.Label, OnText: "On", OffText: "Off",
 				Fields: []components.SwitchField{{Name: "source", Value: s.ID}},
 			}),
@@ -53,8 +53,9 @@ func mountSettingsDemo(p *resource.Panel, cfg resource.SettingsConfig, role stri
 		},
 	})
 	p.MountSettings(cfg)
-	p.MountAction(resource.ActionSpec{
-		Path: "settings/collection/toggle", RequiredRole: role,
+	// Inherits the page's role: a manager's POST is refused like the page is.
+	p.MountSettingsAction("collection", resource.ActionSpec{
+		Path: "toggle",
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			collectMu.Lock()
 			for i := range collectSources {

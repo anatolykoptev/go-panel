@@ -15,18 +15,18 @@ type passwordFormData struct {
 
 templ passwordForm(d passwordFormData) {
 	{{ s := i18n.From(ctx) }}
-	<form class="set-form" method="post" action={ templ.SafeURL(d.Action) } autocomplete="off">
+	<form class="gp-set-form" method="post" action={ templ.SafeURL(d.Action) } autocomplete="off">
 		<input type="hidden" name="_csrf" value={ d.Token }/>
-		<div class="set-field">
+		<div class="gp-set-field">
 			<label for="pw-current">{ s.CurrentPassword }</label>
 			<input class="pm7-input" id="pw-current" name="current_password" type="password" autocomplete="current-password" required maxlength="256"/>
 		</div>
-		<div class="set-field">
+		<div class="gp-set-field">
 			<label for="pw-new">{ s.NewPassword }</label>
 			<input class="pm7-input" id="pw-new" name="new_password" type="password" autocomplete="new-password" required minlength={ itoa(auth.MinPasswordLength) } maxlength="256" aria-describedby="pw-new-hint"/>
-			<p class="set-field-hint" id="pw-new-hint">{ s.PasswordMinHint(auth.MinPasswordLength) }</p>
+			<p class="gp-set-field-hint" id="pw-new-hint">{ s.PasswordMinHint(auth.MinPasswordLength) }</p>
 		</div>
-		<div class="set-field">
+		<div class="gp-set-field">
 			<label for="pw-repeat">{ s.RepeatPassword }</label>
 			<input class="pm7-input" id="pw-repeat" name="repeat_password" type="password" autocomplete="new-password" required maxlength="256"/>
 		</div>
@@ -73,19 +73,37 @@ templ linkButton(href, label string) {
 }
 
 templ statusWord(text string) {
-	<span class="set-status">{ text }</span>
+	<span class="gp-set-status">{ text }</span>
 }
 
 templ linkPair(href1, label1, href2, label2 string) {
-	<span class="set-actions">
+	<span class="gp-set-actions">
 		<a class="btn btn-secondary" href={ templ.SafeURL(href1) }>{ label1 }</a>
 		<a class="btn btn-secondary" href={ templ.SafeURL(href2) }>{ label2 }</a>
 	</span>
 }
 
-templ postButton(action, token, label string) {
-	<form method="post" action={ templ.SafeURL(action) } style="margin:0">
-		<input type="hidden" name="_csrf" value={ token }/>
-		<button type="submit" class="btn btn-secondary">{ label }</button>
+// sessionsForm is the sign-out-elsewhere form: it asks for the current password,
+// like the change does.
+templ sessionsForm(d passwordFormData) {
+	{{ s := i18n.From(ctx) }}
+	<form class="gp-set-form" method="post" action={ templ.SafeURL(d.Action) } autocomplete="off">
+		<input type="hidden" name="_csrf" value={ d.Token }/>
+		<div class="gp-set-field">
+			<label for="ses-current">{ s.CurrentPassword }</label>
+			<input class="pm7-input" id="ses-current" name="current_password" type="password" autocomplete="current-password" required maxlength="256"/>
+		</div>
+		<div>
+			<button type="submit" class="btn btn-secondary">{ s.SignOutOthersBtn }</button>
+		</div>
 	</form>
+}
+
+// signInAgain is the page after a change that could not keep this browser
+// signed in: it must not look like a success.
+templ signInAgain(msg, loginURL, label string) {
+	<div role="status" style="margin-bottom:1rem">
+		@components.NoticeView(components.Notice{Level: components.NoticeWarn, Text: msg})
+	</div>
+	@linkButton(loginURL, label)
 }

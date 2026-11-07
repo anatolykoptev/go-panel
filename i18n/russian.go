@@ -56,7 +56,9 @@ var russian = Strings{
 	TwoFactorEnable:        "Включить",
 	SessionsRow:            "Сеансы",
 	SessionsHint:           "Выйти там, где вы входили с других устройств.",
-	SignOutOthers:          "Выйти на всех устройствах, кроме этого",
+	SignOutOthersBtn:       "Выйти на других устройствах",
+	PasswordChangedSignIn:  "Пароль изменён, войдите заново.",
+	SessionsDoneSignIn:     "Вы вышли на других устройствах, войдите заново.",
 	SessionsDone:           "Вы вышли на всех остальных устройствах.",
 	SignedInAs:             func(name string) string { return "Вы вошли как " + name },
 

@@ -77,7 +77,9 @@ type Strings struct {
 	TwoFactorEnable        string
 	SessionsRow            string
 	SessionsHint           string
-	SignOutOthers          string
+	SignOutOthersBtn       string
+	PasswordChangedSignIn  string
+	SessionsDoneSignIn     string
 	SessionsDone           string
 	SignedInAs             func(name string) string
 

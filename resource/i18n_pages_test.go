@@ -494,7 +494,7 @@ func i18nPagesDump(pages []i18nPage) map[string]string {
 func i18nSettingsPages(t *testing.T, rec *i18nRecorder, o i18nOpts) {
 	t.Helper()
 	base := newTOTPTestStore()
-	i18nSeed(t, base.testAccountStore, "u1", "op@example.com", "pw-with-10-chars", "admin")
+	i18nSeed(t, base.testAccountStore, "u1", "оператор@пример.рф", "pw-with-10-chars", "admin")
 	base.byID["u1"].Name = "Оператор"
 	store := &settingsStore{totpTestStore: base}
 	a := i18nBcryptAuth(store, nil, auth.RateRule{})
@@ -505,11 +505,11 @@ func i18nSettingsPages(t *testing.T, rec *i18nRecorder, o i18nOpts) {
 	p := resource.New(cfg)
 	resource.MountTOTPEnrollment(p, resource.TOTPEnrollmentConfig{Store: store, TOTPEncryptionKey: totpTestEncKey, Issuer: "T", PathPrefix: "security/totp"})
 	p.MountSettings(resource.SettingsConfig{
-		Store: store, PasswordRate: auth.RateRule{Limit: 8, Window: time.Hour},
+		Store: store, PasswordRate: auth.RateRule{Limit: 3, Window: time.Hour},
 		Pages: []resource.SettingsPage{{ID: "collection", Title: "Сбор данных", Body: templ.Raw("<p>Сбор данных</p>")}},
 	})
 	h := p.Handler()
-	ck := bcryptLogin(t, a, "op@example.com", "pw-with-10-chars")
+	ck := bcryptLogin(t, a, "оператор@пример.рф", "pw-with-10-chars")
 	get := func(name, target string) {
 		rec.do(name, h, i18nRequest(http.MethodGet, target, nil, []*http.Cookie{ck}, false))
 	}
@@ -541,8 +541,23 @@ func i18nSettingsPages(t *testing.T, rec *i18nRecorder, o i18nOpts) {
 	store.failUpdate = false
 	base.byID["u1"].TOTPEnabled = true
 	get("settings-security-2fa-on", "/admin/settings/security/")
-	for range 2 { // push the throttle (limit 8: five above, store-down, these two) past its quota
+	for range 2 { // two more failures: three in all (pw-wrong, these two), the quota
 		post("settings-pw-fill", "/admin/settings/security/password/", pwForm("wrong", "another-long-password", "another-long-password"))
 	}
 	post("settings-pw-throttled", "/admin/settings/security/password/", pwForm("wrong", "another-long-password", "another-long-password"))
+
+	// A change that cannot re-issue the browser's session: the sign-in-again page,
+	// for both operations, on a second account (the first is throttled now).
+	i18nSeed(t, base.testAccountStore, "u2", "второй@пример.рф", "pw-with-10-chars", "admin")
+	store.breakAfterStamp = true
+	ck2 := bcryptLogin(t, a, "второй@пример.рф", "pw-with-10-chars")
+	rec.do("settings-sessions-sign-in-again", h, i18nRequest(http.MethodPost, "/admin/settings/security/sessions/",
+		url.Values{"_csrf": {csrf.Issue(i18nCSRFKey, ck2.Value, csrf.DefaultTTL)}, "current_password": {"pw-with-10-chars"}}, []*http.Cookie{ck2}, false))
+	store.breakAfterStamp, store.stamped = false, false
+	time.Sleep(5 * time.Millisecond)
+	ck3 := bcryptLogin(t, a, "второй@пример.рф", "pw-with-10-chars")
+	time.Sleep(5 * time.Millisecond)
+	store.breakAfterStamp = true
+	rec.do("settings-password-sign-in-again", h, i18nRequest(http.MethodPost, "/admin/settings/security/password/",
+		url.Values{"_csrf": {csrf.Issue(i18nCSRFKey, ck3.Value, csrf.DefaultTTL)}, "current_password": {"pw-with-10-chars"}, "new_password": {"a-brand-new-long-password"}, "repeat_password": {"a-brand-new-long-password"}}, []*http.Cookie{ck3}, false))
 }

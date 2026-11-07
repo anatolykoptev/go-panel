@@ -2,7 +2,7 @@ package components
 
 // Switch is an on/off setting that posts on click: a form holding a CSRF token,
 // hidden fields naming what is being switched, and a role="switch" button. It is
-// the primitive go-nerv hand-rolled as sw / sw-form for its collector toggles.
+// the primitive go-nerv hand-rolled as sw / gp-sw-form for its collector toggles.
 //
 // Clicking posts Fields plus ToggleField set to the OPPOSITE of the current
 // state ("1" turns on, "0" turns off); the server answers with the re-rendered
@@ -60,7 +60,7 @@ func (s Switch) stateText() string {
 
 templ SwitchView(s Switch) {
 	<form
-		class="sw-form"
+		class="gp-sw-form"
 		method="post"
 		action={ templ.SafeURL(s.Action) }
 		if s.Target != "" {
@@ -75,8 +75,8 @@ templ SwitchView(s Switch) {
 		}
 		<input type="hidden" name={ s.toggleName() } value={ s.next() }/>
 		if s.stateText() != "" {
-			<span class="sw-text" aria-hidden="true">{ s.stateText() }</span>
+			<span class="gp-sw-text" aria-hidden="true">{ s.stateText() }</span>
 		}
-		<button class="sw" type="submit" role="switch" aria-checked={ boolStr(s.On) } aria-label={ s.Label } disabled?={ s.Token == "" }><span class="sw-knob"></span></button>
+		<button class="gp-sw" type="submit" role="switch" aria-checked={ boolStr(s.On) } aria-label={ s.Label } disabled?={ s.Token == "" }><span class="gp-sw-knob"></span></button>
 	</form>
 }

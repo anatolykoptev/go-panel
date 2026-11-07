@@ -115,6 +115,22 @@ func (l *MemoryLimiter) Allow(ctx context.Context, key string, limit int, window
 	return allowed, nil
 }
 
+// Blocked reports whether key is currently over its limit, WITHOUT counting a
+// hit. It lets a caller record only some events (say, failed password checks):
+// check Blocked before the work, call Allow only for the failures.
+func (l *MemoryLimiter) Blocked(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return true, err
+	}
+	if window <= 0 || limit <= 0 {
+		return true, nil // fail closed, like Allow
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	w, tracked := l.hits[key]
+	return tracked && l.now().Before(w.end) && w.count >= limit, nil
+}
+
 // makeRoom frees at least one slot for a new key in a single pass: it drops
 // every expired window and tracks two live candidates, the soonest-ending key
 // still under its limit and the soonest-ending key overall. If nothing expired

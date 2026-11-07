@@ -72,8 +72,7 @@ func latinLeft(body string, allow map[string]bool) []string {
 //
 // "admin" is the fixture account's ROLE, shown under the user name; roles are
 // data the consumer defines, not panel copy.
-// "op", "example" and "com" are the fixture operator's e-mail on the Profile page.
-var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true, "op": true, "example": true, "com": true}
+var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true}
 
 // Names of the authenticator apps the Russian setup text lists, and the format
 // name «JSON» in a validation message: proper names and acronyms, not English
@@ -81,7 +80,6 @@ var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true, "op": t
 // to them still fails.
 var russianAllow = map[string]bool{
 	"RU": true, "EN": true, "admin": true, "JSON": true,
-	"com": true, "example": true, "op": true,
 	"Google": true, "Authenticator": true, "Password": true, "Authy": true, "QR": true,
 }
 

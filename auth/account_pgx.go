@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -152,17 +153,39 @@ func (s *PgxAccountStore) UpdatePasswordHash(ctx context.Context, id, passwordHa
 	return nil
 }
 
-// RevokeSessions implements SessionRevoker: it stamps password_changed_at = now()
-// and nothing else, revoking every session issued before it.
-func (s *PgxAccountStore) RevokeSessions(ctx context.Context, id string) error {
-	ct, err := s.pool.Exec(ctx, "UPDATE panel_accounts SET password_changed_at = now() WHERE id = $1", id)
+// epochGuard is the shared WHERE of both EpochStore writes: the stamp is NULL
+// or not newer than the calling session's issue time. liveSession revokes a
+// token iff iat < stamp, so "stamp <= iat" is exactly "this session is live".
+const epochGuard = "id = $1 AND (password_changed_at IS NULL OR password_changed_at <= to_timestamp($2::double precision / 1000.0))"
+
+// UpdatePasswordHashIfCurrent implements EpochStore.
+func (s *PgxAccountStore) UpdatePasswordHashIfCurrent(ctx context.Context, id, passwordHash string, callerIatMs int64) (time.Time, error) {
+	var stamp time.Time
+	err := s.pool.QueryRow(ctx,
+		"UPDATE panel_accounts SET password_hash = $3, password_changed_at = now() WHERE "+epochGuard+" RETURNING password_changed_at",
+		id, callerIatMs, passwordHash).Scan(&stamp)
+	return epochResult(stamp, err, "update password hash")
+}
+
+// RevokeSessionsIfCurrent implements EpochStore.
+func (s *PgxAccountStore) RevokeSessionsIfCurrent(ctx context.Context, id string, callerIatMs int64) (time.Time, error) {
+	var stamp time.Time
+	err := s.pool.QueryRow(ctx,
+		"UPDATE panel_accounts SET password_changed_at = now() WHERE "+epochGuard+" RETURNING password_changed_at",
+		id, callerIatMs).Scan(&stamp)
+	return epochResult(stamp, err, "revoke sessions")
+}
+
+// epochResult maps "no row updated" (unknown account, or a stale caller) to
+// ErrSessionStale: either way the caller must not proceed.
+func epochResult(stamp time.Time, err error, what string) (time.Time, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, ErrSessionStale
+	}
 	if err != nil {
-		return fmt.Errorf("auth: revoke sessions: %w", err)
+		return time.Time{}, fmt.Errorf("auth: %s: %w", what, err)
 	}
-	if ct.RowsAffected() == 0 {
-		return ErrAccountNotFound
-	}
-	return nil
+	return stamp, nil
 }
 
 const insertAccountSQL = `

@@ -58,7 +58,9 @@ var english = Strings{
 	TwoFactorEnable:        "Turn on",
 	SessionsRow:            "Sessions",
 	SessionsHint:           "Sign out of devices you are signed in on elsewhere.",
-	SignOutOthers:          "Sign out on all other devices",
+	SignOutOthersBtn:       "Sign out on other devices",
+	PasswordChangedSignIn:  "Password changed. Please sign in again.",
+	SessionsDoneSignIn:     "Signed out on other devices. Please sign in again.",
 	SessionsDone:           "Signed out on all other devices.",
 	SignedInAs:             func(name string) string { return "You are signed in as " + name },
 

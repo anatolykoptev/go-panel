@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 	"unicode/utf8"
 )
 
@@ -40,42 +41,74 @@ func ValidateNewPassword(password string) error {
 	return nil
 }
 
-// ChangePassword is the self-service password change: it re-proves the current
-// password (bcrypt, constant-time within CompareHashAndPassword), applies the
-// minimum policy, and stores the new bcrypt hash via AccountStore
-// .UpdatePasswordHash. Order matters: the current password is verified FIRST,
-// so a wrong one reveals nothing about the policy and changes nothing.
-//
-// Errors: ErrReauthFailed (wrong current password, or the account cannot be
-// loaded; state untouched), ErrPasswordTooShort / ErrPasswordTooLong /
-// ErrPasswordUnchanged (state untouched), or a wrapped store/hash error. No
-// error contains a password or a hash.
-//
-// UpdatePasswordHash stamps the credential epoch (password_changed_at), which
-// revokes every session issued before it, including the caller's own; the
-// caller re-issues the operator's session (BcryptTOTPAuth.RefreshSession).
-func ChangePassword(ctx context.Context, store AccountStore, acct *Account, current, next string) error {
+// VerifyCurrentPassword re-proves the operator's current password against the
+// stored hash (bcrypt, constant-time within CompareHashAndPassword). It returns
+// ErrReauthFailed for a wrong password, an unknown account, or a stored row
+// that is not acct's (the ID is asserted: a lookup by e-mail must land on the
+// account the session names), and a wrapped error for a store failure, which is
+// NOT a wrong password and must surface as an internal error.
+func VerifyCurrentPassword(ctx context.Context, store AccountStore, acct *Account, current string) error {
+	_, err := loadVerified(ctx, store, acct, current)
+	return err
+}
+
+func loadVerified(ctx context.Context, store AccountStore, acct *Account, current string) (*Account, error) {
 	stored, err := store.GetByEmail(ctx, acct.Email)
-	if err != nil {
-		// Same result as a wrong password: no oracle for "account vanished".
+	switch {
+	case errors.Is(err, ErrAccountNotFound), err == nil && (stored == nil || stored.ID != acct.ID):
+		// Same cost and result as a wrong password: no oracle for "no such account".
 		_ = VerifyPassword(current, dummyPasswordHash)
-		return ErrReauthFailed
+		return nil, ErrReauthFailed
+	case err != nil:
+		return nil, fmt.Errorf("auth: load account for password check: %w", err)
 	}
 	if !VerifyPassword(current, stored.PasswordHash) {
-		return ErrReauthFailed
+		return nil, ErrReauthFailed
+	}
+	return stored, nil
+}
+
+// ChangePassword is the self-service password change: it re-proves the current
+// password, applies the minimum policy, and stores the new bcrypt hash through
+// EpochStore.UpdatePasswordHashIfCurrent, which stamps the credential epoch
+// atomically and only if the calling session (issued at sessionIatMs, from
+// Session.IssuedAtMs) is still current. Order matters: the current password is
+// verified FIRST, so a wrong one reveals nothing about the policy and changes
+// nothing.
+//
+// It returns the epoch the database stamped; hand it to
+// BcryptTOTPAuth.RefreshSession so the caller stays signed in while every other
+// session stays revoked.
+//
+// Errors: ErrReauthFailed (wrong current password; state untouched),
+// ErrPasswordTooShort / ErrPasswordTooLong / ErrPasswordUnchanged (state
+// untouched), ErrSessionStale (the session was revoked meanwhile, or another
+// change won the race; state untouched), or a wrapped store/hash error. No
+// error contains a password or a hash.
+func ChangePassword(ctx context.Context, store EpochAccountStore, acct *Account, sessionIatMs int64, current, next string) (time.Time, error) {
+	stored, err := loadVerified(ctx, store, acct, current)
+	if err != nil {
+		return time.Time{}, err
 	}
 	if err := ValidateNewPassword(next); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if VerifyPassword(next, stored.PasswordHash) {
-		return ErrPasswordUnchanged
+		return time.Time{}, ErrPasswordUnchanged
 	}
 	hash, err := HashPassword(next)
 	if err != nil {
-		return fmt.Errorf("auth: hash new password: %w", err)
+		return time.Time{}, fmt.Errorf("auth: hash new password: %w", err)
 	}
-	if err := store.UpdatePasswordHash(ctx, acct.ID, hash); err != nil {
-		return fmt.Errorf("auth: store new password hash: %w", err)
+	return store.UpdatePasswordHashIfCurrent(ctx, acct.ID, hash, sessionIatMs)
+}
+
+// RevokeOtherSessions is "sign out everywhere else": it re-proves the current
+// password (as ChangePassword does), then stamps the epoch conditionally via
+// EpochStore.RevokeSessionsIfCurrent. Same errors and the same returned epoch.
+func RevokeOtherSessions(ctx context.Context, store EpochAccountStore, acct *Account, sessionIatMs int64, current string) (time.Time, error) {
+	if _, err := loadVerified(ctx, store, acct, current); err != nil {
+		return time.Time{}, err
 	}
-	return nil
+	return store.RevokeSessionsIfCurrent(ctx, acct.ID, sessionIatMs)
 }

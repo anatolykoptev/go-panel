@@ -155,8 +155,8 @@ func TestThemeRows_NeedTwoSkinsForTheThemeRow(t *testing.T) {
 		"none": {}, "one": {Skins: shell.Skins()[:1]},
 	} {
 		html := renderRows(t, st)
-		if strings.Contains(html, "theme-skin") || strings.Contains(html, "How the panel looks") || strings.Count(html, `class="set-row"`) != 1 {
-			t.Errorf("%s allowed skin(s): the theme row (label, hint or empty control) rendered; set-rows = %d, want only the mode row", name, strings.Count(html, `class="set-row"`))
+		if strings.Contains(html, "theme-skin") || strings.Contains(html, "How the panel looks") || strings.Count(html, `class="gp-set-row"`) != 1 {
+			t.Errorf("%s allowed skin(s): the theme row (label, hint or empty control) rendered; set-rows = %d, want only the mode row", name, strings.Count(html, `class="gp-set-row"`))
 		}
 		if !strings.Contains(html, `name="theme-mode"`) {
 			t.Errorf("%s: the mode row is missing", name)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,39 +20,60 @@ import (
 	"github.com/anatolykoptev/go-panel/shell"
 )
 
-// settingsStore is the multi-user test store with a password write that really
-// writes (the shared fixture's is a no-op) and the sign-out-everywhere hook.
+// settingsStore is the multi-user test store with the auth.EpochStore contract:
+// the conditional stamp is atomic under mu, like the database's single UPDATE.
 type settingsStore struct {
 	*totpTestStore
-	mu         sync.Mutex
-	failUpdate bool // UpdatePasswordHash returns an error (a store outage)
+	mu sync.Mutex
+	// beforeStamp runs inside an epoch write, after the caller passed Require, CSRF
+	// and the password check and before the conditional write: the window an
+	// in-flight request sits in.
+	beforeStamp func()
+	// failUpdate makes the write return a store error (an outage).
+	failUpdate bool
+	// breakAfterStamp makes GetByID fail once a stamp was written, so the session
+	// cannot be re-issued (the change still happened).
+	breakAfterStamp bool
+	stamped         bool
 }
 
-func (s *settingsStore) UpdatePasswordHash(_ context.Context, id, hash string) error {
+func (s *settingsStore) GetByID(ctx context.Context, id string) (*auth.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.breakAfterStamp && s.stamped {
+		return nil, context.DeadlineExceeded
+	}
+	return s.totpTestStore.GetByID(ctx, id)
+}
+
+func (s *settingsStore) stamp(id, hash string, iat int64) (time.Time, error) {
+	if s.beforeStamp != nil {
+		s.beforeStamp()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failUpdate {
-		return context.DeadlineExceeded
+		return time.Time{}, context.DeadlineExceeded
 	}
 	a, ok := s.byID[id]
-	if !ok {
-		return auth.ErrAccountNotFound
+	if !ok || (a.PasswordChangedAt != nil && a.PasswordChangedAt.After(time.UnixMilli(iat))) {
+		return time.Time{}, auth.ErrSessionStale
 	}
 	now := time.Now()
-	a.PasswordHash, a.PasswordChangedAt = hash, &now
-	return nil
+	if hash != "" {
+		a.PasswordHash = hash
+	}
+	a.PasswordChangedAt = &now
+	s.stamped = true
+	return now, nil
 }
 
-func (s *settingsStore) RevokeSessions(_ context.Context, id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, ok := s.byID[id]
-	if !ok {
-		return auth.ErrAccountNotFound
-	}
-	now := time.Now()
-	a.PasswordChangedAt = &now
-	return nil
+func (s *settingsStore) UpdatePasswordHashIfCurrent(_ context.Context, id, hash string, iat int64) (time.Time, error) {
+	return s.stamp(id, hash, iat)
+}
+
+func (s *settingsStore) RevokeSessionsIfCurrent(_ context.Context, id string, iat int64) (time.Time, error) {
+	return s.stamp(id, "", iat)
 }
 
 func (s *settingsStore) hash(id string) string {
@@ -66,17 +88,18 @@ const (
 )
 
 type settingsEnv struct {
-	p     *resource.Panel
-	h     http.Handler
-	a     *auth.BcryptTOTPAuth
-	store *settingsStore
+	actionRuns atomic.Int32
+	p          *resource.Panel
+	h          http.Handler
+	a          *auth.BcryptTOTPAuth
+	store      *settingsStore
 }
 
 type settingsOpts struct {
 	skin    string
 	skins   []string
 	rate    auth.RateRule
-	noStore bool
+	noEpoch bool // hand MountSettings a store without auth.EpochStore
 	totp    bool
 }
 
@@ -102,11 +125,18 @@ func newSettingsEnv(t *testing.T, o settingsOpts) *settingsEnv {
 			Body: templ.Raw(`<p id="collection-body">owner only</p>`),
 		}},
 	}
-	if !o.noStore {
-		cfg.Store = store
+	cfg.Store = store
+	if o.noEpoch {
+		cfg.Store = base
 	}
 	p.MountSettings(cfg)
-	return &settingsEnv{p: p, h: p.Handler(), a: a, store: store}
+	env := &settingsEnv{p: p, a: a, store: store}
+	p.MountSettingsAction("collection", resource.ActionSpec{Path: "toggle", Handler: func(w http.ResponseWriter, _ *http.Request) {
+		env.actionRuns.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}})
+	env.h = p.Handler()
+	return env
 }
 
 func (e *settingsEnv) do(t *testing.T, method, path string, form url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {
@@ -410,31 +440,236 @@ func TestSettings_ChangePasswordJourney(t *testing.T) {
 	}
 }
 
+func (e *settingsEnv) signOutOthers(t *testing.T, sess *http.Cookie, pw string) *httptest.ResponseRecorder {
+	t.Helper()
+	return e.do(t, http.MethodPost, "/admin/settings/security/sessions/", url.Values{"_csrf": {e.token(sess)}, "current_password": {pw}}, sess)
+}
+
+func freshCookie(rec *httptest.ResponseRecorder) *http.Cookie {
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "panel_admin" && c.Value != "" {
+			return c
+		}
+	}
+	return nil
+}
+
+// SEC-CR-003: sign-out-elsewhere asks for the current password too.
 func TestSettings_SignOutOtherDevices(t *testing.T) {
 	e := newSettingsEnv(t, settingsOpts{})
 	here := e.login(t, "owner@example.com", owner0PW)
 	elsewhere := e.login(t, "owner@example.com", owner0PW)
 	time.Sleep(5 * time.Millisecond)
-	form := url.Values{"_csrf": {e.token(here)}}
-	rec := e.do(t, http.MethodPost, "/admin/settings/security/sessions/", form, here)
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("status %d", rec.Code)
+
+	if rec := e.signOutOthers(t, here, "wrong-password"); rec.Code != http.StatusForbidden {
+		t.Fatalf("wrong password: status %d, want 403", rec.Code)
 	}
-	var fresh *http.Cookie
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == "panel_admin" {
-			fresh = c
-		}
+	if e.do(t, http.MethodGet, "/admin/settings/profile/", nil, elsewhere).Code != http.StatusOK {
+		t.Fatal("a wrong password signed the other device out")
 	}
+	rec := e.signOutOthers(t, here, owner0PW)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/settings/security/?sessions=1" {
+		t.Fatalf("status %d -> %q", rec.Code, rec.Header().Get("Location"))
+	}
+	fresh := freshCookie(rec)
 	if fresh == nil || e.do(t, http.MethodGet, "/admin/settings/profile/", nil, fresh).Code != http.StatusOK {
 		t.Error("this browser was signed out too")
 	}
 	if e.do(t, http.MethodGet, "/admin/settings/profile/", nil, elsewhere).Code == http.StatusOK {
 		t.Error("the other device is still signed in")
 	}
-	// CSRF-protected too.
-	if got := e.do(t, http.MethodPost, "/admin/settings/security/sessions/", url.Values{}, fresh); got.Code != http.StatusForbidden {
+	if got := e.do(t, http.MethodPost, "/admin/settings/security/sessions/", url.Values{"current_password": {owner0PW}}, fresh); got.Code != http.StatusForbidden {
 		t.Errorf("sessions POST without a token = %d, want 403", got.Code)
+	}
+}
+
+// SEC-CR-001 (both reviewers): a request that passed Require BEFORE the victim's
+// password change must not mint a session AFTER it. The attacker holds a stolen
+// cookie (and, worst case, the password); their POST is held inside the handler
+// while the victim changes the password; released, it must be refused.
+//
+// Falsification: in resource/settings.go epochRequest, hand the store
+// math.MaxInt64 instead of the session's IssuedAtMs (an unconditional write, the
+// pre-fix behaviour) -> RED: the attacker's fresh cookie is valid.
+func TestSettings_InFlightRevokedSessionCannotMintASession(t *testing.T) {
+	for name, attack := range map[string]func(e *settingsEnv, stolen *http.Cookie) *httptest.ResponseRecorder{
+		"sign-out-others": func(e *settingsEnv, stolen *http.Cookie) *httptest.ResponseRecorder {
+			return e.signOutOthers(t, stolen, owner0PW)
+		},
+		"change-password": func(e *settingsEnv, stolen *http.Cookie) *httptest.ResponseRecorder {
+			return e.changePW(t, stolen, pwForm(owner0PW, "attacker-chosen-pw-1", "attacker-chosen-pw-1"))
+		},
+	} {
+		e := newSettingsEnv(t, settingsOpts{})
+		victim := e.login(t, "owner@example.com", owner0PW)
+		stolen := e.login(t, "owner@example.com", owner0PW)
+		time.Sleep(5 * time.Millisecond)
+
+		reached, release := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		e.store.beforeStamp = func() {
+			held := false
+			once.Do(func() { held = true; close(reached) })
+			if held {
+				<-release
+			}
+		}
+		var attackerRec *httptest.ResponseRecorder
+		done := make(chan struct{})
+		go func() { defer close(done); attackerRec = attack(e, stolen) }()
+		<-reached // the attacker is past Require, CSRF and the password check
+
+		// The victim reacts to the compromise by changing the password.
+		vrec := e.changePW(t, victim, pwForm(owner0PW, newPW, newPW))
+		if vrec.Code != http.StatusSeeOther {
+			t.Fatalf("%s: the victim's change failed: %d", name, vrec.Code)
+		}
+		victimNow := freshCookie(vrec)
+		close(release)
+		<-done
+
+		if attackerRec.Code != http.StatusSeeOther || attackerRec.Header().Get("Location") != "/admin/login" {
+			t.Errorf("%s: the stale in-flight request got %d -> %q, want a redirect to /admin/login", name, attackerRec.Code, attackerRec.Header().Get("Location"))
+		}
+		if c := freshCookie(attackerRec); c != nil && e.do(t, http.MethodGet, "/admin/settings/profile/", nil, c).Code == http.StatusOK {
+			t.Errorf("%s: a revoked session minted a fresh valid one after the victim changed the password", name)
+		}
+		if !auth.VerifyPassword(newPW, e.store.hash("own")) {
+			t.Errorf("%s: the attacker's request overwrote the victim's new password", name)
+		}
+		if e.do(t, http.MethodGet, "/admin/settings/profile/", nil, victimNow).Code != http.StatusOK {
+			t.Errorf("%s: the victim lost their own session", name)
+		}
+	}
+}
+
+// SEC-CR-004: two password changes from one session at once: exactly one wins.
+func TestSettings_ConcurrentPasswordChangesExactlyOneWins(t *testing.T) {
+	e := newSettingsEnv(t, settingsOpts{})
+	sess := e.login(t, "owner@example.com", owner0PW)
+	time.Sleep(5 * time.Millisecond)
+	var arrived sync.WaitGroup
+	arrived.Add(2)
+	e.store.beforeStamp = func() { arrived.Done(); arrived.Wait() }
+
+	codes := make([]string, 2)
+	var wg sync.WaitGroup
+	for i, pw := range []string{"first-new-password-11", "second-new-password-22"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := e.changePW(t, sess, pwForm(owner0PW, pw, pw))
+			codes[i] = rec.Header().Get("Location")
+		}()
+	}
+	wg.Wait()
+	ok, login := 0, 0
+	for _, loc := range codes {
+		switch loc {
+		case "/admin/settings/security/?changed=1":
+			ok++
+		case "/admin/login":
+			login++
+		}
+	}
+	if ok != 1 || login != 1 {
+		t.Errorf("outcomes %q: want one success and one redirect to login", codes)
+	}
+}
+
+// SEC-CR-003: the throttle counts FAILED current-password checks only. Successes
+// and CSRF failures do not use the quota.
+//
+// Falsification: in resource/settings.go throttleGate make the BlockedChecker
+// branch unreachable (`ok && a.rate.Limit < 0`), so every attempt counts -> RED
+// on the third success.
+func TestSettings_ThrottleCountsOnlyFailedPasswordChecks(t *testing.T) {
+	e := newSettingsEnv(t, settingsOpts{rate: auth.RateRule{Limit: 2, Window: time.Hour}})
+	sess := e.login(t, "owner@example.com", owner0PW)
+	for range 5 { // forged CSRF: not a password attempt
+		e.do(t, http.MethodPost, "/admin/settings/security/sessions/", url.Values{"_csrf": {"forged"}, "current_password": {"x"}}, sess)
+	}
+	for i := range 4 { // successes: not failures
+		time.Sleep(3 * time.Millisecond)
+		rec := e.signOutOthers(t, sess, owner0PW)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("success %d: status %d (successes or CSRF failures used the quota)", i, rec.Code)
+		}
+		sess = freshCookie(rec)
+	}
+	time.Sleep(3 * time.Millisecond)
+	for range 2 {
+		if rec := e.signOutOthers(t, sess, "wrong"); rec.Code != http.StatusForbidden {
+			t.Fatalf("failure: status %d", rec.Code)
+		}
+	}
+	if rec := e.signOutOthers(t, sess, owner0PW); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("after 2 failures the right password got %d, want 429", rec.Code)
+	}
+}
+
+// A change that cannot re-issue this browser's session must not look like a
+// success.
+func TestSettings_NoReplacementSessionIsNotShownAsSuccess(t *testing.T) {
+	e := newSettingsEnv(t, settingsOpts{})
+	sess := e.login(t, "owner@example.com", owner0PW)
+	time.Sleep(5 * time.Millisecond)
+	e.store.breakAfterStamp = true
+	rec := e.changePW(t, sess, pwForm(owner0PW, newPW, newPW))
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "Пароль изменён, войдите заново.") || strings.Contains(body, "На остальных устройствах вы вышли") {
+		t.Errorf("status %d, body states the sign-in-again message: %v", rec.Code, strings.Contains(body, "войдите заново"))
+	}
+	if freshCookie(rec) != nil {
+		t.Error("a cookie was minted although the replacement failed")
+	}
+	if !auth.VerifyPassword(newPW, e.store.hash("own")) {
+		t.Error("the change should have happened")
+	}
+}
+
+// A store without auth.EpochStore gets no password change and no sign-out-
+// elsewhere: the rows are hidden and the routes do not exist (fail closed).
+func TestSettings_StoreWithoutEpochStoreOffersNoPasswordOrSessionRows(t *testing.T) {
+	e := newSettingsEnv(t, settingsOpts{noEpoch: true})
+	sess := e.login(t, "owner@example.com", owner0PW)
+	if rec := e.do(t, http.MethodGet, "/admin/settings/security/", nil, sess); rec.Code != http.StatusNotFound {
+		t.Errorf("security page = %d with nothing to show, want 404", rec.Code)
+	}
+	if b := e.do(t, http.MethodGet, "/admin/settings/profile/", nil, sess).Body.String(); strings.Contains(b, "/admin/settings/security/") {
+		t.Error("the sub-nav links a Security page that has no rows")
+	}
+	for _, path := range []string{"/admin/settings/security/password/", "/admin/settings/security/sessions/"} {
+		rec := e.do(t, http.MethodPost, path, url.Values{"_csrf": {e.token(sess)}, "current_password": {owner0PW}}, sess)
+		if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s = %d, want it not to exist", path, rec.Code)
+		}
+	}
+}
+
+// M2: a consumer page's POST inherits the page's role.
+//
+// Falsification: in resource/settings.go MountSettingsAction replace
+// `spec.RequiredRole = entry.RequiredRole` with `spec.RequiredRole = ""` -> RED
+// (the manager's POST runs the handler).
+func TestSettings_ActionInheritsThePagesRole(t *testing.T) {
+	e := newSettingsEnv(t, settingsOpts{})
+	mgr := e.login(t, "manager@example.com", "manager-password-1")
+	own := e.login(t, "owner@example.com", owner0PW)
+	post := func(c *http.Cookie) int {
+		return e.do(t, http.MethodPost, "/admin/settings/collection/toggle", url.Values{"_csrf": {e.token(c)}}, c).Code
+	}
+	if code := post(mgr); code != http.StatusForbidden {
+		t.Errorf("manager POST to the owner-only action = %d, want 403", code)
+	}
+	if e.actionRuns.Load() != 0 {
+		t.Error("the owner-only handler ran for a manager")
+	}
+	if code := post(own); code != http.StatusNoContent || e.actionRuns.Load() != 1 {
+		t.Errorf("owner POST = %d (runs %d), want 204 and one run", code, e.actionRuns.Load())
+	}
+	if code := e.do(t, http.MethodPost, "/admin/settings/collection/toggle", url.Values{}, own).Code; code != http.StatusForbidden {
+		t.Errorf("owner POST without CSRF = %d, want 403", code)
 	}
 }
 
@@ -514,7 +749,7 @@ func TestSettings_AppearanceRows(t *testing.T) {
 	// No allowed skins: no Тема row, the mode row stays.
 	off := newSettingsEnv(t, settingsOpts{})
 	b := off.do(t, http.MethodGet, "/admin/settings/appearance/", nil, off.login(t, "owner@example.com", owner0PW)).Body.String()
-	if strings.Contains(b, "theme-skin") || strings.Contains(b, "Как выглядит панель") || strings.Count(b, `class="set-row"`) != 1 || !strings.Contains(b, `name="theme-mode"`) {
+	if strings.Contains(b, "theme-skin") || strings.Contains(b, "Как выглядит панель") || strings.Count(b, `class="gp-set-row"`) != 1 || !strings.Contains(b, `name="theme-mode"`) {
 		t.Error("without Config.Skins the Тема row must be absent and Режим present")
 	}
 }
@@ -554,6 +789,23 @@ func TestSettings_ConfigErrorsAreLoud(t *testing.T) {
 		base := newTOTPTestStore()
 		a := i18nBcryptAuth(base, nil, auth.RateRule{})
 		resource.New(resource.Config{Title: "P", BasePath: "/admin", Auth: a}).MountSettings(resource.SettingsConfig{Store: base})
+	})
+	noop := func(http.ResponseWriter, *http.Request) {}
+	mustPanic("action before MountSettings", func() { mk().MountSettingsAction("x", resource.ActionSpec{Path: "a", Handler: noop}) })
+	mustPanic("action on an unknown page", func() {
+		p := mk()
+		p.MountSettings(resource.SettingsConfig{})
+		p.MountSettingsAction("nope", resource.ActionSpec{Path: "a", Handler: noop})
+	})
+	mustPanic("action on a built-in page", func() {
+		p := mk()
+		p.MountSettings(resource.SettingsConfig{})
+		p.MountSettingsAction("security", resource.ActionSpec{Path: "a", Handler: noop})
+	})
+	mustPanic("action naming another role", func() {
+		p := mk()
+		p.MountSettings(resource.SettingsConfig{Pages: []resource.SettingsPage{{ID: "x", Title: "T", Body: templ.Raw("x"), RequiredRole: auth.RoleOwner}}})
+		p.MountSettingsAction("x", resource.ActionSpec{Path: "a", Handler: noop, RequiredRole: "manager"})
 	})
 	mustPanic("page collision", func() {
 		p := mk()

@@ -238,7 +238,7 @@ func (p *Panel) RenderError(ctx context.Context, w http.ResponseWriter, title st
 // caller's chrome state names no skin/default theme the panel's own are filled
 // in, everything else the caller set is kept. A graphite panel returns ctx as is.
 func (p *Panel) chromeSkinned(ctx context.Context) context.Context {
-	if !p.skinned() && p.defTheme == "" && !p.picker() {
+	if !p.skinned() && p.defTheme == "" {
 		return ctx
 	}
 	st := shell.ChromeFromContext(ctx)

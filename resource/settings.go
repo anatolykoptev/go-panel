@@ -86,9 +86,9 @@ type SettingsConfig struct {
 }
 
 // sessionRefresher is implemented by *auth.BcryptTOTPAuth: re-issue the
-// caller's session after a password change revoked the old one.
+// caller's session from the epoch a conditional stamp returned.
 type sessionRefresher interface {
-	RefreshSession(w http.ResponseWriter, r *http.Request, userID string) error
+	RefreshSession(w http.ResponseWriter, r *http.Request, epoch time.Time) error
 }
 
 type settingsEntry struct {
@@ -104,8 +104,12 @@ type settingsEntry struct {
 }
 
 type settingsArea struct {
-	panel   *Panel
-	store   auth.AccountStore
+	panel *Panel
+	store auth.AccountStore
+	// epoch is the store when it implements auth.EpochStore. nil hides the
+	// password change and sign-out-everywhere (they fail closed, never fall
+	// back to an unconditional write).
+	epoch   auth.EpochAccountStore
 	pages   []settingsEntry
 	limiter auth.RateLimiter
 	rate    auth.RateRule
@@ -117,8 +121,10 @@ type settingsArea struct {
 // sub-navigation (a scrolling row at phone width). Built-in pages, «Личные»:
 //
 //   - profile: name, e-mail, role, sign out. Needs a per-operator session.
-//   - security: change password (needs cfg.Store) and the two-factor status with
-//     a link into MountTOTPEnrollment's routes (needs that mounted).
+//   - security: change password and «sign out on other devices» (both need
+//     cfg.Store to implement auth.EpochStore, as PgxAccountStore does; a store
+//     that does not gets neither row, by design) and the two-factor status with a
+//     link into MountTOTPEnrollment's routes (needs that mounted).
 //   - appearance: the skin choice (Config.Skins, two or more) and light / dark.
 //
 // then cfg.Pages in their group. A page whose prerequisites are missing does not
@@ -130,9 +136,14 @@ type settingsArea struct {
 // sidebar the same item. A panel that never calls MountSettings serves no
 // route and renders byte-identically to before.
 //
+// A consumer page's POST routes are mounted with MountSettingsAction, which
+// gives them the page's RequiredRole, the guard and CSRF.
+//
 // Call once, before the first Handler(). Panics (setup time, fail-closed) on a
 // second call, a Store with no usable CSRFKey, an invalid or duplicate page ID,
-// a page without Body, or a path collision with a Resource or MountPage.
+// a page without Body, a path collision with a Resource or MountPage, and, via
+// MountPage's own check, a page with a RequiredRole when the authenticator does
+// not implement RoleAuthenticator.
 func (p *Panel) MountSettings(cfg SettingsConfig) {
 	if p.settings != nil {
 		panic("resource: MountSettings called twice")
@@ -146,6 +157,7 @@ func (p *Panel) MountSettings(cfg SettingsConfig) {
 			panic(fmt.Sprintf("resource.MountSettings: Config.CSRFKey must be at least %d bytes: the change-password POST is CSRF-protected", minCSRFKeyLen))
 		}
 	}
+	a.epoch, _ = cfg.Store.(auth.EpochAccountStore)
 	if a.limiter == nil {
 		a.limiter = auth.NewMemoryLimiter()
 	}
@@ -162,11 +174,9 @@ func (p *Panel) MountSettings(cfg SettingsConfig) {
 	for _, e := range a.pages {
 		p.MountPage(PageSpec{Path: settingsPath + "/" + e.ID, RequiredRole: e.RequiredRole, Handler: a.pageHandler(e)})
 	}
-	if cfg.Store != nil {
+	if a.epoch != nil {
 		p.MountPage(PageSpec{Path: settingsPath + "/" + settingsPasswordID, Method: http.MethodPost, Handler: a.changePassword})
-		if _, ok := cfg.Store.(auth.SessionRevoker); ok {
-			p.MountPage(PageSpec{Path: settingsPath + "/" + settingsSessionsID, Method: http.MethodPost, Handler: a.signOutOthers})
-		}
+		p.MountPage(PageSpec{Path: settingsPath + "/" + settingsSessionsID, Method: http.MethodPost, Handler: a.signOutOthers})
 	}
 	if p.profileCfg.SettingsURL == "" {
 		p.settingsURL = a.url
@@ -218,21 +228,27 @@ func (a *settingsArea) roleOK(ctx context.Context, role string) bool {
 	return ok && ra.HasRole(ctx, role)
 }
 
-// account returns the signed-in operator's current row, or nil when the panel
-// has no per-operator identity (HMACAuth) or no Store.
-func (a *settingsArea) account(r *http.Request) *auth.Account {
+// identity returns the signed-in operator's current row and the issue time (Unix
+// ms) of the session that asked, or (nil, 0) when the panel has no per-operator
+// identity (HMACAuth) or no Store.
+func (a *settingsArea) identity(r *http.Request) (*auth.Account, int64) {
 	if a.store == nil {
-		return nil
+		return nil, 0
 	}
 	sess, ok := auth.SessionFrom(r.Context())
 	if !ok {
-		return nil
+		return nil, 0
 	}
 	acct, err := a.store.GetByID(r.Context(), sess.UserID)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "resource: settings could not load the session account", "err", err)
-		return nil
+		return nil, 0
 	}
+	return acct, sess.IssuedAtMs
+}
+
+func (a *settingsArea) account(r *http.Request) *auth.Account {
+	acct, _ := a.identity(r)
 	return acct
 }
 
@@ -366,7 +382,7 @@ func builtinSettingsPages() []settingsEntry {
 			SettingsPage: SettingsPage{ID: securityPageID, Group: SettingsGroupPersonal},
 			title:        func(s Strings) string { return s.SettingsSecurity },
 			visible: func(a *settingsArea, _ *http.Request, acct *auth.Account) bool {
-				return acct != nil && (a.store != nil || a.panel.totp != nil)
+				return acct != nil && (a.epoch != nil || a.panel.totp != nil)
 			},
 			body: securityBody_,
 		},
@@ -412,21 +428,18 @@ func profileBody(a *settingsArea, r *http.Request, acct *auth.Account, _ setting
 func securityBody_(a *settingsArea, r *http.Request, acct *auth.Account, f settingsFlash) templ.Component {
 	s := strs(r)
 	var sections []components.SettingsSection
-	if a.store != nil {
+	if a.epoch != nil {
 		sections = append(sections, components.SettingsSection{
 			Title:    s.PasswordRow,
 			Subtitle: s.PasswordHint,
 			Body:     passwordForm(passwordFormData{Action: a.url + settingsPasswordID + "/", Token: a.panel.CSRFToken(r)}),
 		})
 	}
-	if _, ok := a.store.(auth.SessionRevoker); ok {
+	if a.epoch != nil {
 		sections = append(sections, components.SettingsSection{
 			Title:    s.SessionsRow,
 			Subtitle: s.SessionsHint,
-			Rows: []components.SettingsRow{{
-				Label:   s.SignOutOthers,
-				Control: postButton(a.url+settingsSessionsID+"/", a.panel.CSRFToken(r), s.Logout),
-			}},
+			Body:     sessionsForm(passwordFormData{Action: a.url + settingsSessionsID + "/", Token: a.panel.CSRFToken(r)}),
 		})
 	}
 	if t := a.panel.totp; t != nil {
@@ -439,109 +452,186 @@ func securityBody_(a *settingsArea, r *http.Request, acct *auth.Account, f setti
 	return securityBody(f, sections)
 }
 
-// signOutOthers ends every session but the caller's: the store stamps a new
-// credential epoch (every older token is revoked, this one too) and the caller's
-// session is re-issued above it.
-func (a *settingsArea) signOutOthers(w http.ResponseWriter, r *http.Request) {
+// epochRequest is the shared front half of the two epoch POSTs: it admits only
+// a signed-in account on an EpochStore, caps and parses the body, verifies CSRF,
+// and applies the per-account throttle. A rejected request has been answered.
+func (a *settingsArea) epochRequest(w http.ResponseWriter, r *http.Request) (acct *auth.Account, iat int64, current string, ok bool) {
 	shell.SecurityHeaders(w)
-	acct := a.account(r)
-	rev, ok := a.store.(auth.SessionRevoker)
-	if acct == nil || !ok {
+	acct, iat = a.identity(r)
+	if acct == nil || a.epoch == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+		return nil, 0, "", false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsForm)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
-		return
+		return nil, 0, "", false
 	}
-	if !a.panel.verifyCSRFToken(w, r, "resource: settings sessions CSRF verification failed") {
-		return
+	if !a.panel.verifyCSRFToken(w, r, "resource: settings CSRF verification failed") {
+		return nil, 0, "", false
 	}
-	if err := rev.RevokeSessions(r.Context(), acct.ID); err != nil {
-		slog.ErrorContext(r.Context(), "resource: revoke sessions failed", "account", acct.ID, "err", err)
-		a.render(w, r, securityPageID, http.StatusInternalServerError, settingsFlash{Err: strs(r).ErrPasswordUnavailable})
-		return
+	if !a.throttleGate(w, r, acct.ID) {
+		return nil, 0, "", false
 	}
-	if rf, ok := a.panel.auth.(sessionRefresher); ok {
-		if err := rf.RefreshSession(w, r, acct.ID); err != nil {
-			slog.ErrorContext(r.Context(), "resource: re-issue session after sign-out-others failed", "account", acct.ID, "err", err)
-		}
-	}
-	http.Redirect(w, r, a.url+"security/?sessions=1", http.StatusSeeOther)
+	return acct, iat, r.PostForm.Get("current_password"), true
 }
 
-// ---- change password --------------------------------------------------------
-
-func (a *settingsArea) changePassword(w http.ResponseWriter, r *http.Request) {
-	shell.SecurityHeaders(w)
-	acct := a.account(r)
-	if acct == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsForm)
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	if !a.panel.verifyCSRFToken(w, r, "resource: settings password CSRF verification failed") {
-		return
-	}
+// epochFailed answers an auth.ChangePassword / RevokeOtherSessions error. It
+// returns true when err was non-nil and the response has been written, false
+// when the operation went through.
+func (a *settingsArea) epochFailed(w http.ResponseWriter, r *http.Request, acct *auth.Account, err error) bool {
 	s := strs(r)
-	if !a.allowAttempt(w, r, acct.ID, s) {
-		return
-	}
-	current, next, repeat := r.PostForm.Get("current_password"), r.PostForm.Get("new_password"), r.PostForm.Get("repeat_password")
-	if next != repeat {
-		a.render(w, r, securityPageID, http.StatusBadRequest, settingsFlash{Err: s.ErrPasswordMismatch})
-		return
-	}
-	err := auth.ChangePassword(r.Context(), a.store, acct, current, next)
+	page := func(status int, msg string) { a.render(w, r, securityPageID, status, settingsFlash{Err: msg}) }
 	switch {
 	case err == nil:
+		return false
 	case errors.Is(err, auth.ErrReauthFailed):
-		a.render(w, r, securityPageID, http.StatusForbidden, settingsFlash{Err: s.ErrPasswordCurrent})
-		return
+		a.recordFailure(r, acct.ID)
+		page(http.StatusForbidden, s.ErrPasswordCurrent)
+	case errors.Is(err, auth.ErrSessionStale):
+		// This session was revoked after Require admitted it (a password change
+		// or sign-out elsewhere won). Nothing was written and nothing is minted.
+		http.Redirect(w, r, a.panel.basePath+"/login", http.StatusSeeOther)
 	case errors.Is(err, auth.ErrPasswordTooShort):
-		a.render(w, r, securityPageID, http.StatusBadRequest, settingsFlash{Err: s.ErrPasswordShort(auth.MinPasswordLength)})
-		return
+		page(http.StatusBadRequest, s.ErrPasswordShort(auth.MinPasswordLength))
 	case errors.Is(err, auth.ErrPasswordTooLong):
-		a.render(w, r, securityPageID, http.StatusBadRequest, settingsFlash{Err: s.ErrPasswordLong(auth.MaxPasswordBytes)})
-		return
+		page(http.StatusBadRequest, s.ErrPasswordLong(auth.MaxPasswordBytes))
 	case errors.Is(err, auth.ErrPasswordUnchanged):
-		a.render(w, r, securityPageID, http.StatusBadRequest, settingsFlash{Err: s.ErrPasswordUnchanged})
-		return
+		page(http.StatusBadRequest, s.ErrPasswordUnchanged)
 	default:
-		// The error wraps store/hash failures only; auth.ChangePassword never
-		// puts a password or hash into one.
-		slog.ErrorContext(r.Context(), "resource: change password failed", "account", acct.ID, "err", err)
-		a.render(w, r, securityPageID, http.StatusInternalServerError, settingsFlash{Err: s.ErrPasswordUnavailable})
-		return
+		// Wraps store/hash failures only; the auth functions never put a
+		// password or hash into an error.
+		slog.ErrorContext(r.Context(), "resource: settings epoch operation failed", "account", acct.ID, "err", err)
+		page(http.StatusInternalServerError, s.ErrPasswordUnavailable)
 	}
-	// The new credential epoch revoked every session, this one included. Keep the
-	// operator signed in on this browser; every other session stays revoked.
-	if rf, ok := a.panel.auth.(sessionRefresher); ok {
-		if err := rf.RefreshSession(w, r, acct.ID); err != nil {
-			slog.ErrorContext(r.Context(), "resource: re-issue session after password change failed", "account", acct.ID, "err", err)
-		}
-	}
-	http.Redirect(w, r, a.url+"security/?changed=1", http.StatusSeeOther)
+	return true
 }
 
-// allowAttempt applies the per-account throttle, fail-closed: a limiter error
-// denies, like the login throttle.
-func (a *settingsArea) allowAttempt(w http.ResponseWriter, r *http.Request, accountID string, s Strings) bool {
-	ok, err := a.limiter.Allow(r.Context(), "pwchange:"+accountID, a.rate.Limit, a.rate.Window)
+// finishEpoch replaces the caller's session from the epoch the store stamped and
+// redirects to okURL. When no replacement can be minted the change still
+// happened, so it must not look like a success: the operator is told to sign in
+// again.
+func (a *settingsArea) finishEpoch(w http.ResponseWriter, r *http.Request, acct *auth.Account, epoch time.Time, okURL, signInMsg string) {
+	rf, ok := a.panel.auth.(sessionRefresher)
+	var err error
+	if ok {
+		err = rf.RefreshSession(w, r, epoch)
+	}
+	if !ok || err != nil {
+		if err != nil {
+			slog.ErrorContext(r.Context(), "resource: re-issuing the session after an epoch change failed", "account", acct.ID, "err", err)
+		}
+		a.renderSignInAgain(w, r, signInMsg)
+		return
+	}
+	http.Redirect(w, r, okURL, http.StatusSeeOther)
+}
+
+func (a *settingsArea) renderSignInAgain(w http.ResponseWriter, r *http.Request, msg string) {
+	sw := &statusOnWrite{ResponseWriter: w, status: http.StatusOK}
+	content := signInAgain(msg, a.panel.basePath+"/login", strs(r).SignIn)
+	if err := a.panel.RenderPage(sw, r, a.panel.title, "", content); err != nil {
+		slog.ErrorContext(r.Context(), "resource: sign-in-again page failed", "err", err)
+	}
+}
+
+// signOutOthers ends every session but the caller's, after the operator
+// re-proves the current password: the epoch is stamped conditionally on this
+// session still being current, and the caller's session is re-issued from the
+// stamp the store returned.
+func (a *settingsArea) signOutOthers(w http.ResponseWriter, r *http.Request) {
+	acct, iat, current, ok := a.epochRequest(w, r)
+	if !ok {
+		return
+	}
+	epoch, err := auth.RevokeOtherSessions(r.Context(), a.epoch, acct, iat, current)
+	if a.epochFailed(w, r, acct, err) {
+		return
+	}
+	a.finishEpoch(w, r, acct, epoch, a.url+"security/?sessions=1", strs(r).SessionsDoneSignIn)
+}
+
+// changePassword is POST settings/security/password/.
+func (a *settingsArea) changePassword(w http.ResponseWriter, r *http.Request) {
+	acct, iat, current, ok := a.epochRequest(w, r)
+	if !ok {
+		return
+	}
+	next, repeat := r.PostForm.Get("new_password"), r.PostForm.Get("repeat_password")
+	if next != repeat {
+		a.render(w, r, securityPageID, http.StatusBadRequest, settingsFlash{Err: strs(r).ErrPasswordMismatch})
+		return
+	}
+	epoch, err := auth.ChangePassword(r.Context(), a.epoch, acct, iat, current, next)
+	if a.epochFailed(w, r, acct, err) {
+		return
+	}
+	a.finishEpoch(w, r, acct, epoch, a.url+"security/?changed=1", strs(r).PasswordChangedSignIn)
+}
+
+// throttleGate is the per-account throttle, fail-closed. With a limiter that can
+// answer "blocked?" without counting (auth.BlockedChecker, which the default
+// in-process limiter is) only FAILED current-password checks count (see
+// recordFailure): successes and CSRF failures do not. With one that cannot, every
+// attempt that reaches this point counts, the conservative fallback.
+func (a *settingsArea) throttleGate(w http.ResponseWriter, r *http.Request, accountID string) bool {
+	key := "pwchange:" + accountID
+	var blocked bool
+	var err error
+	if bc, ok := a.limiter.(auth.BlockedChecker); ok {
+		blocked, err = bc.Blocked(r.Context(), key, a.rate.Limit, a.rate.Window)
+	} else {
+		var allowed bool
+		allowed, err = a.limiter.Allow(r.Context(), key, a.rate.Limit, a.rate.Window)
+		blocked = !allowed
+	}
 	if err != nil {
 		slog.ErrorContext(r.Context(), "resource: password-change rate limiter error; denying", "err", err)
 	}
-	if err == nil && ok {
+	if err == nil && !blocked {
 		return true
 	}
 	w.Header().Set("Retry-After", strconv.Itoa(max(1, int(a.rate.Window.Seconds()))))
-	a.render(w, r, securityPageID, http.StatusTooManyRequests, settingsFlash{Err: s.ErrPasswordThrottled})
+	a.render(w, r, securityPageID, http.StatusTooManyRequests, settingsFlash{Err: strs(r).ErrPasswordThrottled})
 	return false
+}
+
+// recordFailure counts one failed current-password check, for limiters that
+// throttleGate checks without counting.
+func (a *settingsArea) recordFailure(r *http.Request, accountID string) {
+	if _, ok := a.limiter.(auth.BlockedChecker); !ok {
+		return // already counted by throttleGate
+	}
+	if _, err := a.limiter.Allow(r.Context(), "pwchange:"+accountID, a.rate.Limit, a.rate.Window); err != nil {
+		slog.ErrorContext(r.Context(), "resource: recording a failed password check failed", "err", err)
+	}
+}
+
+// MountSettingsAction mounts a POST route under a consumer settings page,
+// {BasePath}/settings/{pageID}/{spec.Path}, for that page's forms and switches.
+// It applies the PAGE'S RequiredRole (a spec that names a different one panics),
+// the guard and CSRF verification with form parsing, exactly like MountAction,
+// so a page's writes cannot be weaker than its reads. Call it after
+// MountSettings and before Handler(); panics on an unknown or built-in page.
+func (p *Panel) MountSettingsAction(pageID string, spec ActionSpec) {
+	if p.settings == nil {
+		panic("resource: MountSettingsAction called before MountSettings")
+	}
+	var entry *settingsEntry
+	for i := range p.settings.pages {
+		if p.settings.pages[i].ID == pageID {
+			entry = &p.settings.pages[i]
+		}
+	}
+	if entry == nil || entry.title != nil {
+		panic(fmt.Sprintf("resource: MountSettingsAction: %q is not a consumer settings page", pageID))
+	}
+	if spec.RequiredRole != "" && spec.RequiredRole != entry.RequiredRole {
+		panic(fmt.Sprintf("resource: MountSettingsAction: the action's RequiredRole %q differs from page %q's %q; actions inherit the page's role", spec.RequiredRole, pageID, entry.RequiredRole))
+	}
+	spec.RequiredRole = entry.RequiredRole
+	spec.Path = settingsPath + "/" + pageID + "/" + strings.Trim(spec.Path, "/")
+	p.MountAction(spec)
 }
 
 func itoa(n int) string { return strings.TrimSpace(strconv.Itoa(n)) }
