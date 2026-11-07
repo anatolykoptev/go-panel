@@ -3,6 +3,7 @@ package resource
 import (
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -11,13 +12,13 @@ import (
 func TestKeyedMutex_LeavesNothingBehind(t *testing.T) {
 	var k keyedMutex
 	var wg sync.WaitGroup
-	counter := 0
+	var counter atomic.Int32
 	for i := range 200 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			unlock := k.lock("acct-" + strconv.Itoa(i%7)) // contended keys
-			counter++
+			counter.Add(1)
 			unlock()
 		}()
 	}
@@ -25,8 +26,8 @@ func TestKeyedMutex_LeavesNothingBehind(t *testing.T) {
 	if len(k.m) != 0 {
 		t.Errorf("%d entries left in the map after every lock was released", len(k.m))
 	}
-	if counter != 200 {
-		t.Errorf("counter = %d", counter)
+	if counter.Load() != 200 {
+		t.Errorf("counter = %d", counter.Load())
 	}
 }
 
