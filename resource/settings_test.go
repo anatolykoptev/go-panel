@@ -514,7 +514,7 @@ func TestSettings_AppearanceRows(t *testing.T) {
 	// No allowed skins: no Тема row, the mode row stays.
 	off := newSettingsEnv(t, settingsOpts{})
 	b := off.do(t, http.MethodGet, "/admin/settings/appearance/", nil, off.login(t, "owner@example.com", owner0PW)).Body.String()
-	if strings.Contains(b, "theme-skin") || !strings.Contains(b, `name="theme-mode"`) {
+	if strings.Contains(b, "theme-skin") || strings.Contains(b, "Как выглядит панель") || strings.Count(b, `class="set-row"`) != 1 || !strings.Contains(b, `name="theme-mode"`) {
 		t.Error("without Config.Skins the Тема row must be absent and Режим present")
 	}
 }

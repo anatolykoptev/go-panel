@@ -493,3 +493,48 @@ func TestPgxAccountStore_TOTPStore_UnknownAccountNotFound(t *testing.T) {
 		t.Errorf("DisableTOTP(bogus): got %v, want ErrAccountNotFound", err)
 	}
 }
+
+// TestPgxAccountStore_RevokeSessions: sign-out-everywhere stamps the credential
+// epoch and nothing else. Same TEST_DATABASE_URL gate as the tests above.
+func TestPgxAccountStore_RevokeSessions(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping PG integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+	store := auth.NewPgxAccountStore(pool)
+	if err := store.EnsureSchema(ctx); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS panel_accounts CASCADE") })
+
+	hash, _ := auth.HashPassword("s3cret-pw")
+	id, _, err := store.CreateAccount(ctx, "rev@example.com", "Rev", hash, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := store.GetByID(ctx, id)
+	if before.PasswordChangedAt != nil {
+		t.Fatalf("a fresh account must have no epoch stamp, got %v", before.PasswordChangedAt)
+	}
+	var _ auth.SessionRevoker = store
+	if err := store.RevokeSessions(ctx, id); err != nil {
+		t.Fatalf("RevokeSessions: %v", err)
+	}
+	after, _ := store.GetByID(ctx, id)
+	if after.PasswordChangedAt == nil {
+		t.Error("RevokeSessions did not stamp password_changed_at")
+	}
+	got, _ := store.GetByEmail(ctx, "rev@example.com")
+	if got.PasswordHash != hash {
+		t.Error("RevokeSessions changed the password hash")
+	}
+	if err := store.RevokeSessions(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, auth.ErrAccountNotFound) {
+		t.Errorf("unknown id: err = %v, want ErrAccountNotFound", err)
+	}
+}

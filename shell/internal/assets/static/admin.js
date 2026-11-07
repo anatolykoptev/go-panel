@@ -503,8 +503,8 @@
     setTheme(currentTheme()==='dark'?'light':'dark');
   });
 
-  // Theme setting (components.ThemeControlView, rendered only where a page puts
-  // shell.ThemeSetting). A mode change applies at once through the same setTheme.
+  // Theme rows (components.ThemeSkinControlView / ThemeModeControlView, from
+  // shell.ThemeRows on the settings Appearance page). A mode change applies at once through the same setTheme.
   // A skin change is stored in cookie sb-k (one year) and the page reloads: a
   // skin's CSS is only in the page when the server rendered that skin. The
   // server compares the value with the panel's allowed list, so the cookie is
@@ -531,23 +531,6 @@
     var dark=currentTheme()==='dark';
     btn.setAttribute('aria-label',themeToggleLabel(btn,dark));
     btn.setAttribute('aria-pressed',dark?'false':'true');
-  });
-})();
-
-;(function(){
-  // ---------------------------------------------------------------------------
-  // skin picker — the sidebar <select id="skin-picker"> (rendered only when the
-  // panel sets Config.Skins). The choice goes in cookie sb-k (one year, same
-  // recipe as sb-t) and the page reloads: a skin's CSS is only in the page when
-  // the server rendered that skin, so it cannot be switched in place. The server
-  // checks the value against the panel's list, so the cookie is only a request.
-  // Delegated, so it survives htmx swaps; pages without the select are unaffected.
-  // ---------------------------------------------------------------------------
-  document.addEventListener('change',function(e){
-    var sel=e.target;
-    if(!sel||sel.id!=='skin-picker') return;
-    document.cookie='sb-k='+encodeURIComponent(sel.value)+';path=/;max-age=31536000;samesite=Lax';
-    window.location.reload();
   });
 })();
 

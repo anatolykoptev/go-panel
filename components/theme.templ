@@ -59,23 +59,21 @@ func modeValue(dark bool) string {
 // ThemeSkinControlView is the "look" control: a segmented choice with one radio
 // per skin and a swatch each. Real radio inputs: arrow keys move within the
 // group. admin.js stores the choice in cookie sb-k and reloads (a skin's CSS is
-// only in a page the server rendered in that skin). Renders nothing for fewer
-// than two skins: there is nothing to choose.
+// only in a page the server rendered in that skin). Whether there is anything to
+// choose (two or more skins) is decided once, by shell.ThemeRows, which owns the row.
 templ ThemeSkinControlView(c ThemeChoice) {
-	if len(c.Skins) > 1 {
-		<fieldset class="seg-group">
-			<legend class="seg-legend">{ c.LookLegend }</legend>
-			<div class="seg">
-				for _, sk := range c.Skins {
-					<label class="seg-opt">
-						<input type="radio" name="theme-skin" value={ sk.Value } checked?={ sk.Value == c.Skin }/>
-						<span class="seg-swatch" aria-hidden="true" style={ swatchStyle(sk) }><i></i></span>
-						<span class="seg-label">{ sk.Label }</span>
-					</label>
-				}
-			</div>
-		</fieldset>
-	}
+	<fieldset class="seg-group">
+		<legend class="seg-legend">{ c.LookLegend }</legend>
+		<div class="seg">
+			for _, sk := range c.Skins {
+				<label class="seg-opt">
+					<input type="radio" name="theme-skin" value={ sk.Value } checked?={ sk.Value == c.Skin }/>
+					<span class="seg-swatch" aria-hidden="true" style={ swatchStyle(sk) }><i></i></span>
+					<span class="seg-label">{ sk.Label }</span>
+				</label>
+			}
+		</div>
+	</fieldset>
 }
 
 // ThemeModeControlView is the light / dark choice. A change goes through the

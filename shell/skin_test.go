@@ -54,7 +54,7 @@ func TestSkin_UnskinnedIsByteIdentical(t *testing.T) {
 		"graphite": {Skin: shell.SkinGraphite},
 		"unknown":  {Skin: "neon"},
 		"theme":    {Skin: "neon", Theme: "purple"},
-		// "system" is honoured only with the picker; without it it is junk.
+		// Junk theme values (a stale or forged cookie) resolve like an absent one.
 		"system": {Theme: "system"},
 		"sys-sk": {Skin: "neon", Theme: "system", DefaultTheme: "mauve"},
 	}
