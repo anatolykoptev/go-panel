@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,9 +36,38 @@ type settingsStore struct {
 	// cannot be re-issued (the change still happened).
 	breakAfterStamp bool
 	stamped         bool
+	hold            func()
+	holdCalls       int
+	// lookups counts GetByEmail calls: one per current-password verification.
+	lookups atomic.Int32
+}
+
+func (s *settingsStore) GetByEmail(ctx context.Context, email string) (*auth.Account, error) {
+	s.lookups.Add(1)
+	return s.totpTestStore.GetByEmail(ctx, email)
+}
+
+// holdSecondLookup arms fn to run (once) on the second GetByID after arming: for
+// one request that is the settings handler's own account lookup, i.e. after
+// Require admitted the session and before the attempt lock is taken.
+func (s *settingsStore) holdSecondLookup(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hold, s.holdCalls = fn, 0
 }
 
 func (s *settingsStore) GetByID(ctx context.Context, id string) (*auth.Account, error) {
+	s.mu.Lock()
+	var run func()
+	if s.hold != nil {
+		if s.holdCalls++; s.holdCalls == 2 {
+			run, s.hold = s.hold, nil
+		}
+	}
+	s.mu.Unlock()
+	if run != nil {
+		run()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.breakAfterStamp && s.stamped {
@@ -483,13 +513,14 @@ func TestSettings_SignOutOtherDevices(t *testing.T) {
 	}
 }
 
-// SEC-CR-001 (both reviewers): a request that passed Require BEFORE the victim's
-// password change must not mint a session AFTER it. The attacker holds a stolen
-// cookie (and, worst case, the password); their POST is held inside the handler
-// while the victim changes the password; released, it must be refused.
+// SEC-CR-001 (both reviewers): a request that passed Require BEFORE the epoch
+// moved must not mint a session AFTER it. The attacker holds a stolen cookie
+// (and, worst case, the password); their POST is held just past Require while
+// the victim reacts by signing the other devices out (password unchanged, so the
+// attacker's password check still passes); released, it must be refused.
 //
 // Falsification: in resource/settings.go epochRequest, hand the store
-// math.MaxInt64 instead of the session's IssuedAtMs (an unconditional write, the
+// 1<<62 instead of the session's IssuedAtMs (an unconditional write, the
 // pre-fix behaviour) -> RED: the attacker's fresh cookie is valid.
 func TestSettings_InFlightRevokedSessionCannotMintASession(t *testing.T) {
 	for name, attack := range map[string]func(e *settingsEnv, stolen *http.Cookie) *httptest.ResponseRecorder{
@@ -504,25 +535,18 @@ func TestSettings_InFlightRevokedSessionCannotMintASession(t *testing.T) {
 		victim := e.login(t, "owner@example.com", owner0PW)
 		stolen := e.login(t, "owner@example.com", owner0PW)
 		time.Sleep(5 * time.Millisecond)
+		hashBefore := e.store.hash("own")
 
 		reached, release := make(chan struct{}), make(chan struct{})
-		var once sync.Once
-		e.store.beforeStamp = func() {
-			held := false
-			once.Do(func() { held = true; close(reached) })
-			if held {
-				<-release
-			}
-		}
+		e.store.holdSecondLookup(func() { close(reached); <-release })
 		var attackerRec *httptest.ResponseRecorder
 		done := make(chan struct{})
 		go func() { defer close(done); attackerRec = attack(e, stolen) }()
-		<-reached // the attacker is past Require, CSRF and the password check
+		<-reached // the attacker is past Require and CSRF, inside the handler
 
-		// The victim reacts to the compromise by changing the password.
-		vrec := e.changePW(t, victim, pwForm(owner0PW, newPW, newPW))
+		vrec := e.signOutOthers(t, victim, owner0PW)
 		if vrec.Code != http.StatusSeeOther {
-			t.Fatalf("%s: the victim's change failed: %d", name, vrec.Code)
+			t.Fatalf("%s: the victim's sign-out failed: %d", name, vrec.Code)
 		}
 		victimNow := freshCookie(vrec)
 		close(release)
@@ -532,10 +556,10 @@ func TestSettings_InFlightRevokedSessionCannotMintASession(t *testing.T) {
 			t.Errorf("%s: the stale in-flight request got %d -> %q, want a redirect to /admin/login", name, attackerRec.Code, attackerRec.Header().Get("Location"))
 		}
 		if c := freshCookie(attackerRec); c != nil && e.do(t, http.MethodGet, "/admin/settings/profile/", nil, c).Code == http.StatusOK {
-			t.Errorf("%s: a revoked session minted a fresh valid one after the victim changed the password", name)
+			t.Errorf("%s: a revoked session minted a fresh valid one after the victim revoked it", name)
 		}
-		if !auth.VerifyPassword(newPW, e.store.hash("own")) {
-			t.Errorf("%s: the attacker's request overwrote the victim's new password", name)
+		if e.store.hash("own") != hashBefore {
+			t.Errorf("%s: the stale request changed the password", name)
 		}
 		if e.do(t, http.MethodGet, "/admin/settings/profile/", nil, victimNow).Code != http.StatusOK {
 			t.Errorf("%s: the victim lost their own session", name)
@@ -544,36 +568,70 @@ func TestSettings_InFlightRevokedSessionCannotMintASession(t *testing.T) {
 }
 
 // SEC-CR-004: two password changes from one session at once: exactly one wins.
+// (The per-account attempt lock runs them one after the other; the second then
+// fails its current-password check or its stale-session check, never succeeds.
+// The database-level race is pinned by TestPgxAccountStore_EpochGuard.)
 func TestSettings_ConcurrentPasswordChangesExactlyOneWins(t *testing.T) {
 	e := newSettingsEnv(t, settingsOpts{})
 	sess := e.login(t, "owner@example.com", owner0PW)
 	time.Sleep(5 * time.Millisecond)
-	var arrived sync.WaitGroup
-	arrived.Add(2)
-	e.store.beforeStamp = func() { arrived.Done(); arrived.Wait() }
-
-	codes := make([]string, 2)
+	start := make(chan struct{})
+	changed := make([]bool, 2)
 	var wg sync.WaitGroup
 	for i, pw := range []string{"first-new-password-11", "second-new-password-22"} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rec := e.changePW(t, sess, pwForm(owner0PW, pw, pw))
-			codes[i] = rec.Header().Get("Location")
+			<-start
+			changed[i] = e.changePW(t, sess, pwForm(owner0PW, pw, pw)).Header().Get("Location") == "/admin/settings/security/?changed=1"
 		}()
 	}
+	close(start)
 	wg.Wait()
-	ok, login := 0, 0
-	for _, loc := range codes {
-		switch loc {
-		case "/admin/settings/security/?changed=1":
-			ok++
-		case "/admin/login":
-			login++
+	if changed[0] == changed[1] {
+		t.Errorf("outcomes %v: want exactly one success", changed)
+	}
+}
+
+// SEC-CR-008: gate, verify and record are one step per account, so a concurrent
+// burst cannot all pass the gate before the first failures are recorded. At most
+// the limit reaches the password check; the rest are refused.
+//
+// Falsification: in resource/settings.go epochRequest, drop the per-account lock
+// (`release = a.attempts.lock(acct.ID)` -> `release = func() {}`) -> RED: every
+// request reaches the password check.
+func TestSettings_BurstOfWrongPasswordsCannotOutrunTheThrottle(t *testing.T) {
+	const limit, burst = 3, 24
+	e := newSettingsEnv(t, settingsOpts{rate: auth.RateRule{Limit: limit, Window: time.Hour}})
+	sess := e.login(t, "owner@example.com", owner0PW)
+	before := e.store.lookups.Load()
+	start := make(chan struct{})
+	codes := make([]int, burst)
+	var wg sync.WaitGroup
+	for i := range burst {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			codes[i] = e.signOutOthers(t, sess, "wrong-password-"+strconv.Itoa(i)).Code
+		}()
+	}
+	close(start)
+	wg.Wait()
+	forbidden, throttled := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusForbidden:
+			forbidden++
+		case http.StatusTooManyRequests:
+			throttled++
 		}
 	}
-	if ok != 1 || login != 1 {
-		t.Errorf("outcomes %q: want one success and one redirect to login", codes)
+	if got := int(e.store.lookups.Load() - before); got > limit {
+		t.Errorf("%d requests reached the password check, want at most the limit (%d)", got, limit)
+	}
+	if forbidden > limit || forbidden+throttled != burst {
+		t.Errorf("%d x 403 and %d x 429 of %d, want at most %d x 403 and the rest 429", forbidden, throttled, burst, limit)
 	}
 }
 
@@ -673,39 +731,64 @@ func TestSettings_ActionInheritsThePagesRole(t *testing.T) {
 	}
 }
 
-// No password and no hash appears in a response or a log line, whatever
-// failure the form hits.
+// No password and no hash appears in a response, a cookie or a log line,
+// whatever path the form takes: validation failures, a store outage, a
+// successful change, a wrong current password after it, and the throttle.
 func TestSettings_NoPasswordLeaks(t *testing.T) {
 	var logs bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	defer slog.SetDefault(old)
 
-	e := newSettingsEnv(t, settingsOpts{})
+	e := newSettingsEnv(t, settingsOpts{rate: auth.RateRule{Limit: 2, Window: time.Hour}})
 	sess := e.login(t, "owner@example.com", owner0PW)
-	secrets := []string{"typed-wrong-current-77", "typed-new-secret-88", "typed-other-repeat-99", "tiny"}
-	var bodies strings.Builder
-	for _, form := range []url.Values{
-		pwForm(secrets[0], secrets[1], secrets[1]),
-		pwForm(owner0PW, secrets[1], secrets[2]),
-		pwForm(owner0PW, secrets[3], secrets[3]),
-	} {
-		rec := e.changePW(t, sess, form)
-		bodies.WriteString(rec.Body.String())
+	typed := []string{
+		"typed-wrong-current-77", "typed-new-secret-88", "typed-other-repeat-99", "tiny",
+		"typed-store-down-new-11", "typed-success-new-22", "typed-wrong-after-33", "typed-wrong-after-44", "typed-throttled-55",
+	}
+	var out strings.Builder
+	capture := func(rec *httptest.ResponseRecorder) {
+		out.WriteString(rec.Body.String())
 		for k, v := range rec.Header() {
-			bodies.WriteString(k + strings.Join(v, ""))
+			out.WriteString(k + ": " + strings.Join(v, "|") + "\n")
 		}
 	}
-	all := bodies.String() + logs.String()
-	for _, s := range append(secrets[:3], owner0PW, e.store.hash("own")) {
-		if strings.Contains(all, s) {
-			t.Errorf("a password or hash (%d chars, %.3q…) appears in a response or log", len(s), s)
+	// Validation failures (a wrong current counts as failure 1 of 2).
+	capture(e.changePW(t, sess, pwForm(typed[0], typed[1], typed[1])))
+	capture(e.changePW(t, sess, pwForm(owner0PW, typed[1], typed[2])))
+	capture(e.changePW(t, sess, pwForm(owner0PW, typed[3], typed[3])))
+	// A store outage on a valid change.
+	e.store.failUpdate = true
+	capture(e.changePW(t, sess, pwForm(owner0PW, typed[4], typed[4])))
+	e.store.failUpdate = false
+	// A successful change (the new password is the secret now).
+	time.Sleep(5 * time.Millisecond)
+	rec := e.changePW(t, sess, pwForm(owner0PW, typed[5], typed[5]))
+	capture(rec)
+	fresh := freshCookie(rec)
+	if fresh == nil {
+		t.Fatal("the change did not go through")
+	}
+	// Wrong current after it, until the throttle bites.
+	capture(e.signOutOthers(t, fresh, typed[6]))
+	capture(e.signOutOthers(t, fresh, typed[7]))
+	capture(e.signOutOthers(t, fresh, typed[8])) // throttled
+	capture(e.signOutOthers(t, fresh, typed[5])) // right password, still throttled
+	capture(e.do(t, http.MethodGet, "/admin/settings/security/?changed=1", nil, fresh))
+
+	all := out.String() + logs.String()
+	for _, secret := range append(typed, owner0PW, e.store.hash("own")) {
+		if strings.Contains(all, secret) {
+			t.Errorf("a password or hash (%d chars, %.3q...) appears in a response, cookie or log", len(secret), secret)
 		}
 	}
 	if strings.Contains(all, "$2a$") || strings.Contains(all, "$2b$") {
 		t.Error("a bcrypt hash appears in a response or log")
 	}
-	if page := e.do(t, http.MethodGet, "/admin/settings/security/", nil, sess).Body.String(); strings.Contains(page, `value="`+owner0PW) {
+	if !strings.Contains(logs.String(), "epoch operation failed") {
+		t.Error("the store-outage path did not log (the test would not be exercising it)")
+	}
+	if page := e.do(t, http.MethodGet, "/admin/settings/security/", nil, fresh).Body.String(); strings.Contains(page, `value="`+owner0PW) {
 		t.Error("the form echoes a password")
 	}
 }

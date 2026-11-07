@@ -805,9 +805,12 @@ func (a *BcryptTOTPAuth) RefreshSession(w http.ResponseWriter, r *http.Request, 
 		}
 		return err
 	}
-	if acct == nil || !acct.Active || acct.Role != sd.Role {
+	if acct == nil || !acct.Active {
 		return ErrNoSession
 	}
+	// No role comparison with the cookie: the token is minted from the account's
+	// CURRENT role, and a session whose role had drifted was already refused by
+	// Require, so the handler that calls this never ran for it.
 	tok, err := a.makeTokenAt(acct.ID, acct.Role, "", a.sessionTTL, epoch.UnixMilli()+1)
 	if err != nil {
 		return err

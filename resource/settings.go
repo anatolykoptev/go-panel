@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/a-h/templ"
@@ -109,11 +110,15 @@ type settingsArea struct {
 	// epoch is the store when it implements auth.EpochStore. nil hides the
 	// password change and sign-out-everywhere (they fail closed, never fall
 	// back to an unconditional write).
-	epoch   auth.EpochAccountStore
-	pages   []settingsEntry
-	limiter auth.RateLimiter
-	rate    auth.RateRule
-	url     string // {base}/settings/
+	epoch auth.EpochAccountStore
+	// attempts serialises gate -> verify -> record per account on the
+	// BlockedChecker path, so a burst cannot all pass the gate before the first
+	// failure is recorded.
+	attempts keyedMutex
+	pages    []settingsEntry
+	limiter  auth.RateLimiter
+	rate     auth.RateRule
+	url      string // {base}/settings/
 }
 
 // MountSettings mounts the settings area: {BasePath}/settings redirects to the
@@ -455,25 +460,69 @@ func securityBody_(a *settingsArea, r *http.Request, acct *auth.Account, f setti
 // epochRequest is the shared front half of the two epoch POSTs: it admits only
 // a signed-in account on an EpochStore, caps and parses the body, verifies CSRF,
 // and applies the per-account throttle. A rejected request has been answered.
-func (a *settingsArea) epochRequest(w http.ResponseWriter, r *http.Request) (acct *auth.Account, iat int64, current string, ok bool) {
+func (a *settingsArea) epochRequest(w http.ResponseWriter, r *http.Request) (acct *auth.Account, iat int64, current string, release func(), ok bool) {
 	shell.SecurityHeaders(w)
 	acct, iat = a.identity(r)
 	if acct == nil || a.epoch == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return nil, 0, "", false
+		return nil, 0, "", nil, false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsForm)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
-		return nil, 0, "", false
+		return nil, 0, "", nil, false
 	}
 	if !a.panel.verifyCSRFToken(w, r, "resource: settings CSRF verification failed") {
-		return nil, 0, "", false
+		return nil, 0, "", nil, false
+	}
+	// With a limiter that is checked without counting, gate, verify and record
+	// must be one step per account: otherwise every request that reaches the
+	// gate before the first failures are recorded (bcrypt takes ~200 ms) passes.
+	release = func() {}
+	if _, ok := a.limiter.(auth.BlockedChecker); ok {
+		release = a.attempts.lock(acct.ID)
 	}
 	if !a.throttleGate(w, r, acct.ID) {
-		return nil, 0, "", false
+		release()
+		return nil, 0, "", nil, false
 	}
-	return acct, iat, r.PostForm.Get("current_password"), true
+	return acct, iat, r.PostForm.Get("current_password"), release, true
+}
+
+// keyedMutex is a per-key lock whose entries exist only while held or awaited,
+// so the map cannot grow with the number of accounts seen.
+type keyedMutex struct {
+	mu sync.Mutex
+	m  map[string]*keyedEntry
+}
+
+type keyedEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lock blocks until key is free and returns its unlock.
+func (k *keyedMutex) lock(key string) func() {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = map[string]*keyedEntry{}
+	}
+	e := k.m[key]
+	if e == nil {
+		e = &keyedEntry{}
+		k.m[key] = e
+	}
+	e.refs++
+	k.mu.Unlock()
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		k.mu.Lock()
+		if e.refs--; e.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
 }
 
 // epochFailed answers an auth.ChangePassword / RevokeOtherSessions error. It
@@ -540,10 +589,11 @@ func (a *settingsArea) renderSignInAgain(w http.ResponseWriter, r *http.Request,
 // session still being current, and the caller's session is re-issued from the
 // stamp the store returned.
 func (a *settingsArea) signOutOthers(w http.ResponseWriter, r *http.Request) {
-	acct, iat, current, ok := a.epochRequest(w, r)
+	acct, iat, current, release, ok := a.epochRequest(w, r)
 	if !ok {
 		return
 	}
+	defer release()
 	epoch, err := auth.RevokeOtherSessions(r.Context(), a.epoch, acct, iat, current)
 	if a.epochFailed(w, r, acct, err) {
 		return
@@ -553,10 +603,11 @@ func (a *settingsArea) signOutOthers(w http.ResponseWriter, r *http.Request) {
 
 // changePassword is POST settings/security/password/.
 func (a *settingsArea) changePassword(w http.ResponseWriter, r *http.Request) {
-	acct, iat, current, ok := a.epochRequest(w, r)
+	acct, iat, current, release, ok := a.epochRequest(w, r)
 	if !ok {
 		return
 	}
+	defer release()
 	next, repeat := r.PostForm.Get("new_password"), r.PostForm.Get("repeat_password")
 	if next != repeat {
 		a.render(w, r, securityPageID, http.StatusBadRequest, settingsFlash{Err: strs(r).ErrPasswordMismatch})
