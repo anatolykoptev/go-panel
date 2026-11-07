@@ -348,6 +348,112 @@ container: `.main` sets `overflow-x:auto`, the page body must never scroll
 sideways.
 
 
+## Skins
+
+A skin is an opt-in re-valuing of the tokens above plus structural overrides.
+**Graphite** (everything documented so far) is the default and the zero value.
+**Iris** is the second skin: light-first, drawn in pen.dev for the go-grad
+sales manager. Source: `shell/skin_iris.templ`, `shell/skin_fonts.go`.
+
+### Opting in
+
+```go
+resource.New(resource.Config{
+    Skin:         shell.SkinIris, // "" / unknown = graphite
+    DefaultTheme: "",             // optional: shell.ThemeLight|ThemeDark; "" = the skin's default
+    // ...
+})
+```
+
+`Skin` rides `ChromeState` (set by `chromeStateFrom`, and by a small middleware
+for the login and MFA routes the authenticators mount) and is emitted as
+`data-skin="iris"` on `<html>`. Resolution is total, like `themeClass`: any
+unknown value is graphite. Theme resolution: a recognised `sb-t` cookie, else
+`DefaultTheme`, else the skin default (graphite dark, iris **light**). The theme
+toggle keeps working in both skins.
+
+**Backward compatibility is byte-for-byte.** A panel that never sets `Skin`
+renders identical HTML (layout, login, MFA: goldens in `shell/testdata/`, captured
+before the skin existed), identical inline CSS, and requests no fonts. Iris CSS,
+tokens and `@font-face` are emitted only for a skinned page, every rule under
+`:root[data-skin=iris]` / `:root.dark[data-skin=iris]`. `.btn-soft` is the one
+shared addition and lives in `pm7.css` (a static asset), so the HTML stays identical.
+A consumer's own `LoginTempl` is its own page and is not skinned.
+
+### Iris tokens
+
+Light is `:root[data-skin=iris]` (and the base of dark); dark overlays it.
+
+| Token | Light | Dark | Role |
+|---|---|---|---|
+| `--bg-deep`, `--bg-base` | `#eef0f6` | `#0f1120` | canvas: page and sidebar ground |
+| `--bg-raised` (`--bg-surface`) | `#ffffff` | `#171a2c` | tile (radius 20, no border, `--shadow-tile`) |
+| `--bg-elevated` | `#f4f5fa` | `#1e2236` | row hover, disabled |
+| `--border` / `--border-subtle` | `#e4e7ef` / `#ebedf4` | `#262a40` / `#20243a` | hairlines, ghost button and chip edge |
+| `--border-control` | `#7c8299` | `#6b7190` | input edge (3:1) |
+| `--track` | `#c5cadb` | `#3a3f5c` | funnel track |
+| `--text-primary` | `#141729` | `#eceef6` | ink |
+| `--text-secondary` | `#4b516a` | `#b4b9cf` | ink-2 |
+| `--text-muted` (`--text-label`) | `#62687f` | `#9aa0b8` | ink-3: captions, column heads, counts |
+| `--text-faint` | `#8a90a8` | `#6a708b` | decorative only |
+| `--accent` | `#5046e4` | `#8b84ff` | focus ring, active nav icon, bars |
+| `--accent-text` | `#3b32c4` | `#b9b4ff` | links, active chip text |
+| `--accent-soft` | `#edecfd` | `#24224a` | active chip, `.btn-soft` |
+| `--btn-primary-bg` / `-hover` / `--on-btn-primary` | `#141729` / `#2a2f4a` / `#fff` | `#eceef6` / `#fff` / `#0f1120` | primary = ink fill, one per screen |
+| `--night`, `--on-night`, `--on-night-2` | `#151932`, `#fff`, `#b8bdda` | `#2a2e63`, `#fff`, `#b8bdda` | focus tile: `.card-focus` |
+
+Status roles (ink text / soft background / signal dot):
+
+| Role | Light | Dark |
+|---|---|---|
+| positive (ok) | `#17714a` / `#e5f5ec` / `#2e9e6b` | `#5dd3a0` / `#10301f` / `#4cc38a` |
+| warning (wait) | `#8f5a07` / `#fcf2df` / `#c98410` | `#f0b54d` / `#33280e` / `#f0b54d` |
+| negative (urgent) | `#c22b38` / `#fdecee` / `#e5484d` | `#ff8c94` / `#3a1a22` / `#ff6b73` |
+| info (iris) | `#3b32c4` / `#edecfd` / `#5046e4` | `#b9b4ff` / `#24224a` / `#8b84ff` |
+| special (orchid; replaces purple/orange/teal) | `#7b3fa0` / `#f5e9fa` / `#a55cc4` | `#e0a8f0` / `#36203f` / `#c77ddb` |
+| neutral | `#4b516a` / `#e9ecf4` / `#7d839c` | `#b4b9cf` / `#262a40` / `#8e94ad` |
+
+Type: Manrope Variable (`--font-display`: titles, big numbers, 700/800) and Inter
+Variable (`--font-sans`: UI), self-hosted latin + cyrillic woff2 under
+`/admin/static/fonts/` (`shell/internal/assets/static/fonts/`, OFL licences beside
+them). Radii: control 10 (`--radius`), tile 20 (`--radius-lg`).
+
+### What changes structurally
+
+- Sidebar sits on the canvas; the active item is a white pill with `--shadow-pop`,
+  ink text and an iris icon; counts are muted plain numbers; group captions are
+  small muted caps.
+- Tiles (`.pm7-card`, `.stat-card`, `.kpi-strip`, `.crm-table`, `.occ-board`, ...)
+  lose their border and gain `--shadow-tile`; a table nested in a card still draws no second frame.
+- Badges are a 7px dot plus a coloured word (`.badge-*` keep working).
+- Buttons: ink-fill primary, hairline ghost (`.btn-secondary`), `.btn-soft`
+  (accent-soft fill, accent-text) for row actions, danger stays red. Control height 40, 44 on phones.
+- Filter chips: white pill; active is accent-soft with iris text.
+- `.pm7-card.card-focus` is the dark focus tile (use once per page; `.card-focus-sub`
+  for its secondary line). Graphite renders it as a plain card.
+
+### Contrast
+
+`resource/skin_iris_test.go` derives its pairs from the token set (naming
+convention, not a list): text tokens on every ground and `--accent-soft`, each
+status role on its `-bg` and the grounds, `--on-*` on their surface, button fills
+under their label (all >= 4.5), and `--border-control`, `--accent` and every
+`--*-signal` on the tile (>= 3). Every iris rule that sets a background and a
+colour is checked too. Iris never leaks a graphite colour: every colour token
+graphite defines must be defined by the iris block as well (tested).
+
+Deliberate choices: `.btn-secondary` and `.filter-chip` use the hairline
+`--border` (text-labelled controls are exempt from WCAG 1.4.11); inputs use
+`--border-control`. `--warning-signal` is `#c98410`, darker than the drawn
+`#e39b2d` (2.34:1) so the dot clears 3:1.
+
+### Rollout
+
+go-grad switches first (`Skin: shell.SkinIris`); go-nerv, oxpulse-admin and go-job
+follow by flipping the same option; making iris the default is a later, separate,
+visible change. Try it: `PANEL_SKIN=iris ADMIN_HMAC_KEY=... go run ./example`
+(`/admin/today/` is the Today-style page; `PANEL_THEME=dark` overrides the default).
+
 ## Migrating from the navy palette (consumers: go-grad, go-job)
 
 No API changed: a zero-value consumer compiles and behaves identically. Only

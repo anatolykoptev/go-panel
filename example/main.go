@@ -92,7 +92,8 @@ func main() {
 	username := "admin"
 	password := "demo"
 
-	p := buildPanel([]byte(hmacKey), username, password)
+	// PANEL_SKIN=iris renders the Iris skin; PANEL_THEME=dark|light overrides its default.
+	p := buildPanelSkin([]byte(hmacKey), username, password, os.Getenv("PANEL_SKIN"), os.Getenv("PANEL_THEME"))
 
 	mux := http.NewServeMux()
 	mux.Handle("/admin/", p.Handler())
@@ -112,6 +113,11 @@ func main() {
 // buildPanel assembles the demo panel: the places resource plus the component
 // showcase page. Split out of main so the showcase can be tested end to end.
 func buildPanel(hmacKey []byte, username, password string) *resource.Panel {
+	return buildPanelSkin(hmacKey, username, password, "", "")
+}
+
+// buildPanelSkin is buildPanel with a skin and default theme (both "" = graphite defaults).
+func buildPanelSkin(hmacKey []byte, username, password, skin, theme string) *resource.Panel {
 	a := auth.NewHMACAuth(auth.HMACConfig{
 		Username:   username,
 		Password:   password,
@@ -126,11 +132,13 @@ func buildPanel(hmacKey []byte, username, password string) *resource.Panel {
 	csrfKey := sha256.Sum256(append([]byte("go-panel-example-csrf:"), hmacKey...))
 
 	p := resource.New(resource.Config{
-		Title:    "go-panel demo",
-		BasePath: "/admin",
-		Auth:     a,
-		CSRFKey:  csrfKey[:],
-		Resolver: tenant.PathResolver{Segment: 2},
+		Title:        "go-panel demo",
+		BasePath:     "/admin",
+		Auth:         a,
+		CSRFKey:      csrfKey[:],
+		Resolver:     tenant.PathResolver{Segment: 2},
+		Skin:         skin,
+		DefaultTheme: theme,
 	})
 
 	placesResource := resource.Resource{

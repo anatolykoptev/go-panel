@@ -5466,3 +5466,14 @@ a.pm7-sidebar-item--active:focus,
   opacity: 0.5;
   z-index: 0;
 }
+/* .btn-soft: quiet row action (accent-soft fill, accent-text label). Lives here,
+   not in the inline layout stylesheet, so a panel that never opts into a skin
+   keeps byte-identical HTML. Doubled class beats .btn{background:transparent}. */
+.btn.btn-soft {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.btn.btn-soft:hover {
+  background: var(--accent-soft);
+  filter: brightness(0.96);
+}

@@ -23,6 +23,50 @@ const (
 	ThemeLight = "light"
 )
 
+// Recognised ChromeState.Skin values. A skin is a complete re-valuing of the
+// design tokens plus structural overrides, selected by data-skin on <html>.
+// SkinGraphite (the zero value) is the canon every consumer has always had and
+// emits nothing extra; SkinIris is the opt-in light-first skin.
+const (
+	SkinGraphite = "graphite"
+	SkinIris     = "iris"
+)
+
+// resolveSkin is total, mirroring themeClass: any value that is not SkinIris —
+// empty, misspelt, a future skin this build does not know — resolves to
+// graphite, so no caller can emit a data-skin value the stylesheet has no rules for.
+func resolveSkin(skin string) string {
+	if skin == SkinIris {
+		return SkinIris
+	}
+	return SkinGraphite
+}
+
+// skinDefaultTheme is the theme a skin renders when the operator has no sb-t
+// cookie and the panel configured no DefaultTheme. Graphite stays dark
+// (backward-compat); iris is light-first.
+func skinDefaultTheme(skin string) string {
+	if resolveSkin(skin) == SkinIris {
+		return ThemeLight
+	}
+	return ThemeDark
+}
+
+// resolveTheme picks the <html> class: a recognised cookie value wins, then a
+// recognised configured default, then the skin's own default. Total: the
+// result is always ThemeLight or ThemeDark.
+func resolveTheme(theme, def, skin string) string {
+	switch theme {
+	case ThemeLight, ThemeDark:
+		return theme
+	}
+	switch def {
+	case ThemeLight, ThemeDark:
+		return def
+	}
+	return skinDefaultTheme(skin)
+}
+
 // ChromeState carries per-request shell (chrome) configuration threaded into
 // Layout via context.  It is the single context seam for all per-request
 // state the layout renders, replacing the narrower SidebarState.
@@ -44,15 +88,47 @@ type ChromeState struct {
 	// (go-grad, go-nerv, oxpulse-admin) that pick this up on a version bump.
 	// Use ThemeClass() to resolve to the HTML class value.
 	Theme string
+
+	// Skin selects the visual skin ("" / unknown = graphite, "iris"). Emitted as
+	// data-skin on <html> only when it resolves to a non-graphite skin, so a
+	// consumer that never sets it renders byte-identically to before skins existed.
+	Skin string
+
+	// DefaultTheme is the theme rendered when there is no sb-t cookie ("" = the
+	// skin's default: dark for graphite, light for iris). Set from Config.DefaultTheme.
+	DefaultTheme string
+}
+
+// SkinName returns the resolved skin: SkinGraphite or SkinIris.
+func (s ChromeState) SkinName() string { return resolveSkin(s.Skin) }
+
+// SkinAttr returns the value for the data-skin attribute, "" for graphite
+// (no attribute is emitted).
+func (s ChromeState) SkinAttr() string {
+	if k := resolveSkin(s.Skin); k != SkinGraphite {
+		return k
+	}
+	return ""
+}
+
+// AuthThemeClass is the <html> class for the login and MFA pages. Graphite
+// auth pages carry their own dark-only inline palette and always render dark
+// (unchanged behaviour); a skinned auth page follows the resolved theme.
+func (s ChromeState) AuthThemeClass() string {
+	if resolveSkin(s.Skin) == SkinGraphite {
+		return themeClass("")
+	}
+	return s.ThemeClass()
 }
 
 // ThemeClass returns the HTML class value for <html> given ChromeState.Theme.
-// Returns "dark" for empty or unrecognised values, "light" only for ThemeLight.
+// A recognised Theme wins; otherwise DefaultTheme, otherwise the skin's default
+// (graphite: dark, iris: light). Always "light" or "dark".
 // This is the single resolution point — Layout, LoginPage, and MFAPage all call
 // it, and the falsification tests (F1/F2) mutate this function to verify the
 // backward-compat invariant: an absent or garbage cookie MUST render dark.
 func (s ChromeState) ThemeClass() string {
-	return themeClass(s.Theme)
+	return resolveTheme(s.Theme, s.DefaultTheme, s.Skin)
 }
 
 // themeClass resolves a raw theme string to the HTML class value.

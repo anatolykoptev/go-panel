@@ -5,7 +5,13 @@ import "github.com/anatolykoptev/go-panel/i18n"
 templ MFAPage(basePath string, errMsg string) {
 {{ s := i18n.From(ctx) }}
 <!DOCTYPE html>
-<html lang={ s.Lang } class={ themeClass("") }>
+<html
+	lang={ s.Lang }
+	class={ ChromeFromContext(ctx).AuthThemeClass() }
+	if sk := ChromeFromContext(ctx).SkinAttr(); sk != "" {
+		data-skin={ sk }
+	}
+>
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -43,6 +49,11 @@ templ MFAPage(basePath string, errMsg string) {
 				.login-submit{width:100%;margin-top:.25rem;padding:.625rem;background:var(--accent);color:#fff;border:none;border-radius:.375rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:background-color .15s}
 				.login-submit:hover{background:var(--pm7-primary-hover)}
 			</style>
+	if ChromeFromContext(ctx).SkinAttr() != "" {
+		@templ.Raw(skinFontCSS(basePath + "/static"))
+		@irisTokens()
+		@irisAuth()
+	}
 </head>
 <body>
     <main class="login-shell">

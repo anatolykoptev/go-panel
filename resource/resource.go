@@ -385,6 +385,9 @@ type Panel struct {
 	// profileName resolves the sidebar display name from the session user id;
 	// nil = show the id. See Config.ProfileName.
 	profileName func(ctx context.Context, userID string) string
+	// skin and defTheme are Config.Skin / Config.DefaultTheme, stored raw: the
+	// shell resolves them (total) at render time, so there is one resolution point.
+	skin, defTheme string
 	// strings is Config.Strings merged over the English defaults, once, at New.
 	strings   i18n.Strings
 	resources []Resource // registered Resources, in Register order
@@ -506,6 +509,17 @@ type Config struct {
 	// the request context, and only when no name was set via SetProfile. A
 	// panic inside it is recovered and logged; the page renders with the id.
 	ProfileName func(ctx context.Context, userID string) string
+	// Skin selects the panel's visual skin: shell.SkinIris opts into the Iris
+	// skin (light-first, Inter + Manrope served from the panel). The zero value
+	// and any unrecognised value keep graphite, the canon every panel has
+	// always rendered — byte-identical HTML, no extra requests. The skin also
+	// covers the default login and MFA pages; a custom LoginTempl is the
+	// consumer's own page and is not skinned.
+	Skin string
+	// DefaultTheme is the theme rendered for an operator with no sb-t cookie:
+	// shell.ThemeLight or shell.ThemeDark. "" (or anything else) takes the
+	// skin's default — dark for graphite, light for iris. The cookie always wins.
+	DefaultTheme string
 }
 
 // New creates a Panel with the given config.
@@ -544,6 +558,8 @@ func New(cfg Config) *Panel {
 		locales:     cfg.Locales,
 		strings:     cfg.Strings.WithDefaults(),
 		profileName: cfg.ProfileName,
+		skin:        cfg.Skin,
+		defTheme:    cfg.DefaultTheme,
 	}
 	// Mount standard routes.
 	p.mux.Handle(bp+"/static/", http.StripPrefix(bp+"/static", shell.StaticHandler()))
@@ -571,7 +587,21 @@ func New(cfg Config) *Panel {
 // tenant a request names.
 func (p *Panel) Handler() http.Handler {
 	p.finalize()
-	return withBasePath(p.basePath, p.withStrings(withTenantResolution(p.resolver, p.mux)))
+	return withBasePath(p.basePath, p.withStrings(p.withSkin(withTenantResolution(p.resolver, p.mux))))
+}
+
+// withSkin puts the panel's skin and theme on every request context of a
+// skinned panel, so pages that are not rendered through Layout's own
+// chromeStateFrom — the login and MFA screens the authenticators mount on the
+// mux — carry the skin too. A graphite panel (the zero value) is passed
+// through untouched: same context, same bytes.
+func (p *Panel) withSkin(next http.Handler) http.Handler {
+	if probe := (shell.ChromeState{Skin: p.skin}); probe.SkinAttr() == "" && p.defTheme == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(shell.ContextWithChrome(r.Context(), p.chromeStateFrom(r))))
+	})
 }
 
 // withStrings puts the panel's Strings on every request it serves, so every
