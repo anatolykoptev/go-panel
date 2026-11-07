@@ -1,0 +1,34 @@
+package main
+
+import "github.com/anatolykoptev/go-panel/components"
+
+// Today is a Today-style landing page: a focus tile (iris skin only) next to
+// stat cards, the work queue and the funnel. Eyeball it with PANEL_SKIN=iris.
+templ Today(d showcaseData) {
+	<div class="page-header">
+		<h2>Today</h2>
+		<p>Friday, 6 November</p>
+	</div>
+	<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:1.25rem;margin-bottom:1.25rem">
+		<div class="pm7-card card-focus">
+			<p class="card-focus-sub">Good morning, Ernest</p>
+			<h2 style="margin:.5rem 0 1rem">8 things today</h2>
+			<p class="card-focus-sub" style="margin-bottom:1.25rem"><span class="badge badge-red">2 urgent</span> <span class="badge badge-blue">3 new</span> <span class="badge badge-green">1 renewal</span></p>
+			<a class="btn btn-primary" href={ showcasePath }>Start with the urgent</a>
+		</div>
+		@components.StatCardView(components.StatCard{Label: "Seats taken", Value: "6 / 42"})
+		@components.StatCardView(components.StatCard{Label: "Renewals, 30 days", Value: "3", Delta: "142 000", Trend: components.TrendUp})
+	</div>
+	<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,20rem),1fr));gap:1.25rem;align-items:start">
+		<div class="pm7-card" style="padding:0;grid-column:span 1;min-width:0">
+			<h3 class="detail-section-title" style="padding:1.5rem 1.5rem 0">What to do</h3>
+			<div style="padding:.5rem 0 .5rem">
+				@components.QueueList(showcaseQueue(d))
+			</div>
+		</div>
+		<div class="pm7-card">
+			<h3 class="detail-section-title">Funnel, month</h3>
+			@components.FunnelView(showcaseFunnel())
+		</div>
+	</div>
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -19,6 +20,16 @@ const (
 // CSRF-verified POST actions the page's controls post to, so the tokens on the
 // page are the real ones the panel issued for this session.
 func mountShowcase(p *resource.Panel) {
+	p.MountPage(resource.PageSpec{
+		Path: "today",
+		Handler: func(w http.ResponseWriter, r *http.Request) {
+			if err := p.RenderPage(w, r, "Today", "today", Today(showcaseData{Token: p.CSRFToken(r)})); err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+			}
+		},
+	})
+	p.AddNav(shell.NavItem{ID: "today", Label: "Today", Icon: "◐", URL: "/admin/today/", Badge: func(context.Context) string { return "8" }})
+
 	p.MountPage(resource.PageSpec{
 		Path: showcaseID,
 		Handler: func(w http.ResponseWriter, r *http.Request) {

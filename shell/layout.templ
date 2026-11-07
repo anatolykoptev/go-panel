@@ -162,7 +162,13 @@ func toNavGroups(nav []NavItem, collapsedGroups map[string]bool) []navGrouped {
 templ Layout(title string, nav []NavItem, content templ.Component) {
 	{{ s := i18n.From(ctx) }}
 	<!DOCTYPE html>
-	<html lang={ s.Lang } class={ ChromeFromContext(ctx).ThemeClass() }>
+	<html
+		lang={ s.Lang }
+		class={ ChromeFromContext(ctx).ThemeClass() }
+		if sk := ChromeFromContext(ctx).SkinAttr(); sk != "" {
+			data-skin={ sk }
+		}
+	>
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -170,6 +176,11 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 			<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23141414'/><text x='6' y='22' font-size='18' fill='%234daafc'>⚙</text></svg>"/>
 			<link rel="stylesheet" href="/admin/static/pm7.css"/>
 			@layoutStyles()
+			if ChromeFromContext(ctx).SkinAttr() != "" {
+				@templ.Raw(skinFontCSS(ChromeFromContext(ctx).StaticBase))
+				@irisTokens()
+				@irisChrome()
+			}
 		</head>
 		<body>
 			<div class="app">
@@ -177,7 +188,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 					<div class="sidebar-header">
 						<h1>{ title }</h1>
 						<div class="sidebar-header-actions">
-							<button type="button" class="theme-toggle" id="theme-toggle" aria-label={ themeToggleLabel(s, ChromeFromContext(ctx).Theme) } data-label-to-light={ s.SwitchToLightTheme } data-label-to-dark={ s.SwitchToDarkTheme } aria-pressed={ themeTogglePressed(ChromeFromContext(ctx).Theme) }>
+							<button type="button" class="theme-toggle" id="theme-toggle" aria-label={ themeToggleLabel(s, ChromeFromContext(ctx).ThemeClass()) } data-label-to-light={ s.SwitchToLightTheme } data-label-to-dark={ s.SwitchToDarkTheme } aria-pressed={ themeTogglePressed(ChromeFromContext(ctx).ThemeClass()) }>
 								<span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
 								<span class="theme-icon-sun" aria-hidden="true">&#9728;</span>
 							</button>
@@ -348,7 +359,13 @@ type LoginLink struct {
 templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []LoginLink) {
 	{{ s := i18n.From(ctx) }}
 	<!DOCTYPE html>
-	<html lang={ s.Lang } class={ themeClass("") }>
+	<html
+		lang={ s.Lang }
+		class={ ChromeFromContext(ctx).AuthThemeClass() }
+		if sk := ChromeFromContext(ctx).SkinAttr(); sk != "" {
+			data-skin={ sk }
+		}
+	>
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -389,6 +406,11 @@ templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []L
 				.login-links a{color:var(--accent-text);font-size:.8125rem;text-decoration:none}
 				.login-links a:hover{text-decoration:underline}
 			</style>
+			if ChromeFromContext(ctx).SkinAttr() != "" {
+				@templ.Raw(skinFontCSS(basePath + "/static"))
+				@irisTokens()
+				@irisAuth()
+			}
 		</head>
 		<body>
 			<main class="login-shell">

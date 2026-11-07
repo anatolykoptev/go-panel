@@ -57,6 +57,9 @@ func (p *Panel) chromeStateFrom(r *http.Request) shell.ChromeState {
 		state.Collapsed = true
 	}
 	state.Theme = themeFromCookie(r)
+	state.Skin = p.skin
+	state.DefaultTheme = p.defTheme
+	state.StaticBase = p.basePath + "/static"
 	state.CollapsedGroups = collapsedGroupsFromCookie(r)
 	state.Profile = p.profileFor(r)
 	return state
@@ -192,11 +195,32 @@ func (p *Panel) RenderPageHTML(w http.ResponseWriter, r *http.Request, title, ac
 // (currently Russian) message string verbatim.
 func (p *Panel) RenderError(ctx context.Context, w http.ResponseWriter, title string, nav []shell.NavItem, content templ.Component, label, message string) {
 	var buf bytes.Buffer
-	if err := shell.Layout(title, nav, content).Render(i18n.WithMerged(ctx, p.strings), &buf); err != nil {
+	if err := shell.Layout(title, nav, content).Render(i18n.WithMerged(p.chromeSkinned(ctx), p.strings), &buf); err != nil {
 		slog.ErrorContext(ctx, "resource: render failed", "label", label, "err", err)
 		http.Error(w, message, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(buf.Bytes())
+}
+
+// chromeSkinned makes sure a context handed to RenderError (which has no
+// request to read cookies from) still renders in the panel's skin: when the
+// caller's chrome state names no skin/default theme the panel's own are filled
+// in, everything else the caller set is kept. A graphite panel returns ctx as is.
+func (p *Panel) chromeSkinned(ctx context.Context) context.Context {
+	if !p.skinned() && p.defTheme == "" {
+		return ctx
+	}
+	st := shell.ChromeFromContext(ctx)
+	if st.Skin == "" {
+		st.Skin = p.skin
+	}
+	if st.DefaultTheme == "" {
+		st.DefaultTheme = p.defTheme
+	}
+	if st.StaticBase == "" {
+		st.StaticBase = p.basePath + "/static"
+	}
+	return shell.ContextWithChrome(ctx, st)
 }
