@@ -1669,7 +1669,15 @@ func sortURL(d listPageData, colKey string) string {
 	if colKey == d.SortState.Key && d.SortState.Dir == admintable.Asc {
 		dir = "desc"
 	}
-	return fmt.Sprintf("%s/%s/rows?sort=%s&dir=%s", d.BasePath, d.Resource.Name, colKey, dir)
+	// Keep every other incoming param (filters, search, view, per_page) so a
+	// sort click does not silently drop them; only sort/dir change and the
+	// page resets to 1. append is a per-request render mode, never a link param.
+	vals, _ := url.ParseQuery(d.QueryString)
+	vals.Del("append")
+	vals.Del("page")
+	vals.Set("sort", colKey)
+	vals.Set("dir", dir)
+	return fmt.Sprintf("%s/%s/rows?%s", d.BasePath, d.Resource.Name, vals.Encode())
 }
 
 // sortHref is sortURL addressed at the list PAGE rather than the /rows

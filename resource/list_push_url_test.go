@@ -153,3 +153,29 @@ func TestList_NoHrefPointsAtRows(t *testing.T) {
 		}
 	}
 }
+
+var (
+	sortHrefAttr = regexp.MustCompile(`<a class="crm-th-sort[^"]*" href="([^"]*)" hx-get="([^"]*)"`)
+)
+
+// TestList_SortKeepsFilters: a sort click keeps view, search and per_page and
+// resets the page; both the plain href and the in-place hx-get carry them.
+func TestList_SortKeepsFilters(t *testing.T) {
+	body := pushURLGet(t, "/admin/leads?view=x&q=y&per_page=7&page=3", false).Body.String()
+	ms := sortHrefAttr.FindAllStringSubmatch(body, -1)
+	if len(ms) == 0 {
+		t.Fatal("no sort headers rendered; test is vacuous")
+	}
+	for _, m := range ms {
+		for _, u := range m[1:] {
+			for _, want := range []string{"view=x", "q=y", "per_page=7", "sort=name"} {
+				if !strings.Contains(u, want) {
+					t.Errorf("sort link %q lacks %q", u, want)
+				}
+			}
+			if strings.Contains(u, "page=3") {
+				t.Errorf("sort link %q keeps page=3; page must reset", u)
+			}
+		}
+	}
+}
