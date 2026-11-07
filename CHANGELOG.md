@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* **components:** UnitStrip, numbered unit tiles for a list cell (stacking plan), with UnitLegend and resource.UnitStripCell
+
 ## [0.23.20](https://github.com/anatolykoptev/go-panel/compare/v0.23.19...v0.23.20) (2026-11-07)
 
 

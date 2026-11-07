@@ -580,3 +580,23 @@ the component never reads the clock (`Today` and `Start` are inputs). Tone is
 fill + glyph + visible text (conflict is also hatched); overlapping spans are
 stacked in lanes and flagged, never hidden. Uses only existing tokens
 (`--positive*`, `--warning*`, `--special*`, `--negative*`, `--neutral*`).
+
+### Unit strip — `components.UnitStrip` / `resource.UnitStripCell`
+
+A wrapping row of small numbered tiles (30px, 4px gap) for ONE row of a list:
+the state of places 1..N today. `resource.UnitStripCell(components.UnitRow{...})`
+returns the markup for `Cell{HTML: true}`; `components.UnitLegend` lists the
+tones once (this repo has no slot for text above a list, so a consumer puts it
+in a `MountPage` or a detail section). Use it when many rows each need a
+glance; use `OccupancyBoard` when ONE row needs its time axis. Tones are the
+closed `UnitTone` set: free (outlined `○`), hold (dashed `◌`), sale `●`,
+renewal due `↻`, unverified `?`, conflict (hatched `!`). Hold, sale, renewal
+and conflict reuse the `OccupancyBoard` glyphs and the status roles
+(`--warning*`, `--positive*`, `--special*`, `--negative*`); unverified is
+`--info*`; free is `--bg-raised` + `--border-control`. Tone is fill, glyph and
+text (screen-reader label on the tile, visible in the legend); `Note` is short
+visible text, `Title` the tooltip. A value outside the set renders as
+unverified, never as free. `Href` is followed only when it is a same-origin
+path (`/x`, not `//`, `/\`, a scheme or a control character); otherwise the
+tile has no link. Linked tiles take the one focus ring. Inside the stacked-card
+phone layout the strip simply wraps within the card.

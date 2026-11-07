@@ -671,6 +671,21 @@
 		.occ-item:last-child{border-bottom:0}
 		.occ-item a{min-height:2.75rem;display:inline-flex;align-items:center;color:var(--accent-text)}
 		.occ-range{font-family:var(--font-mono);font-size:.75rem;color:var(--text-secondary)}
+		/* Unit strip: numbered unit tiles for a list cell. Tones reuse the status roles. */
+		.unit-strip{display:flex;flex-wrap:wrap;gap:.25rem;margin:0;padding:0;list-style:none}
+		.unit-tile{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:.1875rem;min-width:1.875rem;height:1.875rem;padding:0 .3125rem;border-radius:var(--radius);background:var(--tone-bg);color:var(--tone-fg);border:1px solid var(--tone-line);font-size:.75rem;font-weight:600;line-height:1;text-decoration:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+		.unit-note{font-size:.6875rem;font-weight:500}
+		a.unit-tile:hover{text-decoration:underline}
+		a.unit-tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+		.unit-free{--tone-bg:var(--bg-raised);--tone-fg:var(--text-secondary);--tone-line:var(--border-control)}
+		.unit-hold{--tone-bg:var(--warning-bg);--tone-fg:var(--warning);--tone-line:var(--warning);border-style:dashed}
+		.unit-sale{--tone-bg:var(--positive-bg);--tone-fg:var(--positive);--tone-line:var(--positive)}
+		.unit-renewal{--tone-bg:var(--special-bg);--tone-fg:var(--special);--tone-line:var(--special)}
+		.unit-unverified{--tone-bg:var(--info-bg);--tone-fg:var(--info);--tone-line:var(--info)}
+		.unit-conflict{--tone-bg:var(--negative-bg);--tone-fg:var(--negative);--tone-line:var(--negative);background-image:repeating-linear-gradient(135deg,transparent 0 .3125rem,color-mix(in srgb,var(--tone-line) 28%,transparent) .3125rem .375rem)}
+		.unit-legend{gap:.375rem 1rem;font-size:.75rem;color:var(--text-secondary)}
+		.unit-legend li{display:inline-flex;align-items:center;gap:.375rem}
+		.unit-legend .unit-tile{min-width:1.375rem;height:1.375rem;padding:0 .25rem}
 		/* ── Narrow screens. */
 		@media(max-width:767px){
 			.occ-board{display:none}

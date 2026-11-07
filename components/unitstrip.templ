@@ -1,0 +1,43 @@
+package components
+
+// UnitStrip renders the numbered tiles of one list row (a "stacking plan"
+// cell). It wraps onto more lines inside its container, so it works in a table
+// cell and in the stacked-card phone layout alike. Use OccupancyBoard for the
+// time axis of ONE row; use UnitStrip for the state today of many rows.
+templ UnitStrip(r UnitRow) {
+	{{ L := r.Labels }}
+	<ul class="unit-strip" aria-label={ r.Label }>
+		for _, u := range r.Units {
+			<li class="unit-item">
+				if safeUnitHref(u.Href) {
+					<a class={ unitClass(u.Tone) } href={ templ.URL(u.Href) } title={ L.tooltip(u) }>
+						@unitBody(u, L)
+					</a>
+				} else {
+					<span class={ unitClass(u.Tone) } title={ L.tooltip(u) }>
+						@unitBody(u, L)
+					</span>
+				}
+			</li>
+		}
+	</ul>
+}
+
+templ unitBody(u Unit, L UnitLabels) {
+	<span class="unit-glyph" aria-hidden="true">{ unitGlyph(u.Tone) }</span>
+	<span class="unit-num" aria-hidden="true">{ itoa(u.Num) }</span>
+	if u.Note != "" {
+		<span class="unit-note" aria-hidden="true">{ u.Note }</span>
+	}
+	<span class="occ-sr">{ L.tooltip(u) }</span>
+}
+
+// UnitLegend lists the tones with their glyphs: show it once above a list of
+// UnitStrip cells.
+templ UnitLegend(L UnitLabels) {
+	<ul class="unit-strip unit-legend" aria-label={ pick(L.Legend, "Legend") }>
+		for _, t := range unitTones {
+			<li><span class={ unitClass(t) } aria-hidden="true">{ unitGlyph(t) }</span> { L.toneLabel(t) }</li>
+		}
+	</ul>
+}
