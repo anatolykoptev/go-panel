@@ -1005,12 +1005,21 @@ func mountListRoutes(p *Panel, r Resource, listHandler func(http.ResponseWriter,
 	} else {
 		p.mux.HandleFunc("GET "+listPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
 			nav := p.activeNav(req.Context(), r.Name)
+			w.Header().Add("Vary", "HX-Request")
 			shell.SecurityHeaders(w)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			listHandler(w, req, nav, false)
 		}))
 		p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, rowsHandler(listPath, listHandler)))
 	}
+}
+
+// isFragmentRequest reports whether req wants a bare htmx fragment. An htmx
+// history-restore cache miss re-requests the PAGE URL with HX-Request: true
+// and HX-History-Restore-Request: true and swaps the answer into <body>; a
+// fragment there drops the layout on Back, so it counts as a full-page request.
+func isFragmentRequest(req *http.Request) bool {
+	return render.IsHTMX(req) && req.Header.Get("HX-History-Restore-Request") != "true"
 }
 
 // rowsHandler serves the /rows fragment endpoint. The fragment is an htmx swap
@@ -1034,11 +1043,13 @@ func rowsHandler(listPath string, listHandler func(http.ResponseWriter, *http.Re
 		vals := req.URL.Query()
 		appendMode := vals.Get("append") == "1"
 		vals.Del("append")
+		// restorable re-shows the undo toast; a page URL must not carry it.
+		vals.Del("restorable")
 		pageURL := listPath
 		if enc := vals.Encode(); enc != "" {
 			pageURL += "?" + enc
 		}
-		if !render.IsHTMX(req) {
+		if !isFragmentRequest(req) {
 			// G710 false positive: the path is panel basePath + registered resource name
 			// (never request-derived); only the query string comes from the request.
 			http.Redirect(w, req, pageURL, http.StatusSeeOther) //nolint:gosec // G710: fixed same-origin path, see above
@@ -2058,7 +2069,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			data.RestorableID = restorableIDParam(q.Get("restorable"))
 		}
 
-		if fragmentOnly || render.IsHTMX(req) {
+		if fragmentOnly || isFragmentRequest(req) {
 			renderListFragment(ctx, w, data, q.Get("append") == "1")
 			return
 		}

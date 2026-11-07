@@ -41,6 +41,14 @@ func pushURLResource() resource.Resource {
 
 func pushURLGet(t *testing.T, target string, htmx bool) *httptest.ResponseRecorder {
 	t.Helper()
+	if htmx {
+		return pushURLGetH(t, target, map[string]string{"HX-Request": "true"})
+	}
+	return pushURLGetH(t, target, nil)
+}
+
+func pushURLGetH(t *testing.T, target string, hdr map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	a := auth.NewHMACAuth(auth.HMACConfig{Username: "op", Password: "pw",
 		HMACKey: []byte("0123456789abcdef0123456789abcdef"), BasePath: "/admin"})
 	p := resource.New(resource.Config{Title: "t", BasePath: "/admin", Auth: a})
@@ -51,8 +59,8 @@ func pushURLGet(t *testing.T, target string, htmx bool) *httptest.ResponseRecord
 	lrec := httptest.NewRecorder()
 	a.LoginHandler().ServeHTTP(lrec, lreq)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
-	if htmx {
-		req.Header.Set("HX-Request", "true")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
 	}
 	for _, c := range lrec.Result().Cookies() {
 		req.AddCookie(c)
@@ -161,7 +169,7 @@ var (
 // TestList_SortKeepsFilters: a sort click keeps view, search and per_page and
 // resets the page; both the plain href and the in-place hx-get carry them.
 func TestList_SortKeepsFilters(t *testing.T) {
-	body := pushURLGet(t, "/admin/leads?view=x&q=y&per_page=7&page=3", false).Body.String()
+	body := pushURLGet(t, "/admin/leads?view=x&q=y&per_page=7&page=3&restorable=9", false).Body.String()
 	ms := sortHrefAttr.FindAllStringSubmatch(body, -1)
 	if len(ms) == 0 {
 		t.Fatal("no sort headers rendered; test is vacuous")
@@ -173,9 +181,45 @@ func TestList_SortKeepsFilters(t *testing.T) {
 					t.Errorf("sort link %q lacks %q", u, want)
 				}
 			}
+			if strings.Contains(u, "restorable") {
+				t.Errorf("sort link %q carries restorable (re-shows the undo toast)", u)
+			}
 			if strings.Contains(u, "page=3") {
 				t.Errorf("sort link %q keeps page=3; page must reset", u)
 			}
 		}
+	}
+}
+
+// TestListPage_HistoryRestoreGetsFullPage: htmx re-requests the page URL with
+// HX-Request + HX-History-Restore-Request on a history cache miss and swaps the
+// reply into <body>. A bare fragment there loses the layout on Back.
+func TestListPage_HistoryRestoreGetsFullPage(t *testing.T) {
+	hdr := map[string]string{"HX-Request": "true", "HX-History-Restore-Request": "true"}
+	rec := pushURLGetH(t, "/admin/leads?view=all", hdr)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="sidebar"`) {
+		t.Errorf("history restore on the page route: status %d, layout (sidebar) present=%v",
+			rec.Code, strings.Contains(rec.Body.String(), `id="sidebar"`))
+	}
+	if v := rec.Header().Get("Vary"); !strings.Contains(v, "HX-Request") {
+		t.Errorf("page route Vary = %q, want HX-Request", v)
+	}
+	// On /rows it redirects like a plain request.
+	rec = pushURLGetH(t, "/admin/leads/rows?view=all", hdr)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/leads?view=all" {
+		t.Errorf("/rows history restore: status %d Location %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+// TestRows_RedirectAndPushDropRestorable: the undo-toast param never rides into
+// a page URL.
+func TestRows_RedirectAndPushDropRestorable(t *testing.T) {
+	rec := pushURLGet(t, "/admin/leads/rows?view=all&restorable=9", false)
+	if got := rec.Header().Get("Location"); got != "/admin/leads?view=all" {
+		t.Errorf("Location = %q", got)
+	}
+	rec = pushURLGet(t, "/admin/leads/rows?view=all&restorable=9", true)
+	if got := rec.Header().Get("HX-Push-Url"); got != "/admin/leads?view=all" {
+		t.Errorf("HX-Push-Url = %q", got)
 	}
 }

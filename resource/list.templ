@@ -468,6 +468,7 @@ func sortURL(d listPageData, colKey string) string {
 	// page resets to 1. append is a per-request render mode, never a link param.
 	vals, _ := url.ParseQuery(d.QueryString)
 	vals.Del("append")
+	vals.Del("restorable") // would re-show the undo toast on every sort/page click
 	vals.Del("page")
 	vals.Set("sort", colKey)
 	vals.Set("dir", dir)
@@ -506,6 +507,7 @@ func pageURL(d listPageData, page int) string {
 	// carrying it into Prev/Next region-swap links would make them return
 	// bare rows into the region target.
 	vals.Del("append")
+	vals.Del("restorable") // would re-show the undo toast on every sort/page click
 	vals.Set("page", strconv.Itoa(page))
 	if d.SortState.Key != "" {
 		vals.Set("sort", d.SortState.Key)
