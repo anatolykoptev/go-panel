@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.20](https://github.com/anatolykoptev/go-panel/compare/v0.23.19...v0.23.20) (2026-11-07)
+
+
+### Added
+
+* **resource:** standard settings page with theme choice, password change and 2FA ([#186](https://github.com/anatolykoptev/go-panel/issues/186)) ([0e6ac84](https://github.com/anatolykoptev/go-panel/commit/0e6ac8458b54d8ca32b8ddc0de36cc6cb9fc26dc))
+* **shell:** iris skin — opt-in light-first skin ([#183](https://github.com/anatolykoptev/go-panel/issues/183)) ([6c8a70c](https://github.com/anatolykoptev/go-panel/commit/6c8a70c41f46bea548a3159f8ef84b1d7f76cf0d))
+
 ## [0.23.19](https://github.com/anatolykoptev/go-panel/compare/v0.23.18...v0.23.19) (2026-10-26)
 
 
