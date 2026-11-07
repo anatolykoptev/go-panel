@@ -506,7 +506,7 @@ func TestPgxAccountStore_RevokeSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close) // registered first, so it runs AFTER the drop below (cleanups run last-in first-out)
 	store := auth.NewPgxAccountStore(pool)
 	if err := store.EnsureSchema(ctx); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
