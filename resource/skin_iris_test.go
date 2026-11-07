@@ -12,6 +12,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/anatolykoptev/go-panel/auth"
+	"github.com/anatolykoptev/go-panel/components"
 	"github.com/anatolykoptev/go-panel/resource"
 	"github.com/anatolykoptev/go-panel/shell"
 )
@@ -404,4 +405,43 @@ func mustFloat(s string) float64 {
 		}
 	}
 	return f
+}
+
+// TestSkinIris_RowActionsAreSoftNotInk: under iris the ink fill is reserved for
+// the one page-level CTA. A work-queue row (or list row) action, even when the
+// component marks it primary, must paint the soft pair, never --btn-primary-bg.
+//
+// Falsification: delete the `.queue-actions .btn-primary,.crm-table .btn-primary`
+// rule in shell/skin_iris.templ (the line right above the .btn-secondary rule)
+// -> no soft rule for the primary row action -> RED.
+func TestSkinIris_RowActionsAreSoftNotInk(t *testing.T) {
+	var row strings.Builder
+	qr := components.QueueRow{ID: "q", Title: "T", Actions: []components.RowAction{{Label: "Take", Variant: components.VariantPrimary, Href: "/x"}}}
+	if err := components.QueueRowView(qr).Render(context.Background(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(row.String(), `class="btn btn-primary`) || !strings.Contains(row.String(), "queue-actions") {
+		t.Fatalf("queue row markup changed; the skin selector no longer targets it: %s", row.String())
+	}
+	body := irisRender(t)
+	css := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(body, "")
+	for _, anchor := range []string{".queue-actions .btn-primary", ".crm-table .btn-primary"} {
+		found := false
+		for _, m := range ruleRe.FindAllStringSubmatch(css, -1) {
+			sel := strings.TrimSpace(m[1])
+			if !strings.Contains(sel, ":root[data-skin=iris] "+anchor) || strings.Contains(sel, ":hover") {
+				continue
+			}
+			found = true
+			if bg := decl(m[2], "background"); bg != "var(--accent-soft)" {
+				t.Errorf("%s: row action background = %q, want var(--accent-soft) (not the ink fill)", anchor, bg)
+			}
+			if fg := decl(m[2], "color"); fg != "var(--accent-text)" {
+				t.Errorf("%s: row action colour = %q, want var(--accent-text)", anchor, fg)
+			}
+		}
+		if !found {
+			t.Errorf("iris has no soft override for %s: primary row actions would render ink", anchor)
+		}
+	}
 }
