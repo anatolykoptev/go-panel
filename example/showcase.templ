@@ -107,7 +107,7 @@ templ section(title string) {
 templ Showcase(d showcaseData) {
 	<div class="page-header">
 		<h2>Component showcase</h2>
-		<p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline · occupancy board</p>
+		<p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline · occupancy board · unit strip</p>
 	</div>
 	@section("Buttons") {
 		<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -158,6 +158,13 @@ templ Showcase(d showcaseData) {
 	@section("Occupancy board") {
 		<div class="detail-section">
 			@components.OccupancyBoard(showcaseOccupancy(d.Months))
+		</div>
+	}
+	@section("Unit strip") {
+		<div class="detail-section">
+			@components.UnitLegend(components.UnitLabels{})
+			<p></p>
+			@components.UnitStrip(showcaseUnits())
 		</div>
 	}
 	@section("Definition list") {
