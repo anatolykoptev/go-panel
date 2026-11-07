@@ -595,7 +595,9 @@ and conflict reuse the `OccupancyBoard` glyphs and the status roles
 (`--warning*`, `--positive*`, `--special*`, `--negative*`); unverified is
 `--info*`; free is `--bg-raised` + `--border-control`. Tone is fill, glyph and
 text (screen-reader label on the tile, visible in the legend); `Note` is short
-visible text, `Title` the tooltip. A value outside the set renders as
+visible text (truncated with an ellipsis past 10ch), `Title` the tooltip and
+screen-reader name: it replaces the default "Place N · tone · note", so a custom
+Title must include the state. A value outside the set renders as
 unverified, never as free. `Href` is followed only when it is a same-origin
 path (`/x`, not `//`, `/\`, a scheme or a control character); otherwise the
 tile has no link. Linked tiles take the one focus ring. Inside the stacked-card

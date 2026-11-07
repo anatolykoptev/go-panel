@@ -72,7 +72,8 @@ func unitGlyph(t UnitTone) string {
 // 12.11"); both are plain text and always escaped. Href is optional and is
 // followed only when it is a same-origin path (see safeUnitHref); anything
 // else renders the tile without a link. Empty Title falls back to
-// "Place N · tone · note".
+// "Place N · tone · note". A custom Title REPLACES that text for screen
+// readers, so it must include the state ("Place 3 · Hold until 12.11").
 type Unit struct {
 	Num   int
 	Tone  UnitTone
