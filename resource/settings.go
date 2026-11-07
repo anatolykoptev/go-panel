@@ -398,7 +398,7 @@ func profileBody(a *settingsArea, r *http.Request, acct *auth.Account, _ setting
 			name = prof.Name
 		}
 	}
-	rows := []components.SettingsRow{{Label: s.SignedInAs(name), Hint: s.ProfileHint}, {Label: s.ProfileName, Control: statusWord(name)}}
+	rows := []components.SettingsRow{{Label: s.SignedInAs(name)}, {Label: s.ProfileName, Control: statusWord(name)}}
 	if email != "" {
 		rows = append(rows, components.SettingsRow{Label: s.ProfileEmail, Control: statusWord(email)})
 	}
