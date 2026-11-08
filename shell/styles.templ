@@ -505,6 +505,9 @@ templ layoutStyles() {
 		.stat-card{background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem}
 		.stat-label{font-family:var(--font-mono);font-size:.6875rem;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.375rem}
 		.stat-value{font-size:1.75rem;font-weight:700;color:var(--text-primary);font-family:var(--font-mono)}
+		a.stat-card-link{display:block;box-sizing:border-box;height:100%;color:inherit;text-decoration:none}
+		a.stat-card-link:hover{background:var(--bg-elevated);border-color:var(--accent)}
+		a.stat-card-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 		/* ── Delta badges (GA4-style period-over-period) ───────────────────────
 		   Ported from oxpulse-admin layout.html:81-86; remapped to go-panel tokens.
 		   Status pairs are solid canon tokens, never rgba. */
@@ -629,6 +632,9 @@ templ layoutStyles() {
 		.kpi-delta-down{color:var(--negative)}
 		.kpi-delta-new{color:var(--info)}
 		.kpi-note{font-weight:400;color:var(--text-secondary)}
+		a.kpi-cell-link{display:block;color:inherit;text-decoration:none}
+		a.kpi-cell-link:hover{background:var(--bg-elevated)}
+		a.kpi-cell-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 		/* ── Emphasised list row (resource.Row.Emphasis). Weight, not colour. */
 		.crm-table tbody tr.row-emphasis>td{font-weight:600;color:var(--text-primary)}
 		/* ── Occupancy board (components.OccupancyBoard): positions x months.

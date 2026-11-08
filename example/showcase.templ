@@ -45,7 +45,7 @@ func showcaseQueue(d showcaseData) []components.QueueRow {
 func showcaseKPIs() []components.KPI {
 	return []components.KPI{
 		{Label: "Revenue, month", Value: "184 600", Delta: "12%", Trend: components.TrendUp, Note: "vs September"},
-		{Label: "Leads, month", Value: "15", Delta: "3", Trend: components.TrendUp, Note: "conversion 13%"},
+		{Label: "Leads, month", Value: "15", Href: showcasePath, Delta: "3", Trend: components.TrendUp, Note: "conversion 13%"},
 		{Label: "Slots taken", Value: "4 / 24", Delta: "1 slot", Trend: components.TrendDown},
 		{Label: "Ad clicks", Value: "1 280", Delta: "8%", Trend: components.TrendUp, Note: "vs September", Spark: []int{3, 5, 4, 7, 6, 9}},
 	}
@@ -107,7 +107,7 @@ templ section(title string) {
 templ Showcase(d showcaseData) {
 	<div class="page-header">
 		<h2>Component showcase</h2>
-		<p>buttons · chips · definition list · form controls · KPI strip · queue · funnel · stepper · timeline · occupancy board · unit strip</p>
+		<p>buttons · chips · definition list · form controls · stat cards · KPI strip · queue · funnel · stepper · timeline · occupancy board · unit strip</p>
 	</div>
 	@section("Buttons") {
 		<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -131,6 +131,12 @@ templ Showcase(d showcaseData) {
 			<span class="badge badge-red">Overdue</span>
 			<span class="badge badge-yellow">In 9 days</span>
 		</div>
+	}
+	@section("Stat cards") {
+		@components.Grid(
+			components.StatCardView(components.StatCard{Label: "Renewals, 30 days", Value: "3", Delta: "142 000", Trend: components.TrendUp, Href: showcasePath}),
+			components.StatCardView(components.StatCard{Label: "Seats taken", Value: "6 / 42"}),
+		)
 	}
 	@section("KPI strip") {
 		@components.KPIStrip(showcaseKPIs())
