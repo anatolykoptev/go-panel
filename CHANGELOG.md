@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.23.21](https://github.com/anatolykoptev/go-panel/compare/v0.23.20...v0.23.21) (2026-11-08)
+
+
+### Added
+
+* **components:** StatCard.Href — a KPI tile can link to its list ([#195](https://github.com/anatolykoptev/go-panel/issues/195)) ([b8e55fa](https://github.com/anatolykoptev/go-panel/commit/b8e55fab06c13c2265575fef52beafc301892d7b))
+* **components:** UnitStrip — numbered unit tiles for a list cell (stacking plan) ([#192](https://github.com/anatolykoptev/go-panel/issues/192)) ([4406235](https://github.com/anatolykoptev/go-panel/commit/4406235b2c867d6c71930ae11858662aa8304fc6))
+
+
+### Fixed
+
+* **resource:** lists push the page URL, and /rows opened directly redirects to the page ([#194](https://github.com/anatolykoptev/go-panel/issues/194)) ([888cfbb](https://github.com/anatolykoptev/go-panel/commit/888cfbb7a4da3d16f729b5d31fbb820f94cef8d6))
+
 ## [0.23.20](https://github.com/anatolykoptev/go-panel/compare/v0.23.19...v0.23.20) (2026-11-07)
 
 
