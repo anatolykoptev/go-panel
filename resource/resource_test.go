@@ -711,6 +711,7 @@ func TestHandler_MarkerGuard_NonTenantSegmentsResolveGlobal(t *testing.T) {
 	// "rows" sits at Segment=2 — the exact position tenant.PathResolver reads
 	// for the slug. Pre-marker-guard, this resolved city "rows".
 	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/rating_sponsorships/rows", nil)
+	r.Header.Set("HX-Request", "true")
 	r.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookieVal})
 	w := httptest.NewRecorder()
 	p.Handler().ServeHTTP(w, r)
