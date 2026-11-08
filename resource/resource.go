@@ -833,7 +833,7 @@ func (p *Panel) NavItemsActive(activeID string) []shell.NavItem {
 // Mounted routes:
 //
 //	GET  {basePath}/{name}            — list page (full or htmx fragment)
-//	GET  {basePath}/{name}/rows       — htmx row fragment only (sort/filter swap target)
+//	GET  {basePath}/{name}/rows       — htmx row fragment only (sort/filter swap target); without HX-Request it 303s to the list page
 //	GET  {basePath}/{name}/{id}       — detail/Show page (only when Detailer != nil; id=="new" → 404)
 //	GET  {basePath}/{name}/new        — empty create form (only when Writer != nil)
 //	GET  {basePath}/{name}/{id}/edit  — pre-populated edit form (only when Writer != nil; id=="new" → 404)
@@ -1001,23 +1001,66 @@ func mountListRoutes(p *Panel, r Resource, listHandler func(http.ResponseWriter,
 			http.Redirect(w, req, editURL, http.StatusSeeOther)
 		}))
 		// /rows still works for htmx fragments if needed.
-		p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
-			shell.SecurityHeaders(w)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			listHandler(w, req, nil, true)
-		}))
+		p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, rowsHandler(listPath, listHandler)))
 	} else {
 		p.mux.HandleFunc("GET "+listPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
 			nav := p.activeNav(req.Context(), r.Name)
+			w.Header().Add("Vary", "HX-Request")
 			shell.SecurityHeaders(w)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			listHandler(w, req, nav, false)
 		}))
-		p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, func(w http.ResponseWriter, req *http.Request) {
-			shell.SecurityHeaders(w)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			listHandler(w, req, nil, true)
-		}))
+		p.mux.HandleFunc("GET "+rowsPath, p.guard(r.RequiredRole, rowsHandler(listPath, listHandler)))
+	}
+}
+
+// isFragmentRequest reports whether req wants a bare htmx fragment. An htmx
+// history-restore cache miss re-requests the PAGE URL with HX-Request: true
+// and HX-History-Restore-Request: true and swaps the answer into <body>; a
+// fragment there drops the layout on Back, so it counts as a full-page request.
+func isFragmentRequest(req *http.Request) bool {
+	return render.IsHTMX(req) && req.Header.Get("HX-History-Restore-Request") != "true"
+}
+
+// rowsHandler serves the /rows fragment endpoint. The fragment is an htmx swap
+// target, never a page: an address bar showing /rows reloads, shares and
+// bookmarks as a bare table with no layout. So:
+//
+//   - a request without HX-Request (typed URL, bookmark, middle-click, an
+//     already-shared link) redirects to the list page with the same query;
+//   - an htmx request gets the fragment plus an HX-Push-Url header naming the
+//     list page URL, which htmx prefers over the hx-push-url="true" attribute
+//     (that would push the /rows request URL). One place covers the filter
+//     form, the sort headers and the pagination.
+//
+// listPath is built from the panel's basePath and the registered resource
+// name — never from a request header or path — so the redirect cannot leave
+// the panel. Load-more (append=1) swaps rows in place and pushes nothing.
+func rowsHandler(listPath string, listHandler func(http.ResponseWriter, *http.Request, []shell.NavItem, bool)) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		// The response differs by HX-Request; keep shared caches honest.
+		w.Header().Add("Vary", "HX-Request")
+		vals := req.URL.Query()
+		appendMode := vals.Get("append") == "1"
+		vals.Del("append")
+		// restorable re-shows the undo toast; a page URL must not carry it.
+		vals.Del("restorable")
+		pageURL := listPath
+		if enc := vals.Encode(); enc != "" {
+			pageURL += "?" + enc
+		}
+		if !isFragmentRequest(req) {
+			// G710 false positive: the path is panel basePath + registered resource name
+			// (never request-derived); only the query string comes from the request.
+			http.Redirect(w, req, pageURL, http.StatusSeeOther) //nolint:gosec // G710: fixed same-origin path, see above
+			return
+		}
+		if !appendMode {
+			w.Header().Set("HX-Push-Url", pageURL)
+		}
+		shell.SecurityHeaders(w)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		listHandler(w, req, nil, true)
 	}
 }
 
@@ -2026,7 +2069,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			data.RestorableID = restorableIDParam(q.Get("restorable"))
 		}
 
-		if fragmentOnly || render.IsHTMX(req) {
+		if fragmentOnly || isFragmentRequest(req) {
 			renderListFragment(ctx, w, data, q.Get("append") == "1")
 			return
 		}
