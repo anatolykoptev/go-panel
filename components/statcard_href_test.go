@@ -88,6 +88,9 @@ func TestKPIStrip_Href(t *testing.T) {
 	if !strings.Contains(out, `<a class="kpi-cell kpi-cell-link" href="/admin/leads"><div class="kpi-label">Leads</div><div class="kpi-value"><span>15</span>`) {
 		t.Errorf("linked cell wrong: %s", out)
 	}
+	if !strings.Contains(out, `<div class="kpi-cell"><div class="kpi-label">Plain</div><div class="kpi-value"><span>1</span> </div></div>`) {
+		t.Errorf("plain cell drifted: %s", out)
+	}
 	if strings.Count(out, `<div class="kpi-cell">`) != 2 || strings.Contains(out, "javascript:") {
 		t.Errorf("unsafe/plain cells wrong: %s", out)
 	}
