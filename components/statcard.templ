@@ -63,13 +63,18 @@ type StatCard struct {
 	Delta string
 	Trend Trend
 	Spark []int
+	// Href, when it is a same-origin path (see safeUnitHref), makes the whole
+	// card one link to the list behind the number. Anything else (absolute,
+	// protocol-relative, javascript:, control characters) renders the plain
+	// card: Href is consumer data and is never trusted.
+	Href string
 }
 
 // StatCardView renders a single .stat-card metric tile.
 //
 // Structure:
 //
-//	<div class="stat-card">
+//	<div class="stat-card">    ← <a class="stat-card stat-card-link" href> when Href is a safe path
 //	  <div class="stat-label">{ c.Label }</div>    ← auto-escaped
 //	  <div class="stat-value">
 //	    { c.Value }
@@ -81,16 +86,26 @@ type StatCard struct {
 // CSS classes .stat-card / .stat-label / .stat-value / .delta / .delta-* /
 // .sparkline / .sparkline-line / .sparkline-zero are defined in shell/styles.templ.
 templ StatCardView(c StatCard) {
-	<div class="stat-card">
-		<div class="stat-label">{ c.Label }</div>
-		<div class="stat-value">
-			{ c.Value }
-			if c.Trend != TrendNone && c.Delta != "" {
-				<span class={ "delta", trendClass(c.Trend) }>{ trendGlyph(c.Trend) }{ c.Delta }</span>
-			}
+	if safeUnitHref(c.Href) {
+		<a class="stat-card stat-card-link" href={ templ.URL(c.Href) }>
+			@statCardBody(c)
+		</a>
+	} else {
+		<div class="stat-card">
+			@statCardBody(c)
 		</div>
-		if len(c.Spark) > 0 {
-			@Sparkline(c.Spark)
+	}
+}
+
+templ statCardBody(c StatCard) {
+	<div class="stat-label">{ c.Label }</div>
+	<div class="stat-value">
+		{ c.Value }
+		if c.Trend != TrendNone && c.Delta != "" {
+			<span class={ "delta", trendClass(c.Trend) }>{ trendGlyph(c.Trend) }{ c.Delta }</span>
 		}
 	</div>
+	if len(c.Spark) > 0 {
+		@Sparkline(c.Spark)
+	}
 }

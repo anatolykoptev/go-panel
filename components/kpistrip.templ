@@ -11,6 +11,9 @@ type KPI struct {
 	Trend Trend
 	Note  string
 	Spark []int
+	// Href, when a same-origin path (see safeUnitHref), makes the whole cell
+	// one link. Unsafe values render the plain cell.
+	Href string
 }
 
 func kpiDeltaClass(t Trend) string {
@@ -33,25 +36,35 @@ func kpiDeltaClass(t Trend) string {
 templ KPIStrip(cells []KPI) {
 	<div class="kpi-strip">
 		for _, c := range cells {
-			<div class="kpi-cell">
-				<div class="kpi-label">{ c.Label }</div>
-				<div class="kpi-value">
-					<span>{ c.Value }</span>
-					if len(c.Spark) > 0 {
-						@Sparkline(c.Spark)
-					}
+			if safeUnitHref(c.Href) {
+				<a class="kpi-cell kpi-cell-link" href={ templ.URL(c.Href) }>
+					@kpiBody(c)
+				</a>
+			} else {
+				<div class="kpi-cell">
+					@kpiBody(c)
 				</div>
-				if (c.Trend != TrendNone && c.Delta != "") || c.Note != "" {
-					<div class={ kpiDeltaClass(c.Trend) }>
-						if c.Trend != TrendNone && c.Delta != "" {
-							<span>{ trendGlyph(c.Trend) }{ c.Delta }</span>
-						}
-						if c.Note != "" {
-							<span class="kpi-note">{ " " + c.Note }</span>
-						}
-					</div>
-				}
-			</div>
+			}
 		}
 	</div>
+}
+
+templ kpiBody(c KPI) {
+	<div class="kpi-label">{ c.Label }</div>
+	<div class="kpi-value">
+		<span>{ c.Value }</span>
+		if len(c.Spark) > 0 {
+			@Sparkline(c.Spark)
+		}
+	</div>
+	if (c.Trend != TrendNone && c.Delta != "") || c.Note != "" {
+		<div class={ kpiDeltaClass(c.Trend) }>
+			if c.Trend != TrendNone && c.Delta != "" {
+				<span>{ trendGlyph(c.Trend) }{ c.Delta }</span>
+			}
+			if c.Note != "" {
+				<span class="kpi-note">{ " " + c.Note }</span>
+			}
+		</div>
+	}
 }

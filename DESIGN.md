@@ -239,6 +239,18 @@ non-list page. Nested cards are always wrong. Most content does not need one
 `components.Grid(...)`. The `Spark` field draws a sparkline. Do not write a
 number-plus-label block by hand; this is it.
 
+**A tile that opens its list: `StatCard.Href` / `KPI.Href`.** Set `Href` to a
+same-origin path (`/admin/leases?status=due`) and the whole card is one
+`<a class="stat-card stat-card-link">` (a KPI cell: `<a class="kpi-cell
+kpi-cell-link">`); the label, value and delta form its accessible name. Do not
+wrap a card in your own `<a>` and restyle it downstream. The check is the one
+`UnitStrip` uses: a value that is not a single-slash path (`https:`,
+`javascript:`, `//host`, `/\host`, control characters) renders the plain card, so
+a bad link degrades to a tile, never to an unsafe `href`. A linked card keeps
+card styling (no underline, inherited text colour), gets a `--bg-elevated`
+hover with an `--accent` border, a 2px `--accent` `:focus-visible` ring, and
+fills its grid cell height. With `Href` empty the markup is unchanged.
+
 ### Buttons — `.btn` + `-primary` / `-secondary` / `-ghost` / `-danger`
 
 Sizes `-sm` / `-lg`, `-block`; `disabled` / `aria-disabled="true"` restyles and blocks
