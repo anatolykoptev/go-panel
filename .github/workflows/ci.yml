@@ -118,7 +118,7 @@ jobs:
         with:
           # Must be built with Go >= the go.mod toolchain (the action installs a
           # prebuilt binary; v2.11.4's go1.26 build refuses a go1.27 target).
-          version: v2.14.0
+          version: v2.15.0
       # Dependency-CVE gate. Pinned (not @latest, see Makefile `vuln` target)
       # so a new govulncheck release can't silently change what gates the
       # merge, and named so a CVE finding shows up as its own red step
