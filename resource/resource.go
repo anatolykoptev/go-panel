@@ -164,6 +164,19 @@ type ListQuery struct {
 	Limit      int
 	Offset     int
 
+	// Filters carries the active, validated filter values keyed by
+	// [admintable.Filter.Key], for Listers that do not build SQL (an upstream
+	// HTTP API, an in-memory store). Only declared filters appear; a closed set
+	// (Filter.Allowed) has already dropped values outside it, and a filter with
+	// no admitted value is absent. nil when no filter is active. Eq and ILike
+	// filters carry one element, AnyOf carries every admitted element.
+	//
+	// SQL Listers keep using WhereConds/WhereArgs. A non-SQL lister still has to
+	// give each Eq/AnyOf Filter a non-empty SQLExpr (ILike: SQLExprs) to pass
+	// admintable validation: use the column key it wants to receive and ignore
+	// the generated WhereConds.
+	Filters map[string][]string
+
 	// View is the selected [Resource.Views] key, or "" when the resource
 	// declares none. It is ALWAYS one of the declared keys: the framework
 	// resolves the URL value against the closed set and falls back to the first
@@ -2024,6 +2037,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			Limit:      pageSize,
 			Offset:     offset,
 			View:       view,
+			Filters:    structuredFilters(r.Filter, q),
 		}
 
 		rows, total, err := r.Lister(ctx, lq)
