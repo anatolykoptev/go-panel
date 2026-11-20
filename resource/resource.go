@@ -470,6 +470,28 @@ type sessionCookier interface {
 	SessionCookieName() string
 }
 
+// SessionBinder is the optional interface implemented by authenticators whose
+// session identity does not live in a cookie the panel can name (for example a
+// header-asserted identity from an upstream proxy). SessionBinding returns the
+// stable per-session string CSRF tokens are bound to; it is preferred over
+// SessionCookieName when both are implemented. An empty return means "no
+// session": the panel refuses to issue or accept a CSRF token for it
+// (fail-closed), so a binding must never be empty on a request that reaches a
+// CSRF-verified route.
+type SessionBinder interface {
+	SessionBinding(r *http.Request) string
+}
+
+// hasSessionBinding reports whether a can supply a CSRF session binding,
+// either through SessionBinder or through SessionCookieName.
+func hasSessionBinding(a any) bool {
+	if _, ok := a.(SessionBinder); ok {
+		return true
+	}
+	_, ok := a.(sessionCookier)
+	return ok
+}
+
 // RoleAuthenticator is the optional capability an Authenticator implements to
 // back role-gated resources. It is the security AUTHORITY for role checks:
 //
@@ -1104,8 +1126,8 @@ func validateCSRFConfig(p *Panel, label, qualifier, purpose string) {
 	if len(p.csrfKey) < minCSRFKeyLen {
 		panic(fmt.Sprintf("%s: Config.CSRFKey must be at least %d bytes, got %d (fail-closed, SEC-CR-001)", label, minCSRFKeyLen, len(p.csrfKey)))
 	}
-	if _, ok := p.auth.(sessionCookier); !ok {
-		panic(fmt.Sprintf("%s: %sthe authenticator does not implement SessionCookieName() — CSRF tokens cannot be bound to the session cookie (fail-closed)", label, qualifier))
+	if !hasSessionBinding(p.auth) {
+		panic(fmt.Sprintf("%s: %sthe authenticator implements neither SessionBinder nor SessionCookieName() — CSRF tokens cannot be bound to the session (fail-closed)", label, qualifier))
 	}
 }
 
@@ -1287,8 +1309,7 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 		}
 		// Issue CSRF token for the delete button when Writer.Delete is configured.
 		if r.Writer != nil && r.Writer.Delete != nil {
-			sessVal := p.sessionValue(req)
-			d.CSRFToken = csrf.Issue(p.csrfKey, sessVal, csrf.DefaultTTL)
+			d.CSRFToken = p.issueCSRF(req)
 		}
 		content := detailPageContent(d)
 		layoutComp := shell.Layout(p.title, nav, content)
@@ -1373,7 +1394,7 @@ func newFormHandler(p *Panel, r Resource) http.HandlerFunc {
 			return
 		}
 		nav := p.activeNav(req.Context(), r.Name)
-		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+		tok := p.issueCSRF(req)
 		d := formPageData{
 			Resource:     rr,
 			Values:       map[string]string{},
@@ -1428,7 +1449,7 @@ func editFormHandler(p *Panel, r Resource) http.HandlerFunc {
 			return
 		}
 		nav := p.activeNav(req.Context(), r.Name)
-		tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+		tok := p.issueCSRF(req)
 		d := formPageData{
 			Resource:     rr,
 			ID:           id,
@@ -1661,7 +1682,7 @@ func renderDeletedRow(w http.ResponseWriter, req *http.Request, p *Panel, r Reso
 	d := listPageData{
 		Resource:  r,
 		BasePath:  p.basePath,
-		CSRFToken: csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL),
+		CSRFToken: p.issueCSRF(req),
 	}
 	if err := deletedRow(d, id, r.Title).Render(req.Context(), w); err != nil {
 		slog.Error("resource: render deleted row", "resource", r.Name, "id", sanitizeForLog(id), "err", err)
@@ -1789,7 +1810,7 @@ func renderValidationErrors(w http.ResponseWriter, req *http.Request, p *Panel, 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	nav := p.activeNav(req.Context(), r.Name)
-	tok := csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+	tok := p.issueCSRF(req)
 	d := formPageData{
 		Resource:     r,
 		ID:           id,
@@ -1807,16 +1828,35 @@ func renderValidationErrors(w http.ResponseWriter, req *http.Request, p *Panel, 
 	}
 }
 
-// sessionValue extracts the session cookie value from the request.
-// Used as the binding input for CSRF tokens.
-// The authenticator must implement SessionCookieName() — enforced at Register time.
+// sessionValue returns the CSRF binding for the request: the authenticator's
+// SessionBinding when it implements SessionBinder, otherwise the value of its
+// SessionCookieName cookie. "" means the request carries no session; callers
+// must not issue or verify a token against it (see issueCSRF, verifyCSRFToken).
+// One of the two interfaces is enforced at Register time.
 func (p *Panel) sessionValue(r *http.Request) string {
+	if b, ok := p.auth.(SessionBinder); ok {
+		return b.SessionBinding(r)
+	}
 	sc := p.auth.(sessionCookier)
 	c, err := r.Cookie(sc.SessionCookieName())
 	if err != nil {
 		return ""
 	}
 	return c.Value
+}
+
+// issueCSRF mints a CSRF token bound to r's session. It returns "" (and logs)
+// when the request has no session binding, because a token over an empty
+// binding is not tied to any session. A form rendered with "" posts no usable
+// token and the verified route answers 403: a visibly dead control, never an
+// unbound one.
+func (p *Panel) issueCSRF(r *http.Request) string {
+	binding := p.sessionValue(r)
+	if binding == "" {
+		slog.WarnContext(r.Context(), "resource: no session binding for CSRF token; issuing none", "path", r.URL.Path)
+		return ""
+	}
+	return csrf.Issue(p.csrfKey, binding, csrf.DefaultTTL)
 }
 
 // verifyCSRFToken checks r's submitted CSRF token (csrf.FormField) against
@@ -1838,7 +1878,13 @@ func (p *Panel) sessionValue(r *http.Request) string {
 // matching every existing call site's field order.
 func (p *Panel) verifyCSRFToken(w http.ResponseWriter, r *http.Request, logMsg string, logFields ...any) bool {
 	token := r.FormValue(csrf.FormField) //nolint:gosec // G120 false positive: every caller (saveHandler, csrfProtect, totpEnrollment.verifyCSRF) already wraps r.Body in http.MaxBytesReader via ParseForm/parseForm before calling verifyCSRFToken; gosec's check doesn't trace through the caller
-	if err := csrf.Verify(p.csrfKey, p.sessionValue(r), token); err != nil {
+	binding := p.sessionValue(r)
+	if binding == "" {
+		slog.WarnContext(r.Context(), logMsg, append(logFields, "err", "empty CSRF session binding")...)
+		http.Error(w, "invalid CSRF token", http.StatusForbidden)
+		return false
+	}
+	if err := csrf.Verify(p.csrfKey, binding, token); err != nil {
 		slog.WarnContext(r.Context(), logMsg, append(logFields, "err", err)...)
 		http.Error(w, "invalid CSRF token", http.StatusForbidden)
 		return false
@@ -2079,7 +2125,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		// render nothing when it is empty, so this single condition governs the
 		// whole affordance and there is no second place to keep in step.
 		if r.Writer != nil && r.Writer.Delete != nil && r.Writer.Restore != nil {
-			data.CSRFToken = csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+			data.CSRFToken = p.issueCSRF(req)
 			data.RestorableID = restorableIDParam(q.Get("restorable"))
 		}
 
@@ -2241,9 +2287,9 @@ func (p *Panel) CSRFToken(r *http.Request) string {
 		slog.Error("resource: CSRFToken called without a usable Config.CSRFKey", "path", r.URL.Path)
 		return ""
 	}
-	if _, ok := p.auth.(sessionCookier); !ok {
-		slog.Error("resource: CSRFToken: authenticator has no SessionCookieName()", "path", r.URL.Path)
+	if !hasSessionBinding(p.auth) {
+		slog.Error("resource: CSRFToken: authenticator has neither SessionBinding() nor SessionCookieName()", "path", r.URL.Path)
 		return ""
 	}
-	return csrf.Issue(p.csrfKey, p.sessionValue(r), csrf.DefaultTTL)
+	return p.issueCSRF(r)
 }

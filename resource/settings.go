@@ -155,7 +155,7 @@ func (p *Panel) MountSettings(cfg SettingsConfig) {
 	}
 	a := &settingsArea{panel: p, store: cfg.Store, limiter: cfg.RateLimiter, rate: cfg.PasswordRate, url: p.basePath + "/" + settingsPath + "/"}
 	if cfg.Store != nil {
-		if _, ok := p.auth.(sessionCookier); !ok {
+		if !hasSessionBinding(p.auth) {
 			panic("resource.MountSettings: the authenticator has no SessionCookieName(); the password form's CSRF token cannot bind to the session")
 		}
 		if len(p.csrfKey) < minCSRFKeyLen {

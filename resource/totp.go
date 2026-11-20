@@ -119,7 +119,7 @@ func newTOTPEnrollment(p *Panel, cfg TOTPEnrollmentConfig) *totpEnrollment {
 	if prefix == "" {
 		panic("resource.MountTOTPEnrollment: PathPrefix must not be empty")
 	}
-	if _, ok := p.auth.(sessionCookier); !ok {
+	if !hasSessionBinding(p.auth) {
 		panic("resource.MountTOTPEnrollment: the authenticator does not implement SessionCookieName() -- CSRF tokens cannot be bound to the session cookie (fail-closed)")
 	}
 	// CSRFKey is normally required (fail-closed) only once a Writer is

@@ -54,6 +54,23 @@ oxpulse-admin, go-grad.
 | `media` | Upload + crop + imgproxy URL | planned |
 | `components` | pm7 widgets: sparkline, badge, pagination | grows with need |
 
+## Session binding for CSRF
+
+CSRF tokens are bound to the session. The panel asks the authenticator for that
+binding in this order:
+
+1. `resource.SessionBinder` — `SessionBinding(*http.Request) string`, for an
+   authenticator whose identity is not a panel cookie (for example a verified
+   header from an upstream proxy). Return a stable per-session value.
+2. `SessionCookieName() string` — the value of that cookie is the binding.
+
+An authenticator must implement one of the two. An **empty binding is refused**:
+no token is issued for it and a submitted token is answered with 403, so a
+cookieless authenticator that has nothing to bind to fails closed. If your
+authenticator verifies a header and sets no cookie, either implement
+`SessionBinder` or return the name of a cookie that the verified requests always
+carry (for example the proxy's own session cookie).
+
 ## Sidebar (shell)
 
 The left-nav is **data-driven** — it renders from the `[]NavItem` that `Register` builds out of

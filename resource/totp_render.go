@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/anatolykoptev/go-panel/auth"
-	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/i18n"
 )
 
@@ -34,7 +33,7 @@ func (e *totpEnrollment) renderEnrollForm(w http.ResponseWriter, r *http.Request
 		QRImageURL: e.url("qr.png"),
 		QRPixels:   strconv.Itoa(totpQRPixels),
 		ConfirmURL: e.url("confirm"),
-		CSRFToken:  csrf.Issue(e.panel.csrfKey, e.panel.sessionValue(r), csrf.DefaultTTL),
+		CSRFToken:  e.panel.issueCSRF(r),
 		ErrorMsg:   errMsg,
 	}
 	e.render(w, r, strs(r).TOTPSetupTitle, totpEnrollContent(d))
@@ -72,7 +71,7 @@ func (e *totpEnrollment) renderConfirmSuccess(w http.ResponseWriter, r *http.Req
 // GET /disable and GET /regenerate (and their failed-POST re-render),
 // parameterized by which action it posts back to.
 func (e *totpEnrollment) renderReauthForm(w http.ResponseWriter, r *http.Request, actionSuffix, title, submitLabel, errMsg string) {
-	tok := csrf.Issue(e.panel.csrfKey, e.panel.sessionValue(r), csrf.DefaultTTL)
+	tok := e.panel.issueCSRF(r)
 	e.render(w, r, title, totpReauthFormContent(e.url(actionSuffix), tok, errMsg, title, submitLabel))
 }
 

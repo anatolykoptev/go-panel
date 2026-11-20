@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/shell"
 	"github.com/anatolykoptev/go-panel/tenant"
 )
@@ -129,7 +128,7 @@ func (p *Panel) handleTrash(w http.ResponseWriter, req *http.Request) {
 		// One session-bound token covers every section. The restore route each
 		// button posts to still runs that resource's own guard, so this is a
 		// forgery check and never an authorisation.
-		CSRFToken: csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL),
+		CSRFToken: p.issueCSRF(req),
 	}
 	for _, r := range p.trashResourcesFor(ctx) {
 		rows, total, err := r.TrashLister(ctx, ListQuery{
