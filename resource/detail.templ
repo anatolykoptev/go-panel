@@ -23,6 +23,20 @@ type detailPageData struct {
 	Sections  []DetailSection
 	BasePath  string
 	CSRFToken string // empty when Writer.Delete is nil
+	// Title is Resource.DetailTitle's answer ("" = not declared).
+	Title string
+	// Actions is Resource.DetailActions' component (nil = no slot).
+	Actions templ.Component
+}
+
+// detailHeading returns the header's <h2> and the muted line under it. A named
+// record leads with its name and keeps the resource and id as context; an
+// unnamed one leads with the resource title over its id.
+func detailHeading(d detailPageData) (heading, sub string) {
+	if d.Title != "" {
+		return d.Title, d.Resource.Title + " · " + d.ID
+	}
+	return d.Resource.Title, d.ID
 }
 
 // detailPageContent renders the full detail page content (back link + sections).
@@ -37,6 +51,18 @@ templ detailPageContent(d detailPageData) {
 			<span aria-hidden="true">&#8592;</span>
 			{ s.BackTo(d.Resource.Title) }
 		</a>
+		{{ heading, sub := detailHeading(d) }}
+		<div class="detail-head">
+			<div class="detail-head-text">
+				<h2>{ heading }</h2>
+				<p class="detail-head-sub">{ sub }</p>
+			</div>
+			if d.Actions != nil {
+				<div class="detail-actions">
+					@d.Actions
+				</div>
+			}
+		</div>
 	</div>
 	<div class="detail-page">
 		if len(d.Sections) == 0 {

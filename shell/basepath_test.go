@@ -86,3 +86,18 @@ func TestChrome_SecondBasePath_GoldenStable(t *testing.T) {
 		t.Fatalf("layout under /ops differs from %s; refresh with -update", path)
 	}
 }
+
+// The phone top bar carries the page name (the layout title), and the sidebar
+// title keeps the full text in a title attribute for when it is truncated.
+//
+// RED-on-revert: remove the mobile-bar-title span or the title attribute on the
+// sidebar <h1> in shell/layout.templ.
+func TestLayout_PageNameInPhoneBarAndSidebarTitleAttr(t *testing.T) {
+	html := renderLayout(t, context.Background(), nil)
+	if !strings.Contains(html, `<span class="mobile-bar-title" aria-hidden="true">T</span>`) {
+		t.Errorf("phone top bar lacks the page name")
+	}
+	if !strings.Contains(html, `<h1 title="T">T</h1>`) {
+		t.Errorf("sidebar title lacks its title attribute")
+	}
+}

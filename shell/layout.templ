@@ -207,7 +207,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 			<div class="app">
 				<aside class={ "sidebar", templ.KV("collapsed", ChromeFromContext(ctx).Collapsed) } id="sidebar">
 					<div class="sidebar-header">
-						<h1>{ title }</h1>
+						<h1 title={ title }>{ title }</h1>
 						<div class="sidebar-header-actions">
 							<button type="button" class="theme-toggle" id="theme-toggle" aria-label={ themeToggleLabel(s, ChromeFromContext(ctx).ThemeClass()) } data-label-to-light={ s.SwitchToLightTheme } data-label-to-dark={ s.SwitchToDarkTheme } aria-pressed={ themeTogglePressed(ChromeFromContext(ctx).ThemeClass()) }>
 								<span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
@@ -286,7 +286,10 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 				</aside>
 				<div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
 				<main class="main">
-					<button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label={ s.OpenNavigation }>&#9776;</button>
+					<div class="mobile-bar">
+						<button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label={ s.OpenNavigation }>&#9776;</button>
+						<span class="mobile-bar-title" aria-hidden="true">{ title }</span>
+					</div>
 					<div id="content">
 						@content
 					</div>

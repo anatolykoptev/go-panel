@@ -110,8 +110,12 @@ func i18nKitchen(mode *trashMode) resource.Resource {
 			}
 			return rows, 60, nil
 		},
-		Detailer: func(context.Context, *http.Request, string) ([]resource.DetailSection, error) {
-			return []resource.DetailSection{{Title: "Основное", Items: []resource.DetailItem{{Label: "Имя", Value: "Альфа"}}}}, nil
+		Detailer: func(ctx context.Context, _ *http.Request, _ string) ([]resource.DetailSection, error) {
+			at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+			return []resource.DetailSection{{Title: "Основное", Items: []resource.DetailItem{
+				{Label: "Имя", Value: "Альфа"},
+				resource.TimeItemAt(ctx, "Изменено", at, at.Add(2*time.Hour)),
+			}}}, nil
 		},
 		Writer: &resource.Writer{
 			Form: resource.FormSpec{Fields: []resource.Field{

@@ -196,7 +196,7 @@
 		.main{flex:1;min-width:0;overflow-x:auto;background:var(--bg-base)}
 		.sidebar{width:220px;background:var(--bg-deep);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;position:sticky;top:0;height:100vh;align-self:flex-start}
 		.sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;min-height:56px}
-		.sidebar-header h1{font-family:var(--font-mono);font-size:.8125rem;font-weight:600;color:var(--accent-text);letter-spacing:.02em;white-space:nowrap;overflow:hidden}
+		.sidebar-header h1{font-family:var(--font-mono);font-size:.8125rem;font-weight:600;color:var(--accent-text);letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 		.sidebar-toggle{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.125rem;padding:.25rem;line-height:1;flex-shrink:0;transition:color .15s}
 		.sidebar-toggle:hover{color:var(--text-primary)}
 		.sidebar-header-actions{display:flex;align-items:center;gap:.25rem;flex-shrink:0}
@@ -382,6 +382,13 @@
 		   into every page, and resource/nav_filter_test.go asserts nav labels
 		   are ABSENT with strings.Contains over the WHOLE body. A comment that
 		   happens to name a resource fails it. */
+		/* Detail header: record name, id/context line, actions slot. */
+		.detail-head{display:flex;align-items:flex-end;justify-content:space-between;gap:.75rem 1rem;flex-wrap:wrap}
+		.detail-head-text{min-width:0}
+		.detail-head-sub{font-family:var(--font-mono);font-size:.8125rem;color:var(--text-secondary);overflow-wrap:anywhere}
+		.detail-actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+		/* TimeCell / TimeItem: relative time, absolute beside it. */
+		.time-abs{display:block;font-size:.75rem;color:var(--text-secondary);font-variant-numeric:tabular-nums}
 		.detail-section .crm-table,.pm7-card .crm-table{background:transparent;border:0;border-radius:0}
 		.detail-section .crm-table td:first-child,.detail-section .crm-table thead th:first-child,.pm7-card .crm-table td:first-child,.pm7-card .crm-table thead th:first-child{padding-left:0}
 		.detail-section .crm-table td:last-child,.detail-section .crm-table thead th:last-child,.pm7-card .crm-table td:last-child,.pm7-card .crm-table thead th:last-child{padding-right:0}
@@ -485,10 +492,16 @@
 		.sidebar-overlay--visible{opacity:1;visibility:visible}
 		.sidebar-mobile-toggle{display:none;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.25rem;padding:.5rem .75rem;line-height:1;transition:color .15s}
 		.sidebar-mobile-toggle:hover{color:var(--text-primary)}
+		/* Phone top bar: the toggle plus the page name (hidden on desktop, where the sidebar shows it). */
+		.mobile-bar{display:none}
+		.mobile-bar-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:.9375rem;color:var(--text-primary)}
 		@media(max-width:767px){
 			.sidebar{position:fixed;top:0;left:0;height:100%;z-index:1000;transform:translateX(-100%);transition:transform .3s ease-in-out}
 			.sidebar--open{transform:translateX(0)}
-			.sidebar-mobile-toggle{display:block}
+			.sidebar-mobile-toggle{display:block;min-width:2.75rem;min-height:2.75rem}
+			.time-abs{display:inline;margin-left:.375rem}
+			.detail-actions .btn{min-height:2.75rem}
+			.mobile-bar{display:flex;align-items:center;gap:.25rem;margin:-.5rem 0 .25rem -.75rem}
 		}
 		/* ── Stat cards (StatCardView) ─────────────────────────────────────────
 		   Ported VERBATIM from oxpulse-admin internal/admin/templates/layout.html:58-62.
@@ -722,4 +735,4 @@
 			.crm-table[data-stack] td[colspan]{padding:1rem}
 			.crm-table[data-stack] td[colspan]::before{content:none}
 		}
-	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1>T</h1><div class="sidebar-header-actions"><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light theme" data-label-to-light="Switch to light theme" data-label-to-dark="Switch to dark theme" aria-pressed="false"><span class="theme-icon-moon" aria-hidden="true">&#9790;</span> <span class="theme-icon-sun" aria-hidden="true">&#9728;</span></button> <button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom">  <form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block"><button type="submit" class="sidebar-item" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></button></form></div></aside><div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div><main class="main"><button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>
+	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1 title="T">T</h1><div class="sidebar-header-actions"><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light theme" data-label-to-light="Switch to light theme" data-label-to-dark="Switch to dark theme" aria-pressed="false"><span class="theme-icon-moon" aria-hidden="true">&#9790;</span> <span class="theme-icon-sun" aria-hidden="true">&#9728;</span></button> <button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom">  <form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block"><button type="submit" class="sidebar-item" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></button></form></div></aside><div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div><main class="main"><div class="mobile-bar"><button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button> <span class="mobile-bar-title" aria-hidden="true">T</span></div><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>

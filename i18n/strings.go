@@ -19,6 +19,7 @@ package i18n
 import (
 	"context"
 	"reflect"
+	"time"
 )
 
 // Strings is every user-visible literal of the panel chrome.
@@ -134,6 +135,10 @@ type Strings struct {
 	Prev              string
 	Next              string
 	LoadMore          string
+
+	// RelativeTime words a signed duration from now ("2 h ago", "in 3 d"); a
+	// negative duration is the past. Used by resource.TimeCell / TimeItem.
+	RelativeTime func(d time.Duration) string
 
 	// Form pages.
 	EditTitle           func(title string) string

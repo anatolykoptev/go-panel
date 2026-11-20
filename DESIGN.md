@@ -294,6 +294,18 @@ label/value `DetailItem`s, a multi-column `DetailTable` (rendered as
 the items render above the table — a summary line above its tabular data is the
 intended shape.
 
+### Detail header, relative time, phone top bar
+
+A detail page opens with an `<h2>` and a muted context line. `Resource.DetailTitle`
+names the record (then the line reads `Resource · id`); without it the heading is
+the resource title over the id. `Resource.DetailActions` fills an actions slot to
+the right of the heading (under it on a phone). `resource.TimeCell` / `TimeItem`
+show a moment as relative text (`Strings.RelativeTime`) with the absolute time
+beside it (`.time-abs`) and the exact second in the hover title; build them with
+the request context so a Russian panel words them in Russian. On a phone the
+layout shows a top bar with the menu button and the page name; the sidebar title
+ellipsises and keeps its full text in a `title` attribute.
+
 ## Interaction
 
 **htmx, no inline handlers.** The admin CSP drops inline event handlers, so

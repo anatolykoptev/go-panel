@@ -1,6 +1,9 @@
 package i18n
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // russian is the Russian preset.
 //
@@ -107,6 +110,18 @@ var russian = Strings{
 	Prev:              "Назад",
 	Next:              "Далее",
 	LoadMore:          "Показать ещё",
+
+	RelativeTime: func(d time.Duration) string {
+		n, u, fut := Relative(d)
+		if u == RelNow {
+			return "только что"
+		}
+		unit := map[RelUnit]string{RelMinute: "мин", RelHour: "ч", RelDay: "дн."}[u]
+		if fut {
+			return "через " + strconv.Itoa(n) + " " + unit
+		}
+		return strconv.Itoa(n) + " " + unit + " назад"
+	},
 
 	EditTitle:           func(title string) string { return "Редактирование: " + title },
 	NewTitle:            func(title string) string { return "Создание: " + title },

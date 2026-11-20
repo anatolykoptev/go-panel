@@ -72,14 +72,15 @@ func latinLeft(body string, allow map[string]bool) []string {
 //
 // "admin" is the fixture account's ROLE, shown under the user name; roles are
 // data the consumer defines, not panel copy.
-var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true}
+// "UTC" is the zone abbreviation in a TimeCell's hover title: data, not copy.
+var localeCodes = map[string]bool{"RU": true, "EN": true, "admin": true, "UTC": true}
 
 // Names of the authenticator apps the Russian setup text lists, and the format
 // name «JSON» in a validation message: proper names and acronyms, not English
 // sentences. Listed here rather than skipped by length so a real leftover next
 // to them still fails.
 var russianAllow = map[string]bool{
-	"RU": true, "EN": true, "admin": true, "JSON": true,
+	"RU": true, "EN": true, "admin": true, "JSON": true, "UTC": true,
 	"Google": true, "Authenticator": true, "Password": true, "Authy": true, "QR": true,
 }
 

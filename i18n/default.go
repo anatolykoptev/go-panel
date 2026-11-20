@@ -1,6 +1,9 @@
 package i18n
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // english is the English strings — the exact text go-panel rendered before
 // the chrome was configurable. Changing a value here changes the page for every
@@ -109,6 +112,18 @@ var english = Strings{
 	Prev:              "Prev",
 	Next:              "Next",
 	LoadMore:          "Load more",
+
+	RelativeTime: func(d time.Duration) string {
+		n, u, fut := Relative(d)
+		if u == RelNow {
+			return "just now"
+		}
+		unit := map[RelUnit]string{RelMinute: "min", RelHour: "h", RelDay: "d"}[u]
+		if fut {
+			return "in " + strconv.Itoa(n) + " " + unit
+		}
+		return strconv.Itoa(n) + " " + unit + " ago"
+	},
 
 	EditTitle:           func(title string) string { return "Edit " + title },
 	NewTitle:            func(title string) string { return "New " + title },

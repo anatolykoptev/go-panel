@@ -41,6 +41,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/a-h/templ"
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/i18n"
@@ -234,6 +235,19 @@ type Resource struct {
 	// Filter.Filters' keys (fail-fast at startup — a caption for a filter that
 	// does not exist is a typo, not data).
 	FilterGroupLabels map[string]string
+
+	// DetailTitle names the record on its detail page: the <h2> of the header.
+	// Nil (the default) shows Resource.Title as the heading with the record id
+	// beneath it. Runs on every detail render, so keep it cheap (the record is
+	// usually already in the Detailer's cache or a one-row lookup).
+	DetailTitle func(ctx context.Context, r *http.Request, id string) string
+
+	// DetailActions fills the actions slot at the right of the detail header
+	// (wrapping under the title on a phone): buttons or forms for this record,
+	// built with components.PostAction or plain templ. Nil renders no slot.
+	// The framework adds no CSRF token here; a form in the slot takes
+	// Panel.CSRFToken(r) like any other.
+	DetailActions func(ctx context.Context, r *http.Request, id string) templ.Component
 
 	// ViewsLabel is the caption shown beside the view chips. Empty falls back to
 	// Config.Strings.ViewsLabel ("view" by default).
@@ -1271,6 +1285,12 @@ func detailHandler(p *Panel, r Resource) http.HandlerFunc {
 			ID:       id,
 			Sections: sections,
 			BasePath: p.basePath,
+		}
+		if r.DetailTitle != nil {
+			d.Title = r.DetailTitle(req.Context(), req, id)
+		}
+		if r.DetailActions != nil {
+			d.Actions = r.DetailActions(req.Context(), req, id)
 		}
 		// Issue CSRF token for the delete button when Writer.Delete is configured.
 		if r.Writer != nil && r.Writer.Delete != nil {
