@@ -2093,11 +2093,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			data.RestorableID = restorableIDParam(q.Get("restorable"))
 		}
 
-		// Row actions post a token of their own. A separate field keeps the
-		// delete/undo gate above (CSRFToken, Writer.Restore) untouched.
-		if len(r.RowActions) > 0 {
-			data.ActionToken = csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
-		}
+		p.issueActionToken(r, req, &data)
 		if fragmentOnly || isFragmentRequest(req) {
 			renderListFragment(ctx, w, data, q.Get("append") == "1")
 			return

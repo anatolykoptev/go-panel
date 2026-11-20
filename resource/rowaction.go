@@ -3,11 +3,13 @@ package resource
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/a-h/templ"
 
 	"github.com/anatolykoptev/go-panel/components"
+	"github.com/anatolykoptev/go-panel/csrf"
 )
 
 // RowAction is a per-row POST button declared once on a [Resource] and rendered
@@ -67,6 +69,17 @@ func validateRowActions(p *Panel, r Resource) {
 		}
 		seen[a.Key] = true
 	}
+}
+
+// issueActionToken gives the list the CSRF token its RowActions forms post. It
+// is a separate field from the delete/undo token (listPageData.CSRFToken,
+// gated on Writer.Restore) so the two gates never share a condition. A resource
+// without RowActions gets no token.
+func (p *Panel) issueActionToken(r Resource, req *http.Request, data *listPageData) {
+	if len(r.RowActions) == 0 {
+		return
+	}
+	data.ActionToken = csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
 }
 
 // rowActionsFor resolves a row's opted-in keys against the declared actions,
