@@ -1990,24 +1990,10 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		// Resolve sort state.
 		sortState := r.Sort.Resolve(q.Get("sort"), q.Get("dir"))
 
-		// Compose WHERE from filter params.
-		// startArg starts at 1 since tenant scope will be appended AFTER filter args.
-		whereConds, whereArgs := r.Filter.Where(q, 1)
-
-		// Tenant scope — append after filter args so arg indices stay correct.
+		// Compose WHERE from filter params plus the tenant scope — the single
+		// composition shared with the MCP list tool (see ListWhere).
 		t := tenant.From(ctx)
-		var tenantCond string
-		if r.Scope.Column != "" {
-			tenantArg := len(whereArgs) + 1
-			tc, ta := tenant.ScopeClause(r.Scope, t, tenantArg)
-			if tc != "" {
-				tenantCond = tc
-				whereArgs = append(whereArgs, ta)
-			}
-		}
-
-		// Combine WHERE conditions.
-		finalConds := combineConds(whereConds, tenantCond)
+		finalConds, whereArgs := r.ListWhere(q, t)
 
 		// Paging.
 		page := max(1, parseIntParam(q.Get("page"), 1))
