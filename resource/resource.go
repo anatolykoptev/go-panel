@@ -86,6 +86,10 @@ type Row struct {
 	// Emphasis renders the row bold (class "row-emphasis") — e.g. an unread
 	// item. Weight rather than colour, so it survives both themes.
 	Emphasis bool
+	// Actions lists the [Resource.RowActions] keys this row offers, in display
+	// order. A row that omits a key renders no button for it; a key the
+	// resource never declared is skipped. nil (the default) renders nothing.
+	Actions []string
 }
 
 // DetailItem is one label-value row inside a DetailSection.
@@ -230,6 +234,11 @@ type Resource struct {
 	//
 	// Register panics on an empty or duplicate Key (fail-fast at startup).
 	Views []View
+
+	// RowActions are per-row POST buttons the framework renders, with its own
+	// CSRF token and confirm prompt (see [RowAction]). Each row opts in through
+	// [Row.Actions]. Empty (the default) adds no column and no token.
+	RowActions []RowAction
 
 	// FilterLabels maps filter key -> submitted value -> chip text, for the
 	// closed-set (Allowed) filters. Without an entry a chip shows its submitted
@@ -866,6 +875,7 @@ func Register(p *Panel, r Resource) {
 	}
 	validateRoleConfig(p, r)
 	validateViewsConfig(r)
+	validateRowActions(p, r)
 	validateFilterLabels(r)
 	validateFilterGroupLabels(r)
 	validateTrashConfig(r)
@@ -2083,6 +2093,11 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 			data.RestorableID = restorableIDParam(q.Get("restorable"))
 		}
 
+		// Row actions post a token of their own. A separate field keeps the
+		// delete/undo gate above (CSRFToken, Writer.Restore) untouched.
+		if len(r.RowActions) > 0 {
+			data.ActionToken = csrf.Issue(p.csrfKey, p.sessionValue(req), csrf.DefaultTTL)
+		}
 		if fragmentOnly || isFragmentRequest(req) {
 			renderListFragment(ctx, w, data, q.Get("append") == "1")
 			return

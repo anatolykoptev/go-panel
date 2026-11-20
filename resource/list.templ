@@ -27,6 +27,10 @@ type listPageData struct {
 	// buttons post, and its emptiness is what hides them — so a resource that
 	// cannot restore can never render a one-click delete.
 	CSRFToken string
+	// ActionToken is the CSRF token the declared RowActions post. Issued only
+	// when the resource declares RowActions; its emptiness hides every action
+	// form, so an action can never render without a token.
+	ActionToken string
 	// RestorableID carries the row just deleted from a DETAIL page, so the list
 	// can offer the same way back the table row does. Server-rendered rather
 	// than client state: it survives a reload and needs no script.
@@ -278,6 +282,9 @@ templ listTable(d listPageData) {
 				if d.Resource.Writer != nil {
 					<th style="width:4rem"></th>
 				}
+				if len(d.Resource.RowActions) > 0 {
+					<th style="width:1%"></th>
+				}
 			</tr>
 		</thead>
 		<tbody>
@@ -344,6 +351,18 @@ templ listRow(d listPageData, row Row) {
 						hx-swap="outerHTML"
 						aria-label={ s.DeleteRowLabel(row.ID) }
 					>{ s.Delete }</button>
+				}
+			</td>
+		}
+		if len(d.Resource.RowActions) > 0 {
+			<td class="row-actions" style="text-align:right;white-space:nowrap">
+				if d.ActionToken != "" {
+					for _, a := range rowActionsFor(d.Resource, row) {
+						<form method="post" action={ rowActionHref(d, a, row) } style="display:inline" { rowActionConfirm(a, row)... }>
+							<input type="hidden" name={ csrfFormField } value={ d.ActionToken }/>
+							<button type="submit" class={ rowActionClass(a.Tone) }>{ a.Label }</button>
+						</form>
+					}
 				}
 			</td>
 		}
@@ -434,7 +453,11 @@ templ paginationInner(d listPageData) {
 // row's label spans the data columns while its actions cell keeps the undo
 // button exactly where the Delete it replaced used to be.
 func listColspanExceptActions(d listPageData) string {
-	return strconv.Itoa(len(d.Resource.Sort.Columns))
+	n := len(d.Resource.Sort.Columns)
+	if len(d.Resource.RowActions) > 0 {
+		n++
+	}
+	return strconv.Itoa(n)
 }
 
 // csrfVals renders the token as an hx-vals JSON object. htmx sends it as an
@@ -453,6 +476,9 @@ func csrfVals(token string) string {
 func listColspan(d listPageData) string {
 	n := len(d.Resource.Sort.Columns)
 	if d.Resource.Writer != nil {
+		n++
+	}
+	if len(d.Resource.RowActions) > 0 {
 		n++
 	}
 	return strconv.Itoa(n)
