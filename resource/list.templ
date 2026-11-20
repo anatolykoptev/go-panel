@@ -363,10 +363,13 @@ templ listRow(d listPageData, row Row) {
 			<td class="row-actions" style="text-align:right;white-space:nowrap">
 				if d.ActionToken != "" {
 					for _, a := range rowActionsFor(d.Resource, row) {
-						<form method="post" action={ rowActionHref(d, a, row) } style="display:inline" { rowActionConfirm(a, row)... }>
-							<input type="hidden" name={ csrfFormField } value={ d.ActionToken }/>
-							<button type="submit" class={ rowActionClass(a.Tone) }>{ a.Label }</button>
-						</form>
+						{{ target := rowActionTarget(d, a, row) }}
+						if target != "" {
+							<form method="post" action={ target } style="display:inline" { rowActionConfirm(a, row)... }>
+								<input type="hidden" name={ csrfFormField } value={ d.ActionToken }/>
+								<button type="submit" class={ rowActionClass(a.Tone) }>{ a.Label }</button>
+							</form>
+						}
 					}
 				}
 			</td>

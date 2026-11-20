@@ -175,6 +175,7 @@ type ListQuery struct {
 	// (Filter.Allowed) has already dropped values outside it, and a filter with
 	// no admitted value is absent. nil when no filter is active. Eq and ILike
 	// filters carry one element, AnyOf carries every admitted element.
+	// Unlike admintable.FilterSpec.Where, an empty AnyOf element is dropped here.
 	//
 	// SQL Listers keep using WhereConds/WhereArgs. A non-SQL lister still has to
 	// give each Eq/AnyOf Filter a non-empty SQLExpr (ILike: SQLExprs) to pass

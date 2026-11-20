@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -107,9 +108,34 @@ func rowActionsFor(r Resource, row Row) []RowAction {
 	return out
 }
 
-// rowActionHref is the absolute POST target of one action for one row.
-func rowActionHref(d listPageData, a RowAction, row Row) string {
-	return d.BasePath + "/" + strings.TrimLeft(a.Path(row.ID), "/")
+// rowActionTarget is the absolute POST target of one action for one row, or ""
+// when the consumer's Path result could leave the panel. The base path is
+// prefixed, but a "../" segment (plain, or percent-encoded, which browsers
+// normalise the same way) would climb out of it, and so would a backslash,
+// which browsers read as "/". Such a button is skipped with a warning rather
+// than rendered.
+func rowActionTarget(d listPageData, a RowAction, row Row) string {
+	rel := strings.TrimLeft(a.Path(row.ID), "/")
+	pathPart, _, _ := strings.Cut(rel, "?")
+	pathPart, _, _ = strings.Cut(pathPart, "#")
+	if strings.ContainsAny(rel, "\\\x00\r\n\t") || !cleanPathSegments(pathPart) {
+		slog.Warn("resource: RowAction Path escapes the panel base path; button skipped",
+			"resource", d.Resource.Name, "key", a.Key)
+		return ""
+	}
+	return d.BasePath + "/" + rel
+}
+
+// cleanPathSegments reports whether no segment of p is "." or "..", after
+// percent-decoding.
+func cleanPathSegments(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		dec, err := url.PathUnescape(seg)
+		if err != nil || dec == "." || dec == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // rowActionConfirm is the data-confirm attribute set for one action and row.
