@@ -31,6 +31,8 @@ type listPageData struct {
 	// when the resource declares RowActions; its emptiness hides every action
 	// form, so an action can never render without a token.
 	ActionToken string
+	// HeaderComp is Resource.Header's result for this request, nil when unset.
+	HeaderComp templ.Component
 	// RestorableID carries the row just deleted from a DETAIL page, so the list
 	// can offer the same way back the table row does. Server-rendered rather
 	// than client state: it survives a reload and needs no script.
@@ -176,6 +178,9 @@ templ listPageContent(d listPageData) {
 			}
 		</div>
 	</div>
+	if d.HeaderComp != nil {
+		@d.HeaderComp
+	}
 	@filterBar(d)
 	@listRowsFragment(d)
 }
