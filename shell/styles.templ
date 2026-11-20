@@ -416,6 +416,10 @@ templ layoutStyles() {
 		.filter-chips{display:flex;gap:.25rem;flex-wrap:wrap}
 		.filter-search,.filter-select{padding:.375rem .625rem;background:var(--pm7-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-sans);font-size:.8125rem}
 		.filter-select{min-height:2rem;max-width:100%}
+		/* Row.Group: a header row where the group changes. Not a data row, so no pointer and no hover tint. */
+		.crm-table tbody tr.row-group{cursor:default}
+		.crm-table tbody tr.row-group:hover>th{background:var(--bg-deep)}
+		.crm-table tbody tr.row-group th{padding:.5rem 1.25rem;text-align:left;background:var(--bg-deep);border-bottom:1px solid var(--border);color:var(--text-secondary);font-family:var(--font-mono);font-size:.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
 		.empty-state{text-align:center;color:var(--text-secondary);padding:2.5rem 1rem}
 		.empty-title{margin:0 0 .75rem;font-size:.9375rem}
 		.empty-state .btn{margin-top:0}
@@ -754,6 +758,9 @@ templ layoutStyles() {
 			.crm-table[data-stack] td.cell-actions .row-delete{padding:0 .75rem}
 			.crm-table[data-stack] td[colspan]{flex:1 1 0;padding:1rem}
 			.crm-table[data-stack] td.empty-state{padding:2rem 1rem}
+			.crm-table[data-stack] tbody tr.row-group{display:block;min-height:0;margin:.75rem 0 .375rem;padding:0;background:transparent;border:0;border-radius:0}
+			.crm-table[data-stack] tbody tr.row-group::after{content:none}
+			.crm-table[data-stack] tbody tr.row-group th{display:block;padding:0 .25rem;border:0;background:transparent}
 			.crm-table[data-stack] td[colspan]::before{content:none}
 			.filter-bar{gap:.5rem}
 			.filter-chip{min-height:2.75rem;padding:.25rem .875rem;font-size:.8125rem}

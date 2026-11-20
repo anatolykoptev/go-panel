@@ -398,8 +398,20 @@ templ listTable(d listPageData) {
 // listRows renders the data <tr> rows shared by the full table body and the
 // Load-more append fragment (parity by construction, edit column included).
 templ listRows(d listPageData) {
-	for _, row := range d.Rows {
+	for i, row := range d.Rows {
+		@rowGroupHeader(d, i)
 		@listRow(d, row)
+	}
+}
+
+// rowGroupHeader draws the section header row above row i when its Group differs
+// from the previous row's. A separate component so an ungrouped list renders the
+// same bytes as before Row.Group existed.
+templ rowGroupHeader(d listPageData, i int) {
+	if g := d.Rows[i].Group; g != "" && (i == 0 || d.Rows[i-1].Group != g) {
+		<tr class="row-group">
+			<th colspan={ listColspan(d) } scope="colgroup">{ g }</th>
+		</tr>
 	}
 }
 

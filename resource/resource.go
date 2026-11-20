@@ -83,6 +83,13 @@ type Row struct {
 	ID    string
 	Cells []Cell // ordered to match Sort.Columns
 	Href  string // optional detail link
+	// Group names the section this row belongs to. Where Group changes from one
+	// row to the next, the list draws a header row with the name above it
+	// (settings sections, a status ladder). "" never draws a header, so an
+	// ungrouped list is unchanged. Rows of one group should be contiguous: the
+	// Lister owns the order, the framework does not re-sort, and a group that
+	// reappears later gets a second header. Plain text, escaped.
+	Group string
 	// Emphasis renders the row bold (class "row-emphasis") — e.g. an unread
 	// item. Weight rather than colour, so it survives both themes.
 	Emphasis bool

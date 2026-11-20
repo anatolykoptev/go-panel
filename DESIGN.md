@@ -295,6 +295,10 @@ An empty list prints a sentence saying why: "No results" when nothing is
 filtered, "No results match these filters." plus a *Clear filters* link (the
 list page without its declared filters; sort and view kept) when a filter is on.
 
+`Row.Group` draws a header row (mono label on `--bg-deep`) where the group changes,
+for settings-style sections; on a phone it is a small label between cards. `""`
+draws nothing, so an ungrouped list renders the same bytes as before.
+
 ### Detail views — `.detail-page` / `.detail-section` / `.detail-items`
 
 Rendered by the framework from `Resource.Detailer` / `FetchRow`. Canon layout:
