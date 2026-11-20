@@ -164,3 +164,33 @@ func TestRowActions_RegisterFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestRowActions_PathCannotEscapeBasePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want int // forms rendered for the one opted-in row
+	}{
+		{"plain", "history/r1/revert", 1},
+		{"dots inside a segment are fine", "history/a..b/revert", 1},
+		{"query kept", "history/r1/revert?x=1", 1},
+		{"parent segment", "history/../../x", 0},
+		{"leading parent", "../x", 0},
+		{"dot segment", "history/./x", 0},
+		{"encoded parent", "history/%2e%2e/%2E%2e/x", 0},
+		{"backslash", "history\\..\\x", 0},
+		{"bad escape", "history/%zz", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := revertAction()
+			a.Path = func(string) string { return tc.path }
+			p := newWriterPanel()
+			resource.Register(p, rowActionResource([]resource.RowAction{a}))
+			body := rowActionGet(t, p, loginCookie(t))
+			if got := len(rowActionForm.FindAllString(body, -1)); got != tc.want {
+				t.Fatalf("Path %q rendered %d forms, want %d", tc.path, got, tc.want)
+			}
+		})
+	}
+}
