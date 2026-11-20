@@ -68,6 +68,7 @@ func TestListQuery_Filters(t *testing.T) {
 		{"eq value outside allowed set", url.Values{"kind": {"hold"}}, nil},
 		{"eq open set passes any value", url.Values{"setting": {"copy.share"}}, map[string][]string{"setting": {"copy.share"}}},
 		{"anyof keeps only allowed", url.Values{"tag": {"a", "zzz", "b"}}, map[string][]string{"tag": {"a", "b"}}},
+		{"anyof drops empty element", url.Values{"tag": {"", "a"}}, map[string][]string{"tag": {"a"}}},
 		{"anyof all outside dropped", url.Values{"tag": {"zzz"}}, nil},
 		{"ilike free text", url.Values{"q": {"foo"}}, map[string][]string{"q": {"foo"}}},
 		{"empty value is absent", url.Values{"kind": {""}, "setting": {""}}, nil},

@@ -9,10 +9,13 @@ import (
 // structuredFilters resolves the URL values of the declared filters into the
 // data a non-SQL Lister reads as [ListQuery.Filters].
 //
-// It applies the same admission rules as [admintable.FilterSpec.Where]: only
+// It follows the admission rules of [admintable.FilterSpec.Where]: only
 // declared keys are read, a closed set (Filter.Allowed) drops values outside
-// it, and an empty value is treated as absent. A key with no admitted value is
-// omitted from the map, so Filters is nil when no filter is active.
+// it, and an empty value is treated as absent. One deliberate difference: for
+// an AnyOf filter without Allowed, Where keeps an empty element ("?tag=&tag=a"
+// binds ["", "a"]) while Filters drops it, so a non-SQL Lister never sees "".
+// A key with no admitted value is omitted from the map, so Filters is nil when
+// no filter is active.
 func structuredFilters(spec admintable.FilterSpec, q url.Values) map[string][]string {
 	var out map[string][]string
 	add := func(key string, vals []string) {
