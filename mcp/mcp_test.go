@@ -87,16 +87,20 @@ func TestRegisterResourceTools(t *testing.T) {
 			t.Fatalf("registerResourceTools panicked: %v", r)
 		}
 	}()
-	registerResourceTools(server, resources, slog.Default(), nil)
+	registerResourceTools(server, resources, slog.Default(), nil, nil)
 }
 
 // connectTools registers resources (with the given TenantResolver, possibly
 // nil) on an in-process MCP server and returns a connected client session.
-func connectTools(t *testing.T, resources []resource.Resource, tr func(context.Context) (tenant.Tenant, bool)) *mcp.ClientSession {
+func connectTools(t *testing.T, resources []resource.Resource, tr func(context.Context) (tenant.Tenant, bool), roles ...roleFunc) *mcp.ClientSession {
 	t.Helper()
 	ctx := context.Background()
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0"}, nil)
-	registerResourceTools(server, resources, slog.New(slog.DiscardHandler), tr)
+	var rf roleFunc
+	if len(roles) > 0 {
+		rf = roles[0]
+	}
+	registerResourceTools(server, resources, slog.New(slog.DiscardHandler), tr, rf)
 	ct, st := mcp.NewInMemoryTransports()
 	ss, err := server.Connect(ctx, st, nil)
 	if err != nil {

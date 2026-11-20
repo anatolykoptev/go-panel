@@ -6,7 +6,8 @@
 //     Parameters: limit (int, default 50, max 500), offset (int, default 0),
 //     sort_key (string, optional — must be one of the Resource's sortable
 //     column keys), sort_dir (string, "asc" or "desc", optional).
-//     Returns a JSON object: {"rows": [...], "total": N}.
+//     Returns a JSON object: {"columns": [{key, label}], "rows": [...], "total": N};
+//     a row's cells follow the column order.
 //
 //   - {resource_name}_get — get a single row's detail by ID.
 //     Only registered when the Resource has a Detailer.
@@ -14,9 +15,25 @@
 //     Returns a JSON array of DetailSection objects.
 //
 // The MCP server runs on a separate port from the admin panel HTTP server,
-// sharing the same Panel instance and its registered Resources. Tenant
-// context is set to the global default (single-tenant); multi-tenant MCP
-// exposure is a future concern.
+// sharing the same Panel instance and its registered Resources.
+//
+// # Secure by default
+//
+//   - Authentication is required: Run returns an error when Config.BearerAuth
+//     is nil unless Config.AllowUnauthenticated is set explicitly.
+//   - The listener binds the loopback interface (Config.Host defaults to
+//     127.0.0.1) and the SDK's Host-header (DNS rebinding) protection is on.
+//     Binding a non-loopback Host turns that protection off, since a reverse
+//     proxy or container network then legitimately forwards foreign Host
+//     headers.
+//   - A Resource with a RequiredRole is not exposed unless Config.RoleResolver
+//     is set, and is then checked on every call.
+//   - Config.Resources, when set, is an allowlist of exposed Resource names.
+//   - A list call composes the same WHERE (declared filters plus the tenant
+//     scope clause) as the HTTP list page, through resource.Resource.ListWhere.
+//
+// Tenant context comes from Config.TenantResolver; without one it is the
+// global default (single-tenant).
 //
 // Usage:
 //
@@ -24,9 +41,10 @@
 //	resource.Register(panel, myResource)
 //	// ... register more resources ...
 //	go func() {
-//	    if err := panelmcp.Run(ctx, panelmcp.Config{
-//	        Panel: panel,
-//	        Port:  "8895",
+//	    if err := panelmcp.Run(panelmcp.Config{
+//	        Panel:      panel,
+//	        Port:       "8895",
+//	        BearerAuth: &mcpserver.BearerAuth{Verifier: verifier},
 //	    }); err != nil {
 //	        slog.Error("mcp server failed", "error", err)
 //	    }
@@ -36,12 +54,16 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"slices"
+	"syscall"
 
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/go-panel/resource"
@@ -63,8 +85,31 @@ type Config struct {
 	// Port is the MCP server port. Defaults to the MCP_PORT env var or "8090".
 	Port string
 
-	// BearerAuth gates /mcp. nil = no auth (localhost-only deployments only).
+	// Host is the interface to bind. Empty = "127.0.0.1" (loopback only). A
+	// container whose published port must reach the listener sets "0.0.0.0"
+	// (or a specific address) explicitly; that also disables the SDK's
+	// loopback Host-header protection, which only makes sense for a loopback
+	// bind.
+	Host string
+	// BearerAuth gates /mcp. Required: Run returns an error when it is nil
+	// unless AllowUnauthenticated is set.
 	BearerAuth *mcpserver.BearerAuth
+	// AllowUnauthenticated is the explicit opt-out of BearerAuth, for a
+	// loopback-only deployment whose only caller is local. Ignored when
+	// BearerAuth is set. Run logs a warning when it takes effect.
+	AllowUnauthenticated bool
+	// Resources, when non-empty, is an allowlist of Resource names to expose.
+	// nil/empty = every registered Resource (subject to RoleResolver for role-
+	// gated ones). A name that is not a registered Resource is a Run error, so
+	// a typo cannot silently expose less (or nothing) than intended.
+	Resources []string
+	// RoleResolver decides whether the caller identified by ctx (typically the
+	// verified bearer identity) holds a role. A Resource with a non-empty
+	// RequiredRole is exposed only when this is set, and every call to it is
+	// denied unless RoleResolver(ctx, RequiredRole) is true. The HTTP "owner"
+	// super-role is the resolver's business: return true for it if it applies.
+	// nil = role-gated Resources are not exposed over MCP at all.
+	RoleResolver func(ctx context.Context, role string) bool
 
 	// TenantResolver, when non-nil, resolves the tenant for EVERY tool call
 	// from the call's ctx — the seam a multi-account consumer uses to pin the
@@ -85,21 +130,52 @@ type Config struct {
 	Context context.Context
 }
 
-// Run starts the MCP server, exposing all registered Resources as MCP tools.
-// Blocks until the context is cancelled or SIGINT/SIGTERM is received.
+// ErrNoAuth is returned by Run when Config.BearerAuth is nil and
+// Config.AllowUnauthenticated is not set.
+var ErrNoAuth = errors.New("panelmcp: Config.BearerAuth is required (set Config.AllowUnauthenticated to run without authentication)")
+
+// defaultHost is the bind address when Config.Host is empty.
+const defaultHost = "127.0.0.1"
+
+// isLoopbackHost reports whether host names the loopback interface only.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// Run starts the MCP server, exposing the selected registered Resources as MCP
+// tools. Blocks until the context is cancelled or SIGINT/SIGTERM is received.
+// It returns ErrNoAuth for a nil BearerAuth without AllowUnauthenticated.
 func Run(cfg Config) error {
 	if cfg.Panel == nil {
 		panic("panelmcp.Run: Config.Panel is required")
 	}
-	ctx := cfg.Context
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = signal.NotifyContext(context.Background(), os.Interrupt)
-		defer cancel()
-	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if cfg.BearerAuth == nil {
+		if !cfg.AllowUnauthenticated {
+			return ErrNoAuth
+		}
+		logger.Warn("panelmcp: running WITHOUT authentication (Config.AllowUnauthenticated)")
+	}
+	exposed, err := selectResources(cfg.Panel.Resources(), cfg.Resources)
+	if err != nil {
+		return err
+	}
+	host := cfg.Host
+	if host == "" {
+		host = defaultHost
+	}
+	ctx := cfg.Context
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
 	}
 
 	// Stateless on purpose: GET /mcp answers 405 + Allow: POST, which rmcp reads as
@@ -108,9 +184,10 @@ func Run(cfg Config) error {
 	mcpCfg := mcpserver.Config{
 		Name:                       "go-panel",
 		Version:                    moduleVersion(),
+		Host:                       host,
 		Port:                       cfg.Port,
 		SchemaCache:                mcp.NewSchemaCache(),
-		DisableLocalhostProtection: true,
+		DisableLocalhostProtection: !isLoopbackHost(host),
 		Context:                    ctx,
 		Logger:                     logger,
 		MCPLogger:                  logger,
@@ -121,8 +198,28 @@ func Run(cfg Config) error {
 		Name:    "go-panel",
 		Version: moduleVersion(),
 	}, mcpCfg, func(s *mcp.Server) {
-		registerResourceTools(s, cfg.Panel.Resources(), logger, cfg.TenantResolver)
+		registerResourceTools(s, exposed, logger, cfg.TenantResolver, cfg.RoleResolver)
 	})
+}
+
+// selectResources applies the Config.Resources allowlist. An empty allowlist
+// keeps every resource; an unknown name is an error.
+func selectResources(all []resource.Resource, allow []string) ([]resource.Resource, error) {
+	if len(allow) == 0 {
+		return all, nil
+	}
+	for _, name := range allow {
+		if !slices.ContainsFunc(all, func(r resource.Resource) bool { return r.Name == name }) {
+			return nil, fmt.Errorf("panelmcp: Config.Resources names %q, which is not a registered Resource", name)
+		}
+	}
+	out := make([]resource.Resource, 0, len(allow))
+	for _, r := range all {
+		if slices.Contains(allow, r.Name) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 // modulePath is go-panel's own import path — the key its version is filed
@@ -168,16 +265,35 @@ func moduleVersion() string {
 	return "(devel)"
 }
 
-// registerResourceTools creates MCP list/get tools for each Resource.
-func registerResourceTools(server *mcp.Server, resources []resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool)) {
+// roleFunc is Config.RoleResolver's shape.
+type roleFunc = func(ctx context.Context, role string) bool
+
+// roleAllowed is the per-call role gate. A Resource without RequiredRole is
+// open to any authenticated caller; a role-gated one needs a resolver AND its
+// approval (registration already skips it when there is no resolver, this is
+// the call-time half so a revoked role takes effect without a restart).
+func roleAllowed(ctx context.Context, r resource.Resource, roles roleFunc) bool {
+	if r.RequiredRole == "" {
+		return true
+	}
+	return roles != nil && roles(ctx, r.RequiredRole)
+}
+
+// registerResourceTools creates MCP list/get tools for each Resource. A
+// Resource with a RequiredRole is skipped unless roles is non-nil.
+func registerResourceTools(server *mcp.Server, resources []resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool), roles roleFunc) {
 	for _, r := range resources {
-		registerListTool(server, r, logger, tr)
+		if r.RequiredRole != "" && roles == nil {
+			logger.Info("mcp resource not exposed: RequiredRole set and no RoleResolver", "resource", r.Name)
+			continue
+		}
+		registerListTool(server, r, logger, tr, roles)
 		// EffectiveDetailer returns the hand-written Detailer OR a synthesized
 		// auto-Detailer built from Sort.Columns + FetchRow. This keeps MCP's
 		// {resource}_get tool in sync with the HTTP detail route (which is
 		// mounted whenever Detailer OR FetchRow is non-nil — see resource.Register).
 		if resource.EffectiveDetailer(r) != nil {
-			registerGetTool(server, r, logger, tr)
+			registerGetTool(server, r, logger, tr, roles)
 		}
 	}
 }
@@ -209,12 +325,20 @@ type listInput struct {
 	SortDir string `json:"sort_dir,omitempty" jsonschema:"asc or desc"`
 }
 
+type columnJSON struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
 type listOutput struct {
-	Resource string    `json:"resource"`
-	Rows     []rowJSON `json:"rows"`
-	Total    int       `json:"total"`
-	Limit    int       `json:"limit"`
-	Offset   int       `json:"offset"`
+	Resource string `json:"resource"`
+	// Columns names the cells of every row, in order: Rows[i].Cells[j] is the
+	// value of Columns[j].
+	Columns []columnJSON `json:"columns"`
+	Rows    []rowJSON    `json:"rows"`
+	Total   int          `json:"total"`
+	Limit   int          `json:"limit"`
+	Offset  int          `json:"offset"`
 }
 
 type rowJSON struct {
@@ -228,13 +352,16 @@ type cellJSON struct {
 	HTML  bool   `json:"html"`
 }
 
-func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool)) {
+func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool), roles roleFunc) {
 	toolName := r.Name + "_list"
 	tool := &mcp.Tool{
 		Name:        toolName,
-		Description: fmt.Sprintf("List rows from the %s admin resource. Returns rows with cell values and total count.", r.Title),
+		Description: fmt.Sprintf("List rows from the %s admin resource. Returns the column keys, rows with cell values (in column order) and the total count.", r.Title),
 	}
 	mcp.AddTool(server, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in listInput) (*mcp.CallToolResult, listOutput, error) {
+		if !roleAllowed(ctx, r, roles) {
+			return nil, listOutput{}, fmt.Errorf("%s: role denied", toolName)
+		}
 		limit := in.Limit
 		if limit <= 0 {
 			limit = defaultListLimit
@@ -251,10 +378,12 @@ func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logg
 		if !ok {
 			return nil, listOutput{}, fmt.Errorf("%s: tenant resolution denied", toolName)
 		}
+		// Same composition as the HTTP list page: tenant scope clause included.
+		whereConds, whereArgs := r.ListWhere(nil, tenantVal)
 		rows, total, err := r.Lister(lctx, resource.ListQuery{
 			Sort:       sortState,
-			WhereConds: "", // no filter for MCP list (future: expose FilterSpec)
-			WhereArgs:  nil,
+			WhereConds: whereConds,
+			WhereArgs:  whereArgs,
 			Tenant:     tenantVal,
 			Limit:      limit,
 			Offset:     offset,
@@ -264,6 +393,7 @@ func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logg
 		}
 		return nil, listOutput{
 			Resource: r.Name,
+			Columns:  columnsToJSON(r),
 			Rows:     rowsToJSON(rows),
 			Total:    total,
 			Limit:    limit,
@@ -297,13 +427,16 @@ type itemJSON struct {
 	HTML  bool   `json:"html"`
 }
 
-func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool)) {
+func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logger, tr func(context.Context) (tenant.Tenant, bool), roles roleFunc) {
 	toolName := r.Name + "_get"
 	tool := &mcp.Tool{
 		Name:        toolName,
 		Description: fmt.Sprintf("Get a single %s row's detail by ID. Returns detail sections with labeled items.", r.Title),
 	}
 	mcp.AddTool(server, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in getInput) (*mcp.CallToolResult, getOutput, error) {
+		if !roleAllowed(ctx, r, roles) {
+			return nil, getOutput{}, fmt.Errorf("%s: role denied", toolName)
+		}
 		if in.ID == "" {
 			return nil, getOutput{}, fmt.Errorf("%s: id is required", toolName)
 		}
@@ -335,6 +468,14 @@ func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logge
 }
 
 // --- JSON helpers ---
+
+func columnsToJSON(r resource.Resource) []columnJSON {
+	out := make([]columnJSON, 0, len(r.Sort.Columns))
+	for _, c := range r.Sort.Columns {
+		out = append(out, columnJSON{Key: c.Key, Label: c.Label})
+	}
+	return out
+}
 
 func rowsToJSON(rows []resource.Row) []rowJSON {
 	out := make([]rowJSON, 0, len(rows))
