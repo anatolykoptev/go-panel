@@ -142,6 +142,7 @@ type Strings struct {
 	SaveChanges         string
 	Create              string
 	Cancel              string
+	Confirm             string // confirm button of a MountConfirm page
 	LocaleSwitcherLabel string
 	LocaleEditingNote   func(active, def string) string
 	SelectPlaceholder   string

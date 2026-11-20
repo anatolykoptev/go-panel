@@ -116,6 +116,7 @@ var english = Strings{
 	SaveChanges:         "Save Changes",
 	Create:              "Create",
 	Cancel:              "Cancel",
+	Confirm:             "Confirm",
 	LocaleSwitcherLabel: "Locale",
 	LocaleEditingNote: func(active, def string) string {
 		return "Editing the " + active + " translation. Shared fields are edited on the " + def + " version."

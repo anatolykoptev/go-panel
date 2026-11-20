@@ -1,0 +1,45 @@
+package components
+
+// DiffRow is one line of a [Diff]: a label and the value before and after.
+type DiffRow struct {
+	Label string
+	From  string
+	To    string
+}
+
+// Diff shows what a change does: per row, the old value struck through and the
+// new one bold ("20 % → 25 %"). A row whose From equals To renders the value
+// once, muted, so a long list of settings shows what moves and what stays.
+//
+// Every field is plain text, HTML-escaped by templ. There is deliberately no
+// raw-HTML escape hatch: the point of the component is that a confirm page
+// built on it cannot be turned into an injection sink by a stored value.
+type Diff struct {
+	Rows []DiffRow
+}
+
+// diffChanged reports whether the row moves the value.
+func diffChanged(r DiffRow) bool { return r.From != r.To }
+
+// DiffView renders a Diff as a definition list (label / change). It renders
+// nothing for an empty Diff.
+templ DiffView(d Diff) {
+	if len(d.Rows) > 0 {
+		<dl class="diff">
+			for _, r := range d.Rows {
+				<div class="diff-row">
+					<dt class="diff-label">{ r.Label }</dt>
+					<dd class="diff-value">
+						if diffChanged(r) {
+							<del class="diff-from">{ r.From }</del>
+							<span class="diff-arrow" aria-hidden="true">&rarr;</span>
+							<ins class="diff-to">{ r.To }</ins>
+						} else {
+							<span class="diff-same">{ r.To }</span>
+						}
+					</dd>
+				</div>
+			}
+		</dl>
+	}
+}

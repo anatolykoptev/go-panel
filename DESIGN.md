@@ -294,6 +294,17 @@ label/value `DetailItem`s, a multi-column `DetailTable` (rendered as
 the items render above the table — a summary line above its tabular data is the
 intended shape.
 
+### Diff and confirm page — `components.DiffView` / `Panel.MountConfirm`
+
+`components.Diff` lists rows of label, old value, new value: the old one struck
+(`<del>`), the new one bold (`<ins>`); a row whose value does not move shows it
+once, muted. All text is escaped; there is no raw-HTML field. `components.ConfirmView`
+is a page body with a title, one sentence, the diff and two real buttons;
+`Panel.MountConfirm` serves one behind the panel guard with a fresh CSRF token. Its
+form posts to a `MountAction` route (same-origin path, enforced), so confirming
+runs the usual CSRF and role checks. Point a row action's link at the confirm page
+to show current-versus-target before the owner commits.
+
 ## Interaction
 
 **htmx, no inline handlers.** The admin CSP drops inline event handlers, so

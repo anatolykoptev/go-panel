@@ -1,0 +1,48 @@
+package components
+
+// Confirm is a full confirmation step for a state-changing action: what will
+// happen, the before/after, and two real buttons. It is a page body, not a
+// dialog: it works without JavaScript, survives a reload, and the action it
+// posts is an ordinary CSRF-verified POST route.
+//
+// All text is escaped by templ. Post.URL and CancelHref are passed to templ as
+// plain strings so its URL sanitiser runs on them.
+type Confirm struct {
+	// Title is the <h2>; Message is one sentence saying what confirming does.
+	Title   string
+	Message string
+	// Diff is the current-versus-target view; an empty Diff renders nothing.
+	Diff Diff
+	// Post is the form the Confirm button submits (URL, CSRF Token, Fields).
+	Post PostAction
+	// ConfirmLabel and CancelLabel are the button texts. CancelHref is where
+	// Cancel goes.
+	ConfirmLabel string
+	CancelLabel  string
+	CancelHref   string
+	// Danger styles the confirm button as destructive.
+	Danger bool
+}
+
+func confirmVariant(c Confirm) Variant {
+	if c.Danger {
+		return VariantDanger
+	}
+	return VariantPrimary
+}
+
+// ConfirmView renders a Confirm.
+templ ConfirmView(c Confirm) {
+	<div class="confirm-page">
+		<h2>{ c.Title }</h2>
+		if c.Message != "" {
+			<p class="confirm-message">{ c.Message }</p>
+		}
+		@DiffView(c.Diff)
+		<form method="POST" action={ c.Post.URL } class="confirm-actions">
+			@postFields(c.Post)
+			<button type="submit" class={ btnClass(confirmVariant(c)) }>{ c.ConfirmLabel }</button>
+			<a class="btn btn-ghost" href={ c.CancelHref }>{ c.CancelLabel }</a>
+		</form>
+	</div>
+}

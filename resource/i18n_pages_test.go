@@ -30,6 +30,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/auth"
+	"github.com/anatolykoptev/go-panel/components"
 	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/locale"
 	"github.com/anatolykoptev/go-panel/resource"
@@ -283,6 +284,13 @@ func i18nResourcePages(t *testing.T, rec *i18nRecorder, o i18nOpts, mode *trashM
 	resource.Register(p, kitchen)
 	resource.Register(p, i18nBrokenTrash(mode))
 	resource.Register(p, i18nEmptyList())
+	p.MountConfirm(resource.ConfirmSpec{Path: "confirm", Load: func(context.Context, *http.Request) (resource.ConfirmPage, error) {
+		return resource.ConfirmPage{
+			Title: "Откат значения", Message: "Будет отправлена карточка подтверждения.",
+			Diff:   components.Diff{Rows: []components.DiffRow{{Label: "Доля", From: "25", To: "20"}}},
+			Action: "/admin/items/1/save",
+		}, nil
+	}})
 	h := p.Handler()
 	ck := bcryptLogin(t, a, "op@example.com", "pw")
 	cks := []*http.Cookie{ck}
@@ -301,6 +309,7 @@ func i18nResourcePages(t *testing.T, rec *i18nRecorder, o i18nOpts, mode *trashM
 	get("list-rows-append", "/admin/items/rows?page=2&append=1", true)
 	get("list-restorable", "/admin/items?restorable=7", false)
 	get("list-empty", "/admin/nothing", false)
+	get("confirm", "/admin/confirm/", false)
 	get("form-new", "/admin/items/new", false)
 	get("form-edit", "/admin/items/1/edit", false)
 	get("form-edit-secondary-locale", "/admin/items/1/edit?locale=en", false)

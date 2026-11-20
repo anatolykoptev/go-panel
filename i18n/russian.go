@@ -114,6 +114,7 @@ var russian = Strings{
 	SaveChanges:         "Сохранить",
 	Create:              "Создать",
 	Cancel:              "Отмена",
+	Confirm:             "Подтвердить",
 	LocaleSwitcherLabel: "Язык",
 	LocaleEditingNote: func(active, def string) string {
 		return "Редактируется перевод " + active + ". Общие поля редактируются в версии " + def + "."
