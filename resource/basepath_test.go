@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/anatolykoptev/go-panel/resource"
@@ -55,5 +56,35 @@ func TestBasePathFrom_ReachesADetailer(t *testing.T) {
 func TestBasePathFrom_EmptyOutsideAPanelRequest(t *testing.T) {
 	if got := resource.BasePathFrom(context.Background()); got != "" {
 		t.Errorf("BasePathFrom(background) = %q, want empty", got)
+	}
+}
+
+// The full-page chrome of a panel mounted away from /admin links its own static
+// assets and logout, not /admin's.
+//
+// RED-on-revert: drop `state.BasePath = p.basePath` in chromeStateFrom
+// (resource/render.go) AND leave StaticBase hardcoded in the layout.
+func TestLayout_UnderCustomMount_LinksItsOwnAssets(t *testing.T) {
+	const mount = "/operator-panel"
+	r := detailerResource("things", func(context.Context, *http.Request, string) ([]resource.DetailSection, error) {
+		return []resource.DetailSection{{Title: "T", Items: []resource.DetailItem{{Label: "L", Value: "V"}}}}, nil
+	})
+	a := newTestAuth()
+	p := resource.New(resource.Config{Title: "T", BasePath: mount, Auth: a})
+	resource.Register(p, r)
+
+	cookie := authCookie(t, a, "admin", "secret")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, mount+"/things/1", nil)
+	req.AddCookie(&http.Cookie{Name: "panel_admin", Value: cookie})
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, req)
+	body := w.Body.String()
+	for _, want := range []string{`href="` + mount + `/static/pm7.css"`, `src="` + mount + `/static/admin.js"`, `action="` + mount + `/logout"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	if strings.Contains(body, "/admin/static") || strings.Contains(body, "/admin/logout") {
+		t.Errorf("page under %s still links /admin", mount)
 	}
 }

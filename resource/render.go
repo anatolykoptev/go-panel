@@ -64,6 +64,7 @@ func (p *Panel) chromeStateFrom(r *http.Request) shell.ChromeState {
 	if p.settings != nil {
 		state.SettingsLink = p.settings.url
 	}
+	state.BasePath = p.basePath
 	state.StaticBase = p.basePath + "/static"
 	state.CollapsedGroups = collapsedGroupsFromCookie(r)
 	state.Profile = p.profileFor(r)
@@ -247,6 +248,9 @@ func (p *Panel) chromeSkinned(ctx context.Context) context.Context {
 	}
 	if st.DefaultTheme == "" {
 		st.DefaultTheme = p.defTheme
+	}
+	if st.BasePath == "" {
+		st.BasePath = p.basePath
 	}
 	if st.StaticBase == "" {
 		st.StaticBase = p.basePath + "/static"

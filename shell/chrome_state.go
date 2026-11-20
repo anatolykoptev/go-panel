@@ -103,6 +103,12 @@ type ChromeState struct {
 	// skin's default: dark for graphite, light for iris). Set from Config.DefaultTheme.
 	DefaultTheme string
 
+	// BasePath is the panel's mount ("/admin" by default). The layout builds
+	// its asset and logout URLs from it, so a panel mounted at "/ops" no longer
+	// links to /admin/static. "" = "/admin". Set by the resource layer from
+	// Config.BasePath on every render.
+	BasePath string
+
 	// StaticBase is the panel's static mount ("/admin/static" for BasePath
 	// "/admin"), used for the skin's font URLs. "" = "/admin/static". It is read
 	// only for a skinned page, so graphite output never depends on it.
@@ -220,7 +226,7 @@ type ProfileConfig struct {
 	// Settings link is rendered above Logout in the profile block.
 	SettingsURL string
 
-	// LogoutURL is the logout endpoint. When empty, defaults to /admin/logout.
+	// LogoutURL is the logout endpoint. When empty, defaults to <BasePath>/logout.
 	LogoutURL string
 }
 

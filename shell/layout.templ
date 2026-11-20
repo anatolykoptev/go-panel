@@ -73,12 +73,37 @@ func avatarInitial(name string) string {
 	return "?"
 }
 
-// profileLogoutURL returns p.LogoutURL if set, otherwise the conventional default.
-func profileLogoutURL(p ProfileConfig) string {
+// defaultBasePath is the mount the panel assumed before ChromeState.BasePath
+// existed. A zero-value ChromeState (a consumer rendering Layout directly)
+// keeps producing it.
+const defaultBasePath = "/admin"
+
+// basePathOf is the panel mount the chrome links against.
+func basePathOf(st ChromeState) string {
+	if st.BasePath != "" {
+		return st.BasePath
+	}
+	return defaultBasePath
+}
+
+// staticURL is the URL of one embedded asset under the panel's static mount.
+// StaticBase wins when set (the resource layer fills it for every render);
+// otherwise it follows BasePath.
+func staticURL(st ChromeState, name string) string {
+	base := st.StaticBase
+	if base == "" {
+		base = basePathOf(st) + "/static"
+	}
+	return base + "/" + name
+}
+
+// logoutURL returns the profile's LogoutURL if set, otherwise the panel's
+// logout endpoint under its mount.
+func logoutURL(st ChromeState, p ProfileConfig) string {
 	if p.LogoutURL != "" {
 		return p.LogoutURL
 	}
-	return "/admin/logout"
+	return basePathOf(st) + "/logout"
 }
 
 // themeToggleLabel returns the aria-label for the theme toggle button,
@@ -174,7 +199,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
 			<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23141414'/><text x='6' y='22' font-size='18' fill='%234daafc'>⚙</text></svg>"/>
-			<link rel="stylesheet" href="/admin/static/pm7.css"/>
+			<link rel="stylesheet" href={ staticURL(ChromeFromContext(ctx), "pm7.css") }/>
 			@layoutStyles()
 			@ChromeFromContext(ctx).skinHead(ChromeFromContext(ctx).StaticBase)
 		</head>
@@ -238,7 +263,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 									<span class="sidebar-tooltip">{ s.Settings }</span>
 								</a>
 							}
-							<form method="POST" action={ templ.SafeURL(profileLogoutURL(prof)) } style="margin:0;padding:0;display:block">
+							<form method="POST" action={ templ.SafeURL(logoutURL(ChromeFromContext(ctx), prof)) } style="margin:0;padding:0;display:block">
 								<button type="submit" class="sidebar-item sidebar-item--logout" aria-label={ s.Logout } style="anchor-name: --nav-logout">
 									<span class="sidebar-icon">&#x2192;</span>
 									<span class="sidebar-label">{ s.Logout }</span>
@@ -249,7 +274,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 							// Bare Logout — backward-compat for single-user consumers (HMACAuth)
 							// or when Profile.Name is empty.
 							@bareSettingsLink(ChromeFromContext(ctx).SettingsLink, s.Settings)
-							<form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block">
+							<form method="POST" action={ templ.SafeURL(logoutURL(ChromeFromContext(ctx), ProfileConfig{})) } style="margin:0;padding:0;display:block">
 								<button type="submit" class="sidebar-item" aria-label={ s.Logout } style="anchor-name: --nav-logout">
 									<span class="sidebar-icon">&#x2192;</span>
 									<span class="sidebar-label">{ s.Logout }</span>
@@ -267,9 +292,9 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 					</div>
 				</main>
 			</div>
-			<script src="/admin/static/htmx.min.js"></script>
-			<script src="/admin/static/pm7.js"></script>
-			<script src="/admin/static/admin.js" defer></script>
+			<script src={ staticURL(ChromeFromContext(ctx), "htmx.min.js") }></script>
+			<script src={ staticURL(ChromeFromContext(ctx), "pm7.js") }></script>
+			<script src={ staticURL(ChromeFromContext(ctx), "admin.js") } defer></script>
 		</body>
 	</html>
 }
