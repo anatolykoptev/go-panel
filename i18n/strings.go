@@ -131,6 +131,9 @@ type Strings struct {
 	SearchPlaceholder func(caption string) string // text-search filter placeholder
 	ViewsLabel        string                      // caption beside the view chips
 	NoResults         string
+	NoResultsFiltered string // the list is empty because of the chosen filters
+	ClearFilters      string // action beside NoResultsFiltered
+	FilterAll         string // the "no filter" option of a select filter
 	Prev              string
 	Next              string
 	LoadMore          string

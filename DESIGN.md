@@ -277,10 +277,23 @@ the CSRF token comes from `Panel.CSRFToken(r)`. `/admin/showcase/` in
 
 ### Lists on phones, emphasis, chip labels
 
-A list `<table class="crm-table" data-stack="cards">` becomes stacked cards at
-≤767px (each cell prints its `data-label` column header; the header row stays as
-sort links). `Row.Emphasis` bolds a row (unread). `Resource.FilterLabels`
-separates a filter chip's text from the value it submits.
+At ≤767px a list `<table class="crm-table" data-stack="cards">` becomes a stack of
+**two-line cards**: line 1 is the first cell (title) and the first right-aligned
+cell after it (value); line 2 is the remaining cells as one wrapping meta line,
+each prefixed by its lower-cased column label, then the row actions. The cells
+carry `cell-title` / `cell-value` / `cell-meta` classes; the desktop table ignores
+them. `Resource.CardMeta` lists the column keys the meta line keeps (nil = all);
+it never hides anything on desktop. The header row collapses to one scrollable
+line of sort links. Every control on a phone is ≥44px: chips, selects, the search
+box, sort links, row buttons (the title link stretches over the whole card).
+`Row.Emphasis` bolds a row (unread). `Resource.FilterLabels` separates a filter
+chip's text from the value it submits.
+
+Filter bar: chip groups wrap. A closed-set filter with more than six `Allowed`
+values renders as a `<select>` (first option "All" = no filter) instead of chips.
+An empty list prints a sentence saying why: "No results" when nothing is
+filtered, "No results match these filters." plus a *Clear filters* link (the
+list page without its declared filters; sort and view kept) when a filter is on.
 
 ### Detail views — `.detail-page` / `.detail-section` / `.detail-items`
 

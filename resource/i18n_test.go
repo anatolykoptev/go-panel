@@ -23,7 +23,7 @@ func russianOpts() i18nOpts {
 	return i18nOpts{
 		cfg: func(c *resource.Config) { c.Strings = resource.RussianStrings() },
 		res: func(r *resource.Resource) {
-			r.FilterGroupLabels = map[string]string{"status": "Статус", "q": "Название"}
+			r.FilterGroupLabels = map[string]string{"status": "Статус", "q": "Название", "регион": "Регион"}
 		},
 	}
 }

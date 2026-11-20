@@ -487,7 +487,7 @@ var (
 //
 // Falsification: delete `--font-mono:var(--font-sans);` from the iris light
 // block (shell/skin_iris.templ, the line above --font-code) -> every mono
-// surface (.delta, .occ-head, the filter captions in list.templ:214/228, ...)
+// surface (.delta, .occ-head, the filter captions (.filter-caption), ...)
 // resolves to ui-monospace under iris -> RED. Delete the
 // `textarea[style*="--font-mono"]` rule -> the JSON textarea
 // (form.templ:283) renders sans -> RED.
@@ -525,7 +525,7 @@ func TestSkinIris_NoMonoSurfaceOutsideCode(t *testing.T) {
 			}
 		}
 	}
-	if nSheet < 20 || nInline < 5 || codeSurfaces < 1 {
+	if nSheet < 20 || nInline < 3 || codeSurfaces < 1 {
 		t.Fatalf("discovery found sheet=%d inline=%d code=%d mono surfaces; the scan no longer sees the sources", nSheet, nInline, codeSurfaces)
 	}
 	// every code surface found inline is restored by an iris rule that can reach it.

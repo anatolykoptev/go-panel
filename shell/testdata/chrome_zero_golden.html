@@ -404,7 +404,16 @@
 		.filter-chip{padding:.1875rem .625rem;border:1px solid var(--border-control);border-radius:9999px;font-size:.75rem;font-weight:500;color:var(--text-secondary);background:transparent;cursor:pointer;transition:color .12s,background-color .12s,border-color .12s;text-decoration:none;display:inline-block}
 		.filter-chip:hover{color:var(--text-primary);border-color:var(--text-faint)}
 		.filter-chip.active{color:var(--accent-text);background:var(--accent-soft);border-color:var(--accent)}
-		.pagination{display:flex;gap:.5rem;justify-content:center;margin-top:1.25rem}
+		.filter-group{display:flex;gap:.25rem .5rem;align-items:center;flex-wrap:wrap}
+		.filter-caption{font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}
+		.filter-chips{display:flex;gap:.25rem;flex-wrap:wrap}
+		.filter-search,.filter-select{padding:.375rem .625rem;background:var(--pm7-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-sans);font-size:.8125rem}
+		.filter-select{min-height:2rem;max-width:100%}
+		.empty-state{text-align:center;color:var(--text-secondary);padding:2.5rem 1rem}
+		.empty-title{margin:0 0 .75rem;font-size:.9375rem}
+		.empty-state .btn{margin-top:0}
+		.pagination{display:flex;gap:.5rem;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:1.25rem}
+		.pagination-count{padding:.375rem .75rem;color:var(--text-secondary);font-family:var(--font-mono);font-size:.8125rem}
 		.sidebar .pm7-sidebar-item--active{border-left-color:var(--accent);background:var(--accent-glow)}
 		/* ── Nav parent-item submenu (Phase 5, one level) ─────────────────────
 		   Caret mirrors Phase 4 group collapse pattern (re-namespaced).
@@ -714,12 +723,36 @@
 			   links) so sorting keeps working. Opt-in per table via the data-stack attribute (the class list stays exactly "crm-table"). */
 			.crm-table[data-stack]{display:block;background:transparent;border:0;border-radius:0}
 			.crm-table[data-stack] thead,.crm-table[data-stack] tbody{display:block}
-			.crm-table[data-stack] thead tr{display:flex;flex-wrap:wrap;gap:.25rem 1rem;padding:.25rem .25rem .5rem}
-			.crm-table[data-stack] thead th,.crm-table[data-stack] thead th:first-child{display:block;padding:0;border:0;background:transparent;width:auto!important}
-			.crm-table[data-stack] tbody tr{display:block;margin-bottom:.625rem;padding:.375rem 0;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-lg)}
-			.crm-table[data-stack] td,.crm-table[data-stack] td:first-child{display:block;padding:.3125rem 1rem;border-bottom:0;text-align:left!important}
-			.crm-table[data-stack] td[data-label]:not([data-label=""])::before{content:attr(data-label) ": ";font-family:var(--font-mono);font-size:.6875rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary)}
-			.crm-table[data-stack] td[colspan]{padding:1rem}
+			/* The header collapses to ONE scrollable line of sort links, 44px tall. */
+			.crm-table[data-stack] thead tr{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:0 .25rem;padding:0 0 .5rem}
+			.crm-table[data-stack] thead th,.crm-table[data-stack] thead th:first-child{display:block;flex:none;padding:0;border:0;background:transparent;width:auto!important}
+			.crm-table[data-stack] thead th:not(:has(.crm-th-sort)){display:none}
+			.crm-table[data-stack] .crm-th-sort{min-height:2.75rem;padding:0 .625rem}
+			/* A row is a two-line card. Line 1: title (first cell) and value (first
+			   right-aligned cell). Line 2: the meta cells, wrapping, then the actions.
+			   tr::after is a zero-height full-width flex item ordered between line 1
+			   and line 2, which forces the break. */
+			.crm-table[data-stack] tbody tr{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:.125rem .75rem;margin-bottom:.625rem;padding:.625rem 1rem;min-height:3.75rem;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-lg)}
+			.crm-table[data-stack] tbody tr::after{content:"";order:3;flex:0 0 100%;height:0}
+			.crm-table[data-stack] td,.crm-table[data-stack] td:first-child{display:block;padding:0;border-bottom:0;text-align:left!important}
+			.crm-table[data-stack] td.cell-title{order:1;flex:1 1 0;min-width:0}
+			.crm-table[data-stack] td.cell-value{order:2;flex:0 1 auto;max-width:60%;text-align:end!important;font-weight:600}
+			.crm-table[data-stack] td.cell-meta{order:4;flex:0 0 auto;font-size:.8125rem;color:var(--text-secondary)}
+			.crm-table[data-stack] td.cell-hide{display:none}
+			.crm-table[data-stack] td.cell-actions{order:5;flex:0 0 auto;margin-left:auto;position:relative;z-index:1}
+			.crm-table[data-stack] td.cell-meta[data-label]:not([data-label=""])::before{content:attr(data-label) " ";text-transform:lowercase}
+			/* The whole card is the tap target of its title link. */
+			.crm-table[data-stack] td.cell-title a::after{content:"";position:absolute;inset:0}
+			.crm-table[data-stack] td.cell-actions .btn,.crm-table[data-stack] td.cell-actions .row-delete{min-height:2.75rem}
+			.crm-table[data-stack] td.cell-actions .row-delete{padding:0 .75rem}
+			.crm-table[data-stack] td[colspan]{flex:1 1 0;padding:1rem}
+			.crm-table[data-stack] td.empty-state{padding:2rem 1rem}
 			.crm-table[data-stack] td[colspan]::before{content:none}
+			.filter-bar{gap:.5rem}
+			.filter-chip{min-height:2.75rem;padding:.25rem .875rem;font-size:.8125rem}
+			.filter-search,.filter-select{min-height:2.75rem;flex:1 1 100%;font-size:1rem}
+			.filter-group{width:100%}
+			.filter-group .filter-select{flex:1 1 0;min-width:0}
+			.pagination .btn{flex:1 1 auto}
 		}
 	</style></head><body><div class="app"><aside class="sidebar" id="sidebar"><div class="sidebar-header"><h1>T</h1><div class="sidebar-header-actions"><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light theme" data-label-to-light="Switch to light theme" data-label-to-dark="Switch to dark theme" aria-pressed="false"><span class="theme-icon-moon" aria-hidden="true">&#9790;</span> <span class="theme-icon-sun" aria-hidden="true">&#9728;</span></button> <button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button></div></div><nav class="sidebar-nav"></nav><div class="sidebar-bottom">  <form method="POST" action="/admin/logout" style="margin:0;padding:0;display:block"><button type="submit" class="sidebar-item" aria-label="Logout" style="anchor-name: --nav-logout"><span class="sidebar-icon">&#x2192;</span> <span class="sidebar-label">Logout</span> <span class="sidebar-tooltip" style="position-anchor: --nav-logout">Logout</span></button></form></div></aside><div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div><main class="main"><button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label="Open navigation">&#9776;</button><div id="content"></div></main></div><script src="/admin/static/htmx.min.js"></script><script src="/admin/static/pm7.js"></script><script src="/admin/static/admin.js" defer></script></body></html>

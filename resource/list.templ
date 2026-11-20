@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -122,6 +123,67 @@ func filterChipLabel(r Resource, key, value string) string {
 	return value
 }
 
+// cardValueIdx is the index of the cell a phone card shows beside its title:
+// the first right-aligned column after the first. Right alignment already says
+// "this is a figure", so no new declaration is needed. -1 = none.
+func cardValueIdx(cols []admintable.Column) int {
+	for i := 1; i < len(cols); i++ {
+		if cols[i].Align == "right" {
+			return i
+		}
+	}
+	return -1
+}
+
+// cellClass names the role of cell i. The desktop table ignores the classes;
+// the phone layout (styles.templ, max-width:767px) arranges a row as a
+// two-line card from them: cell-title and cell-value on the first line,
+// cell-meta cells on one wrapping line below. A cell outside Resource.CardMeta
+// (when that is set) is cell-hide on phones.
+func cellClass(d listPageData, i int) string {
+	cols := d.Resource.Sort.Columns
+	switch {
+	case i == 0:
+		return "cell-title"
+	case i == cardValueIdx(cols):
+		return "cell-value"
+	}
+	if len(d.Resource.CardMeta) > 0 && (i >= len(cols) || !slices.Contains(d.Resource.CardMeta, cols[i].Key)) {
+		return "cell-meta cell-hide"
+	}
+	return "cell-meta"
+}
+
+// filtersActive reports whether the request narrows the list by a declared
+// filter. It decides which empty state is honest: "nothing here yet" versus
+// "nothing matches what you chose".
+func filtersActive(d listPageData) bool {
+	for _, f := range d.Resource.Filter.Filters {
+		if d.Selected.Get(f.Key) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// clearFiltersHref is the list page without its declared filters; sort, view
+// and page size survive. A plain link rather than an htmx swap: the chips and
+// the search box sit outside the swapped region and must reset with the page.
+func clearFiltersHref(d listPageData) string {
+	vals, _ := url.ParseQuery(d.QueryString)
+	for _, f := range d.Resource.Filter.Filters {
+		vals.Del(f.Key)
+	}
+	for _, k := range []string{"append", "restorable", "page"} {
+		vals.Del(k)
+	}
+	href := d.BasePath + "/" + d.Resource.Name
+	if len(vals) > 0 {
+		href += "?" + vals.Encode()
+	}
+	return href
+}
+
 // colLabel is the column header text for the cell at index i; it feeds the
 // data-label attribute the narrow-screen stacked-card CSS prints before the
 // value. Out-of-range (extra cells) returns "" and the CSS prints no label.
@@ -199,6 +261,26 @@ templ listRowsAppend(d listPageData) {
 	</div>
 }
 
+// maxFilterChips is the most options a closed-set filter shows as chips. A
+// longer set becomes a <select>: twelve chips do not fit a phone, and a row of
+// twelve pills is no faster to scan than a list.
+const maxFilterChips = 6
+
+// filterAsSelect reports whether f renders as a <select> rather than chips.
+func filterAsSelect(f admintable.Filter) bool {
+	return len(f.Allowed) > maxFilterChips
+}
+
+// optionSelected reports whether value is the one currently selected for key.
+func optionSelected(d listPageData, key, value string) bool {
+	for _, v := range d.Selected[key] {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
 // filterBar renders the filter chips for ILike text search and Eq/AnyOf chip selectors.
 templ filterBar(d listPageData) {
 	{{ s := i18n.From(ctx) }}
@@ -211,30 +293,44 @@ templ filterBar(d listPageData) {
 			hx-trigger="change, submit"
 		>
 			if len(d.Resource.Views) > 0 {
-				<div style="display:flex;gap:.25rem;align-items:center">
-					<span style="font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em">{ viewsLabel(s, d.Resource) }</span>
-					for _, v := range d.Resource.Views {
-						<button
-							type="submit"
-							name="view"
-							value={ v.Key }
-							class={ viewChipClass(d, v.Key) }
-						>{ viewLabel(v) }</button>
-					}
+				<div class="filter-group">
+					<span class="filter-caption">{ viewsLabel(s, d.Resource) }</span>
+					<div class="filter-chips">
+						for _, v := range d.Resource.Views {
+							<button
+								type="submit"
+								name="view"
+								value={ v.Key }
+								class={ viewChipClass(d, v.Key) }
+							>{ viewLabel(v) }</button>
+						}
+					</div>
 				</div>
 			}
 			for _, f := range d.Resource.Filter.Filters {
-				if len(f.Allowed) > 0 {
-					<div style="display:flex;gap:.25rem;align-items:center">
-						<span style="font-family:var(--font-mono);font-size:.6875rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em">{ filterCaption(d.Resource, f.Key) }</span>
-						for _, a := range f.Allowed {
-							<button
-								type="submit"
-								name={ f.Key }
-								value={ a }
-								class={ chipClass(d, f.Key, a) }
-							>{ filterChipLabel(d.Resource, f.Key, a) }</button>
-						}
+				if filterAsSelect(f) {
+					<div class="filter-group">
+						<label class="filter-caption" for={ "filter-" + f.Key }>{ filterCaption(d.Resource, f.Key) }</label>
+						<select id={ "filter-" + f.Key } name={ f.Key } class="filter-select">
+							<option value="">{ s.FilterAll }</option>
+							for _, a := range f.Allowed {
+								<option value={ a } selected?={ optionSelected(d, f.Key, a) }>{ filterChipLabel(d.Resource, f.Key, a) }</option>
+							}
+						</select>
+					</div>
+				} else if len(f.Allowed) > 0 {
+					<div class="filter-group">
+						<span class="filter-caption">{ filterCaption(d.Resource, f.Key) }</span>
+						<div class="filter-chips">
+							for _, a := range f.Allowed {
+								<button
+									type="submit"
+									name={ f.Key }
+									value={ a }
+									class={ chipClass(d, f.Key, a) }
+								>{ filterChipLabel(d.Resource, f.Key, a) }</button>
+							}
+						</div>
 					</div>
 				} else {
 					<input
@@ -242,7 +338,8 @@ templ filterBar(d listPageData) {
 						name={ f.Key }
 						value={ d.Selected.Get(f.Key) }
 						placeholder={ s.SearchPlaceholder(filterCaption(d.Resource, f.Key)) }
-						style="padding:.375rem .625rem;background:var(--pm7-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-sans);font-size:.8125rem"
+						aria-label={ s.SearchPlaceholder(filterCaption(d.Resource, f.Key)) }
+						class="filter-search"
 					/>
 				}
 			}
@@ -282,12 +379,14 @@ templ listTable(d listPageData) {
 		</thead>
 		<tbody>
 			if len(d.Rows) == 0 {
-				<tr>
-					<td
-						colspan={ listColspan(d) }
-						style="text-align:center;color:var(--text-muted);padding:2rem"
-					>
-						{ s.NoResults }
+				<tr class="empty-row">
+					<td colspan={ listColspan(d) } class="empty-state">
+						if filtersActive(d) {
+							<p class="empty-title">{ s.NoResultsFiltered }</p>
+							<a class="btn btn-secondary" href={ clearFiltersHref(d) }>{ s.ClearFilters }</a>
+						} else {
+							<p class="empty-title">{ s.NoResults }</p>
+						}
 					</td>
 				</tr>
 			}
@@ -316,23 +415,23 @@ templ listRow(d listPageData, row Row) {
 	<tr class={ templ.KV("row-emphasis", row.Emphasis) }>
 		for i, cell := range row.Cells {
 			if i == 0 && detailHref != "" {
-				<td style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>
+				<td class={ cellClass(d, i) } style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>
 					// Plain string, never templ.SafeURL: SafeURL is the opt-OUT
 					// of templ's URL sanitiser, so casting a consumer-supplied
 					// Row.Href to it renders javascript: verbatim in the href.
 					<a class="row-name" href={ detailHref }>{ cell.Value }</a>
 				</td>
 			} else if cell.HTML {
-				<td style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>@templ.Raw(cell.Value)</td>
+				<td class={ cellClass(d, i) } style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>@templ.Raw(cell.Value)</td>
 			} else {
-				<td style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>{ cell.Value }</td>
+				<td class={ cellClass(d, i) } style={ colCellStyle(d, i) } data-label={ colLabel(d, i) }>{ cell.Value }</td>
 			}
 		}
 		if d.Resource.Writer != nil {
-			<td style="text-align:right;white-space:nowrap">
+			<td class="cell-actions" style="text-align:right;white-space:nowrap">
 				<a
 					href={ rowPath(d, row.ID, "/edit") }
-					style="font-size:.75rem;color:var(--text-secondary);text-decoration:none"
+					class="btn btn-secondary btn-sm"
 				>{ s.Edit }</a>
 				if d.Resource.Writer.Restore != nil && d.CSRFToken != "" {
 					<button
@@ -365,7 +464,7 @@ templ deletedRow(d listPageData, id string, label string) {
 		<td colspan={ listColspanExceptActions(d) } class="row-deleted-label">
 			{ s.Deleted(label) }
 		</td>
-		<td style="text-align:right;white-space:nowrap">
+		<td class="cell-actions" style="text-align:right;white-space:nowrap">
 			<button
 				type="button"
 				class="row-undo"
@@ -400,10 +499,10 @@ templ paginationInner(d listPageData) {
 					hx-target={ "#" + d.Resource.Name + "-region" }
 					hx-swap="outerHTML"
 					hx-push-url="true"
-					style="padding:.375rem .75rem;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);text-decoration:none"
+					class="btn btn-secondary"
 				>&larr; { s.Prev }</a>
 			}
-			<span style="padding:.375rem .75rem;color:var(--text-muted);font-family:var(--font-mono);font-size:.8125rem">
+			<span class="pagination-count">
 				{ fmt.Sprintf("%d / %d", d.Page, d.TotalPages) }
 			</span>
 			if d.Page < d.TotalPages {
@@ -413,14 +512,14 @@ templ paginationInner(d listPageData) {
 					hx-target={ "#" + d.Resource.Name + "-region" }
 					hx-swap="outerHTML"
 					hx-push-url="true"
-					style="padding:.375rem .75rem;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);text-decoration:none"
+					class="btn btn-secondary"
 				>{ s.Next } &rarr;</a>
 				<a
 					href={ templ.SafeURL(pageHref(d, d.Page+1)) }
 					hx-get={ appendURL(d) }
 					hx-target={ "#" + d.Resource.Name + "-table tbody" }
 					hx-swap="beforeend"
-					style="padding:.375rem .75rem;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);text-decoration:none"
+					class="btn btn-secondary"
 				>{ s.LoadMore } &darr;</a>
 			}
 		</div>

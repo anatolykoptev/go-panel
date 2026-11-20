@@ -97,11 +97,17 @@ func i18nKitchen(mode *trashMode) resource.Resource {
 		},
 		Filter: admintable.FilterSpec{Filters: []admintable.Filter{
 			{Key: "status", SQLExpr: "i.status", Match: admintable.Eq, Allowed: []string{"new", "won"}},
+			// More than six options: renders as a <select>, not chips.
+			{Key: "регион", SQLExpr: "i.region", Match: admintable.Eq, Allowed: []string{"с", "св", "в", "юв", "ю", "юз", "з", "сз"}},
 			{Key: "q", SQLExprs: []string{"i.name"}, Match: admintable.ILike},
 		}},
-		FilterLabels: map[string]map[string]string{"status": {"new": "Новые", "won": "Выигранные"}},
-		Views:        []resource.View{{Key: "all", Label: "Все"}, {Key: "mine", Label: "Мои"}},
-		Lister: func(context.Context, resource.ListQuery) ([]resource.Row, int, error) {
+		FilterLabels:      map[string]map[string]string{"status": {"new": "Новые", "won": "Выигранные"}},
+		FilterGroupLabels: map[string]string{"регион": "Регион"},
+		Views:             []resource.View{{Key: "all", Label: "Все"}, {Key: "mine", Label: "Мои"}},
+		Lister: func(_ context.Context, q resource.ListQuery) ([]resource.Row, int, error) {
+			if len(q.WhereArgs) > 0 { // a chosen filter matches nothing: the filtered empty state
+				return nil, 0, nil
+			}
 			return rows, 120, nil
 		},
 		TrashLister: func(context.Context, resource.ListQuery) ([]resource.Row, int, error) {
@@ -301,6 +307,7 @@ func i18nResourcePages(t *testing.T, rec *i18nRecorder, o i18nOpts, mode *trashM
 	get("list-rows-append", "/admin/items/rows?page=2&append=1", true)
 	get("list-restorable", "/admin/items?restorable=7", false)
 	get("list-empty", "/admin/nothing", false)
+	get("list-filtered-empty", "/admin/items?status=new", false)
 	get("form-new", "/admin/items/new", false)
 	get("form-edit", "/admin/items/1/edit", false)
 	get("form-edit-secondary-locale", "/admin/items/1/edit?locale=en", false)

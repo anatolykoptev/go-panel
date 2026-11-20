@@ -235,6 +235,15 @@ type Resource struct {
 	// does not exist is a typo, not data).
 	FilterGroupLabels map[string]string
 
+	// CardMeta lists the Sort.Columns keys a phone card shows on its meta line,
+	// in column order. On a phone (max-width 767px) a row is a two-line card:
+	// the first cell and the first right-aligned cell on line one, the rest on
+	// one wrapping line below. Left nil, every remaining cell is shown; set it
+	// when a wide table has columns (bounds, source, ids) a phone reader does
+	// not need. It never hides a cell on desktop. Register panics on a key that
+	// is not a Sort.Columns key.
+	CardMeta []string
+
 	// ViewsLabel is the caption shown beside the view chips. Empty falls back to
 	// Config.Strings.ViewsLabel ("view" by default).
 	ViewsLabel string
@@ -855,6 +864,7 @@ func Register(p *Panel, r Resource) {
 	validateViewsConfig(r)
 	validateFilterLabels(r)
 	validateFilterGroupLabels(r)
+	validateCardMeta(r)
 	validateTrashConfig(r)
 	validateRelationsConfig(&r)
 	p.resources = append(p.resources, r)
@@ -2197,6 +2207,17 @@ func validateFilterLabels(r Resource) {
 			if !slices.Contains(allowed, value) {
 				panic(fmt.Sprintf("resource.Register %q: FilterLabels[%q] has label for %q, which is not in Allowed", r.Name, key, value))
 			}
+		}
+	}
+}
+
+// validateCardMeta panics at Register if CardMeta names a key that is not a
+// sort column (fail-fast at startup, like the label maps: a typo here would
+// silently hide every meta cell on phones).
+func validateCardMeta(r Resource) {
+	for _, key := range r.CardMeta {
+		if !slices.ContainsFunc(r.Sort.Columns, func(c admintable.Column) bool { return c.Key == key }) {
+			panic(fmt.Sprintf("resource.Register %q: CardMeta key %q is not a Sort.Columns key", r.Name, key))
 		}
 	}
 }
