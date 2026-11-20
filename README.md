@@ -190,6 +190,10 @@ apps — go-job (composes the kit). go-nerv / oxpulse-admin / go-grad migrating 
 - **No CDN** — all static assets (htmx.min.js, pm7 CSS/JS) served from embedded FS. Safe behind ТСПУ.
 - **Tenant scope is unconditional** — a Resource with `Scope.Column != ""` always gets the WHERE injected. Cannot be bypassed per-call.
 - **SQL safety via admintable** — only author-declared `SQLExpr` compile-time constants + literal operators reach SQL. URL bytes are bind args only.
+- **Non-SQL listers** — `ListQuery.Filters` carries the active, validated filter values
+  (`map[key][]string`, declared filters only, closed sets already enforced). A Lister that calls
+  an upstream API reads it instead of `WhereConds`; give each `Eq`/`AnyOf` filter a non-empty
+  `SQLExpr` (the column key you want back) to satisfy admintable validation, and ignore the SQL.
 - **Role-gating is fail-closed** — set `RequiredRole` against an auth that can't enforce roles and `Register` panics; a hidden nav link is always backed by a real route gate.
 
 ## Development
