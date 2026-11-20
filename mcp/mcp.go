@@ -1,11 +1,12 @@
 // Package mcp auto-exposes go-panel Resources as MCP tools.
 //
-// Each registered Resource becomes two MCP tools:
+// Each registered Resource becomes two MCP tools (three with WriteResources):
 //
-//   - {resource_name}_list — list rows with optional pagination and sort.
-//     Parameters: limit (int, default 50, max 500), offset (int, default 0),
-//     sort_key (string, optional — must be one of the Resource's sortable
-//     column keys), sort_dir (string, "asc" or "desc", optional).
+//   - {resource_name}_list — list rows with optional pagination, sort and
+//     filters. Parameters: limit (int, default 50, max 500), offset (int,
+//     default 0), sort_key (string, optional — must be one of the Resource's
+//     sortable column keys), sort_dir (string, "asc" or "desc", optional),
+//     filters (object, optional — keys declared on the Resource's FilterSpec).
 //     Returns a JSON object: {"columns": [{key, label}], "rows": [...], "total": N};
 //     a row's cells follow the column order.
 //
@@ -13,6 +14,11 @@
 //     Only registered when the Resource has a Detailer.
 //     Parameters: id (string, required).
 //     Returns a JSON array of DetailSection objects.
+//
+//   - {resource_name}_propose — only for names in Config.WriteResources.
+//     Submits field values through the Resource's form validation and
+//     Writer.Save (resource.Panel.Propose); the result carries per-field
+//     errors or Config.ProposeNotice. Read-only unless opted in.
 //
 // The MCP server runs on a separate port from the admin panel HTTP server,
 // sharing the same Panel instance and its registered Resources.
@@ -59,11 +65,15 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"syscall"
+
+	"github.com/anatolykoptev/go-kit/admintable"
 
 	"github.com/anatolykoptev/go-mcpserver"
 	"github.com/anatolykoptev/go-panel/resource"
@@ -123,6 +133,19 @@ type Config struct {
 	// so detailers reading tenant.From(req.Context()) see the pinned value.
 	TenantResolver func(ctx context.Context) (tenant.Tenant, bool)
 
+	// WriteResources opts named Resources into a {resource}_propose tool. Each
+	// must be exposed (see Resources) and declare a Writer, else Run errors.
+	// The tool runs the Resource's form validation and Writer.Save through
+	// resource.Panel.Propose, under the same role and tenant gates as the read
+	// tools. Empty = the MCP surface is read-only (the default).
+	WriteResources []string
+	// ProposeNotice is shown to the calling agent with every accepted proposal
+	// and in the tool description. Required when WriteResources is set: it must
+	// state, truthfully for THIS deployment, what happens to a proposal (for
+	// example that nothing applies until the owner confirms it). panelmcp only
+	// validates and hands the values to Writer.Save; whether Save applies or
+	// merely records a proposal is the consumer's contract.
+	ProposeNotice string
 	// Logger. nil = slog.Default().
 	Logger *slog.Logger
 
@@ -167,6 +190,9 @@ func Run(cfg Config) error {
 	if err != nil {
 		return err
 	}
+	if err := validateWriteConfig(exposed, cfg); err != nil {
+		return err
+	}
 	host := cfg.Host
 	if host == "" {
 		host = defaultHost
@@ -199,6 +225,7 @@ func Run(cfg Config) error {
 		Version: moduleVersion(),
 	}, mcpCfg, func(s *mcp.Server) {
 		registerResourceTools(s, exposed, logger, cfg.TenantResolver, cfg.RoleResolver)
+		registerProposeTools(s, cfg.Panel, exposed, cfg.WriteResources, cfg.ProposeNotice, logger, cfg.TenantResolver, cfg.RoleResolver)
 	})
 }
 
@@ -323,6 +350,11 @@ type listInput struct {
 	Offset  int    `json:"offset,omitempty" jsonschema:"zero-based offset"`
 	SortKey string `json:"sort_key,omitempty" jsonschema:"field name to sort by"`
 	SortDir string `json:"sort_dir,omitempty" jsonschema:"asc or desc"`
+	// Filters maps a filter key declared on the Resource to its value; the tool
+	// description names the keys. An undeclared key or a value outside a
+	// filter's closed set is an error, not a silent no-op, so an agent never
+	// mistakes an unfiltered list for a filtered one.
+	Filters map[string]string `json:"filters,omitempty" jsonschema:"filter key to value; see the tool description for the keys"`
 }
 
 type columnJSON struct {
@@ -356,7 +388,7 @@ func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logg
 	toolName := r.Name + "_list"
 	tool := &mcp.Tool{
 		Name:        toolName,
-		Description: fmt.Sprintf("List rows from the %s admin resource. Returns the column keys, rows with cell values (in column order) and the total count.", r.Title),
+		Description: listDescription(r),
 	}
 	mcp.AddTool(server, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in listInput) (*mcp.CallToolResult, listOutput, error) {
 		if !roleAllowed(ctx, r, roles) {
@@ -378,8 +410,12 @@ func registerListTool(server *mcp.Server, r resource.Resource, logger *slog.Logg
 		if !ok {
 			return nil, listOutput{}, fmt.Errorf("%s: tenant resolution denied", toolName)
 		}
+		filterVals, err := filterValues(r, in.Filters)
+		if err != nil {
+			return nil, listOutput{}, fmt.Errorf("%s: %w", toolName, err)
+		}
 		// Same composition as the HTTP list page: tenant scope clause included.
-		whereConds, whereArgs := r.ListWhere(nil, tenantVal)
+		whereConds, whereArgs := r.ListWhere(filterVals, tenantVal)
 		rows, total, err := r.Lister(lctx, resource.ListQuery{
 			Sort:       sortState,
 			WhereConds: whereConds,
@@ -465,6 +501,43 @@ func registerGetTool(server *mcp.Server, r resource.Resource, logger *slog.Logge
 		}, nil
 	})
 	logger.Info("mcp tool registered", "tool", toolName, "resource", r.Name)
+}
+
+// filterValues validates the agent-supplied filters against r's declared
+// FilterSpec and returns them as the url.Values the HTTP list page would carry.
+func filterValues(r resource.Resource, in map[string]string) (url.Values, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := make(url.Values, len(in))
+	for key, val := range in {
+		i := slices.IndexFunc(r.Filter.Filters, func(f admintable.Filter) bool { return f.Key == key })
+		if i < 0 {
+			return nil, fmt.Errorf("unknown filter %q", key)
+		}
+		if allowed := r.Filter.Filters[i].Allowed; len(allowed) > 0 && val != "" && !slices.Contains(allowed, val) {
+			return nil, fmt.Errorf("filter %q: %q is not one of %s", key, val, strings.Join(allowed, ", "))
+		}
+		out.Set(key, val)
+	}
+	return out, nil
+}
+
+// listDescription is the list tool's description, naming the filter keys.
+func listDescription(r resource.Resource) string {
+	d := fmt.Sprintf("List rows from the %s admin resource. Returns the column keys, rows with cell values (in column order) and the total count.", r.Title)
+	if len(r.Filter.Filters) == 0 {
+		return d
+	}
+	parts := make([]string, 0, len(r.Filter.Filters))
+	for _, f := range r.Filter.Filters {
+		if len(f.Allowed) > 0 {
+			parts = append(parts, fmt.Sprintf("%s (one of: %s)", f.Key, strings.Join(f.Allowed, ", ")))
+		} else {
+			parts = append(parts, f.Key)
+		}
+	}
+	return d + " Filters: " + strings.Join(parts, "; ") + "."
 }
 
 // --- JSON helpers ---

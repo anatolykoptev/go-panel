@@ -33,10 +33,11 @@ func (stubAuth) RequireRole(_ string, h http.HandlerFunc) http.HandlerFunc {
 	return h
 }
 func (stubAuth) HasRole(context.Context, string) bool { return true }
+func (stubAuth) SessionCookieName() string            { return "sid" }
 
 func newPanel(t *testing.T, rs ...resource.Resource) *resource.Panel {
 	t.Helper()
-	p := resource.New(resource.Config{Title: "T", BasePath: "/admin", Auth: stubAuth{}})
+	p := resource.New(resource.Config{Title: "T", BasePath: "/admin", Auth: stubAuth{}, CSRFKey: []byte("0123456789abcdef0123456789abcdef")})
 	for _, r := range rs {
 		resource.Register(p, r)
 	}
