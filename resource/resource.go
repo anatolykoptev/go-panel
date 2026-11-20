@@ -2103,11 +2103,12 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		}
 
 		p.issueActionToken(r, req, &data)
-		data.HeaderComp = r.listHeader(ctx, req)
 		if fragmentOnly || isFragmentRequest(req) {
 			renderListFragment(ctx, w, data, q.Get("append") == "1")
 			return
 		}
+		// Only a full-page render shows the header, so resolve it only now.
+		data.HeaderComp = r.listHeader(ctx, req)
 
 		content := listPageContent(data)
 		layoutComp := shell.Layout(p.title, nav, content)

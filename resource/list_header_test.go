@@ -11,6 +11,28 @@ import (
 	"github.com/anatolykoptev/go-panel/resource"
 )
 
+func TestResourceHeader_NotResolvedForFragments(t *testing.T) {
+	calls := 0
+	p := newWriterPanel()
+	r := minimalResource("ledger")
+	r.Lister = func(_ context.Context, _ resource.ListQuery) ([]resource.Row, int, error) { return nil, 0, nil }
+	r.Header = func(_ context.Context, _ *http.Request) templ.Component {
+		calls++
+		return templ.Raw("<p>h</p>")
+	}
+	resource.Register(p, r)
+	cookie := loginCookie(t)
+	getPage(t, p, cookie, "/admin/ledger/rows", true)
+	getPage(t, p, cookie, "/admin/ledger", true)
+	if calls != 0 {
+		t.Fatalf("Header ran %d times for htmx fragment requests, want 0", calls)
+	}
+	getPage(t, p, cookie, "/admin/ledger", false)
+	if calls != 1 {
+		t.Fatalf("Header ran %d times for one full-page render, want 1", calls)
+	}
+}
+
 func TestResourceHeader_RenderedBetweenTitleAndTable(t *testing.T) {
 	for _, withHeader := range []bool{true, false} {
 		p := newWriterPanel()
