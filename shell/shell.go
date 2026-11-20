@@ -41,17 +41,29 @@ func StaticHandler() http.Handler {
 	})
 }
 
+// ContentSecurityPolicy is the admin CSP served on every panel response.
+// It is exported so tests and consumers can pin or assert the exact value.
+//
+// script-src keeps htmx 2.x 'unsafe-eval' (used by hx-on::* handlers) until
+// the remaining flows are verified under a strict policy; frame-ancestors,
+// base-uri, form-action and object-src close the directives default-src does
+// not cover.
+const ContentSecurityPolicy = "default-src 'self'; " +
+	"img-src 'self' data:; " +
+	"script-src 'self' 'unsafe-eval'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"font-src 'self'; " +
+	"frame-ancestors 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"object-src 'none'"
+
 // SecurityHeaders sets the standard admin CSP + cache-control headers.
-// Call this at the top of every authenticated handler.
-// CSP allows htmx 2.x 'unsafe-eval' (used by hx-on::* handlers);
-// trade-off accepted — admin renders no untrusted input.
+// resource.Panel.Handler applies it to every response, so handlers no longer
+// need to call it; it stays exported and idempotent (every header is Set, never
+// Added) for handlers mounted outside a Panel.
 func SecurityHeaders(w http.ResponseWriter) {
-	w.Header().Set("Content-Security-Policy",
-		"default-src 'self'; "+
-			"img-src 'self' data:; "+
-			"script-src 'self' 'unsafe-eval'; "+
-			"style-src 'self' 'unsafe-inline'; "+
-			"font-src 'self'")
+	w.Header().Set("Content-Security-Policy", ContentSecurityPolicy)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")

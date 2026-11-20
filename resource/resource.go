@@ -629,7 +629,19 @@ func New(cfg Config) *Panel {
 // tenant a request names.
 func (p *Panel) Handler() http.Handler {
 	p.finalize()
-	return withBasePath(p.basePath, p.withStrings(p.withSkin(withTenantResolution(p.resolver, p.mux))))
+	return withBasePath(p.basePath, p.withStrings(p.withSkin(withTenantResolution(p.resolver, withSecurityHeaders(p.mux)))))
+}
+
+// withSecurityHeaders applies shell.SecurityHeaders to every response the mux
+// serves, so the login and MFA pages, MountPage handlers that never call
+// RenderPage, and static assets carry the same CSP and framing headers as
+// rendered pages. Headers are set before the inner handler runs, so a handler
+// (the static file server's Cache-Control) can still override one.
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shell.SecurityHeaders(w)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // skinned reports whether the panel's Skin resolves to a non-graphite skin.
