@@ -53,6 +53,16 @@ func (p *Panel) RenderPage(w http.ResponseWriter, r *http.Request, title, active
 //
 // Lives in the resource layer (not shell) so shell stays net/http-free.
 func (p *Panel) chromeStateFrom(r *http.Request) shell.ChromeState {
+	state := p.chromeStateBase(r)
+	// Only a full-page render shows (and so consumes) the flash cookie.
+	state.Flash = consumeFlash(r)
+	return state
+}
+
+// chromeStateBase is chromeStateFrom without the flash notices. withSkin builds
+// the chrome for EVERY request, fragments and assets included, and must not
+// consume a notice that no page will show.
+func (p *Panel) chromeStateBase(r *http.Request) shell.ChromeState {
 	var state shell.ChromeState
 	if c, err := r.Cookie(shell.SidebarCookie); err == nil && c.Value == "1" {
 		state.Collapsed = true

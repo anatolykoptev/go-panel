@@ -1,0 +1,28 @@
+package components
+
+// Badge renders a status chip: one word in a tone from the closed [Tone] set.
+// Text is escaped by templ; an unknown Tone falls back to the neutral chip.
+templ Badge(t Tone, text string) {
+	<span class={ badgeClass(t) }>{ text }</span>
+}
+
+// Diff renders an old -> new change inline: the old value struck through
+// (<del>), the new one bold (<ins>), with an arrow between them. Both values are
+// escaped by templ. An empty From renders only the new value (a first value has
+// nothing to strike); an empty To renders only the struck old value (a cleared
+// value). Both empty renders nothing.
+templ Diff(from, to string) {
+	if from != "" || to != "" {
+		<span class="diff">
+			if from != "" {
+				<del>{ from }</del>
+			}
+			if from != "" && to != "" {
+				{ " " }<span aria-hidden="true">&rarr;</span>{ " " }
+			}
+			if to != "" {
+				<ins style="text-decoration:none;font-weight:600">{ to }</ins>
+			}
+		</span>
+	}
+}

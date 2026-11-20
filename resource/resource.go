@@ -41,6 +41,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/a-h/templ"
 	"github.com/anatolykoptev/go-kit/admintable"
 	"github.com/anatolykoptev/go-panel/csrf"
 	"github.com/anatolykoptev/go-panel/i18n"
@@ -239,6 +240,13 @@ type Resource struct {
 	// CSRF token and confirm prompt (see [RowAction]). Each row opts in through
 	// [Row.Actions]. Empty (the default) adds no column and no token.
 	RowActions []RowAction
+
+	// Header renders a component between the page title and the filter bar of
+	// the list page: a legend, a caveat, a summary the table cannot hold. It
+	// runs for full-page renders only (not the htmx rows fragment, which swaps
+	// the table region below it), after authentication. Nil (the default)
+	// renders nothing. Returning a nil component also renders nothing.
+	Header func(ctx context.Context, r *http.Request) templ.Component
 
 	// FilterLabels maps filter key -> submitted value -> chip text, for the
 	// closed-set (Allowed) filters. Without an entry a chip shows its submitted
@@ -638,7 +646,7 @@ func New(cfg Config) *Panel {
 // tenant a request names.
 func (p *Panel) Handler() http.Handler {
 	p.finalize()
-	return withBasePath(p.basePath, p.withStrings(p.withSkin(withTenantResolution(p.resolver, p.mux))))
+	return withBasePath(p.basePath, p.withFlash(p.withStrings(p.withSkin(withTenantResolution(p.resolver, p.mux)))))
 }
 
 // skinned reports whether the panel's Skin resolves to a non-graphite skin.
@@ -662,7 +670,7 @@ func (p *Panel) withSkin(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(shell.ContextWithChrome(r.Context(), p.chromeStateFrom(r))))
+		next.ServeHTTP(w, r.WithContext(shell.ContextWithChrome(r.Context(), p.chromeStateBase(r))))
 	})
 }
 
@@ -2094,6 +2102,7 @@ func (p *Panel) makeListHandler(r Resource) func(http.ResponseWriter, *http.Requ
 		}
 
 		p.issueActionToken(r, req, &data)
+		data.HeaderComp = r.listHeader(ctx, req)
 		if fragmentOnly || isFragmentRequest(req) {
 			renderListFragment(ctx, w, data, q.Get("append") == "1")
 			return

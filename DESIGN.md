@@ -598,8 +598,8 @@ stacked in lanes and flagged, never hidden. Uses only existing tokens
 A wrapping row of small numbered tiles (30px, 4px gap) for ONE row of a list:
 the state of places 1..N today. `resource.UnitStripCell(components.UnitRow{...})`
 returns the markup for `Cell{HTML: true}`; `components.UnitLegend` lists the
-tones once (this repo has no slot for text above a list, so a consumer puts it
-in a `MountPage` or a detail section). Use it when many rows each need a
+tones once (put it in `Resource.Header`, which renders between the page title
+and the filter bar). Use it when many rows each need a
 glance; use `OccupancyBoard` when ONE row needs its time axis. Tones are the
 closed `UnitTone` set: free (outlined `○`), hold (dashed `◌`), sale `●`,
 renewal due `↻`, unverified `?`, conflict (hatched `!`). Hold, sale, renewal
@@ -614,3 +614,23 @@ unverified, never as free. `Href` is followed only when it is a same-origin
 path (`/x`, not `//`, `/\`, a scheme or a control character); otherwise the
 tile has no link. Linked tiles take the one focus ring. Inside the stacked-card
 phone layout the strip simply wraps within the card.
+
+### List furniture — `Resource.Header`, `RowActions`, flash, `BadgeCell`, `DiffCell`
+- `Resource.Header func(ctx, *http.Request) templ.Component` renders one block
+  between the page title and the filter bar: a legend, a caveat, a summary the
+  table cannot hold. Full-page renders only; the htmx rows fragment swaps the
+  table region below it.
+- `Resource.RowActions` declares per-row POST buttons; a row opts in through
+  `Row.Actions`. The framework renders a real `<form method="post">` with a
+  session-bound `_csrf` token and, when `Confirm` returns text, a `data-confirm`
+  attribute handled by `admin.js`. `Path` is relative to the panel base path and
+  is mounted by the consumer with `Panel.MountAction`. Tone is the closed
+  `components.Tone` set (red = destructive button).
+- Flash: `resource.AddFlash(ctx, components.Notice)` (from a Writer hook) or
+  `Panel.Flash(w, r, notice)` (from a handler) shows a notice once, above the page
+  content with `role="status"`, on the next full-page render after the redirect.
+  It rides a signed, HttpOnly, base-path-scoped cookie (2 minute expiry, at most
+  4 notices, text clipped to fit) and needs `Config.CSRFKey`; without one nothing
+  is shown. A request that is not a full-page render never consumes it.
+- `resource.BadgeCell(tone, text)` and `resource.DiffCell(from, to)` return the
+  markup for `Cell{HTML: true}`; both escape their text, and the tone is closed.

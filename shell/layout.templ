@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 
+	"github.com/anatolykoptev/go-panel/components"
 	"github.com/anatolykoptev/go-panel/i18n"
 	"github.com/anatolykoptev/go-panel/shell/internal/assets"
 )
@@ -262,6 +263,7 @@ templ Layout(title string, nav []NavItem, content templ.Component) {
 				<div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
 				<main class="main">
 					<button type="button" class="sidebar-mobile-toggle" id="sidebar-mobile-toggle" aria-label={ s.OpenNavigation }>&#9776;</button>
+					@flashNotices(ChromeFromContext(ctx).Flash)
 					<div id="content">
 						@content
 					</div>
@@ -481,3 +483,15 @@ templ LoginPage(basePath string, ident LoginIdentifier, errMsg string, links []L
 
 // assets import used only for the embed.FS reference in shell.go
 var _ = assets.StaticFS
+
+// flashNotices renders the one-shot notices above the page content. Nothing at
+// all when there are none.
+templ flashNotices(ns []components.Notice) {
+	if len(ns) > 0 {
+		<div class="flash" role="status">
+			for _, n := range ns {
+				@components.NoticeView(n)
+			}
+		</div>
+	}
+}

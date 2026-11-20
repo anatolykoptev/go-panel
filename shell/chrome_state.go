@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/a-h/templ"
+
+	"github.com/anatolykoptev/go-panel/components"
 )
 
 // GroupsCookie is the cookie persisting which nav groups are collapsed.
@@ -118,6 +120,11 @@ type ChromeState struct {
 	// profile block uses ProfileConfig.SettingsURL, which MountSettings fills in.
 	// "" (the zero value) renders nothing extra.
 	SettingsLink string
+	// Flash are one-shot notices for this render, shown above the page content
+	// with role="status". Set by the resource layer from the signed flash cookie;
+	// empty (the zero value) renders nothing, so a consumer that never flashes is
+	// byte-identical to before.
+	Flash []components.Notice
 }
 
 // skinHead returns the skin's layout <head> CSS, or nothing for a skin that adds none.
