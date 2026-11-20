@@ -294,6 +294,16 @@ label/value `DetailItem`s, a multi-column `DetailTable` (rendered as
 the items render above the table — a summary line above its tabular data is the
 intended shape.
 
+### Rendered markdown — `.prose` / `render.Prose`
+
+`render.Prose(src)` returns goldmark output inside `<div class="prose">`: 72ch
+measure, 1.65 line height, lists with a real gutter, tables in the
+`.crm-table--static` look (mono header strip on `--bg-deep`, no card frame), and
+a `--bg-deep` code well. `render.Markdown` stays the bare fragment. Both are
+hardened: links carry `rel="noopener noreferrer nofollow"` and a remote image
+(any destination with a host) is rendered as a link, so opening a report never
+fires a request to a third party. Local and `data:` images stay images.
+
 ## Interaction
 
 **htmx, no inline handlers.** The admin CSP drops inline event handlers, so

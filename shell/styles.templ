@@ -389,6 +389,35 @@ templ layoutStyles() {
 		   into every page, and resource/nav_filter_test.go asserts nav labels
 		   are ABSENT with strings.Contains over the WHOLE body. A comment that
 		   happens to name a resource fails it. */
+		/* .prose — rendered markdown (render.Prose wraps goldmark output in it).
+		   72ch measure, a table that matches .crm-table--static without the
+		   card frame, and a --bg-deep code well. Only canon tokens are used. */
+		.prose{max-width:72ch;font-size:.9375rem;line-height:1.65;color:var(--text-primary);overflow-wrap:anywhere}
+		.prose>*+*{margin-top:.875rem}
+		.prose h2,.prose h3,.prose h4,.prose h5,.prose h6{line-height:1.3;font-weight:650;letter-spacing:-.01em;margin-top:1.75rem}
+		.prose h2{font-size:1.25rem}
+		.prose h3{font-size:1.0625rem}
+		.prose h4,.prose h5,.prose h6{font-size:.9375rem}
+		.prose h2+*,.prose h3+*,.prose h4+*{margin-top:.5rem}
+		.prose a{text-decoration:underline;text-underline-offset:2px}
+		.prose ul,.prose ol{padding-left:1.5rem}
+		.prose li+li{margin-top:.25rem}
+		.prose li>ul,.prose li>ol{margin-top:.25rem}
+		.prose ul.contains-task-list{list-style:none;padding-left:.25rem}
+		.prose blockquote{padding:.25rem 0 .25rem 1rem;border-left:2px solid var(--border-control);color:var(--text-secondary)}
+		.prose hr{border:0;border-top:1px solid var(--border);margin:1.5rem 0}
+		.prose code{font-family:var(--font-mono);font-size:.8125em;padding:.125rem .375rem;border-radius:var(--radius);background:var(--bg-deep);border:1px solid var(--border-subtle)}
+		.prose pre{padding:.75rem 1rem;border-radius:var(--radius);background:var(--bg-deep);border:1px solid var(--border-subtle);overflow-x:auto;line-height:1.5}
+		.prose pre code{padding:0;border:0;background:transparent;font-size:.8125rem;overflow-wrap:normal}
+		.prose img{max-width:100%;height:auto}
+		.prose table{display:block;width:max-content;max-width:100%;overflow-x:auto;border-collapse:separate;border-spacing:0;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:.875rem;font-variant-numeric:tabular-nums}
+		.prose th{text-align:left;padding:.5rem 1rem;background:var(--bg-deep);border-bottom:1px solid var(--border);color:var(--text-secondary);font-family:var(--font-mono);font-size:.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+		.prose td{padding:.5rem 1rem;border-bottom:1px solid var(--border-subtle);vertical-align:top}
+		/* goldmark emits the column alignment as an inline style attribute; match it by
+		   attribute so the alignment survives a CSP that blocks inline styles. */
+		.prose :is(th,td)[style*="text-align:right"]{text-align:right}
+		.prose :is(th,td)[style*="text-align:center"]{text-align:center}
+		.prose tr:last-child td{border-bottom:0}
 		.detail-section .crm-table,.pm7-card .crm-table{background:transparent;border:0;border-radius:0}
 		.detail-section .crm-table td:first-child,.detail-section .crm-table thead th:first-child,.pm7-card .crm-table td:first-child,.pm7-card .crm-table thead th:first-child{padding-left:0}
 		.detail-section .crm-table td:last-child,.detail-section .crm-table thead th:last-child,.pm7-card .crm-table td:last-child,.pm7-card .crm-table thead th:last-child{padding-right:0}
