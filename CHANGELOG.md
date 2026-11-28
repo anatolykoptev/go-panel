@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.22](https://github.com/anatolykoptev/go-panel/compare/v0.23.21...v0.23.22) (2026-11-28)
+
+
+### Added
+
+* **resource:** structured filter values for non-SQL listers ([#209](https://github.com/anatolykoptev/go-panel/issues/209)) ([be0d04a](https://github.com/anatolykoptev/go-panel/commit/be0d04aa0ca601615da6fafe97af2cb5592c4678))
+
 ## [0.23.21](https://github.com/anatolykoptev/go-panel/compare/v0.23.20...v0.23.21) (2026-11-08)
 
 
